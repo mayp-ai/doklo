@@ -1,0 +1,14 @@
+{
+  "routes": ["/admin", "/api/users"],
+  "candidate_status": {
+    "app/admin/page.test.tsx": "excluded",
+    "generated/contracts.generated.d.ts": "excluded"
+  },
+  "required_processed": [
+    "app/layout.tsx",
+    "app/admin/page.tsx",
+    "app/api/users/route.ts",
+    "components/ProfileCard.tsx",
+    "stores/session.ts"
+  ]
+}

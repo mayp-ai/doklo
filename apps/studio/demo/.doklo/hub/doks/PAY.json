@@ -1,0 +1,148 @@
+{
+  "dok_id": "PAY",
+  "name": {
+    "term_ref": "TERM-BTN-PAY"
+  },
+  "status": "draft",
+  "tags": [
+    "payment",
+    "checkout",
+    "core"
+  ],
+  "surfaces": [
+    "web",
+    "api"
+  ],
+  "description": "사용자가 장바구니에 담은 상품에 대한 결제를 카드 · 계좌이체 · 간편결제 중 선택해 완료한다. PG사 응답에 따라 성공/실패가 결정되고, 결제 정보는 응답 직후 폐기된다.",
+  "user_actions": {
+    "steps": [
+      {
+        "order": 1,
+        "actor": {
+          "kind": "role",
+          "role_ref": "ROLE-CUSTOMER"
+        },
+        "intent": "결제 수단을 선택한다",
+        "outcome": "선택한 수단의 입력 폼이 표시된다",
+        "variants": [
+          {
+            "platform": "desktop",
+            "interaction": "click"
+          },
+          {
+            "platform": "mobile",
+            "interaction": "tap"
+          }
+        ]
+      },
+      {
+        "order": 2,
+        "actor": {
+          "kind": "role",
+          "role_ref": "ROLE-CUSTOMER"
+        },
+        "intent": "결제 정보를 입력한다",
+        "outcome": "입력값이 실시간으로 검증된다",
+        "variants": [
+          {
+            "platform": "all",
+            "interaction": "input"
+          },
+          {
+            "platform": "all",
+            "interaction": "click"
+          }
+        ],
+        "preconditions": [
+          "결제 수단이 선택되어 있어야 한다"
+        ]
+      },
+      {
+        "order": 3,
+        "actor": {
+          "kind": "system"
+        },
+        "intent": "결제 게이트웨이로 승인 요청을 보낸다",
+        "outcome": "응답 결과에 따라 결제 성공/실패가 결정된다",
+        "variants": [
+          {
+            "platform": "all",
+            "interaction": "auto"
+          }
+        ]
+      },
+      {
+        "order": 4,
+        "actor": {
+          "kind": "role",
+          "role_ref": "ROLE-CUSTOMER"
+        },
+        "intent": "결제 완료 화면을 확인한다",
+        "outcome": "주문 번호와 영수증 다운로드 옵션이 제공된다",
+        "variants": [
+          {
+            "platform": "all",
+            "interaction": "auto"
+          }
+        ]
+      }
+    ]
+  },
+  "business_rules": {
+    "rules": [
+      {
+        "id": "BR-PAY-01",
+        "description": "결제 금액은 최소 1,000원 이상이어야 한다",
+        "type": "validation",
+        "applies_to_roles": [
+          "ROLE-CUSTOMER"
+        ]
+      },
+      {
+        "id": "BR-PAY-02",
+        "description": "동일 카드로 1분 내 5회 이상 결제 시도 시 거래를 잠시 차단한다",
+        "type": "restriction"
+      },
+      {
+        "id": "BR-PAY-03",
+        "description": "VAT는 결제 금액의 10%를 포함한다",
+        "type": "calculation"
+      }
+    ]
+  },
+  "acceptance_criteria": {
+    "criteria": [
+      {
+        "id": "AC-PAY-01",
+        "statement": "결제 금액이 1,000원 미만인 경우 결제 진행이 차단되고 안내 메시지가 표시된다",
+        "related_rules": [
+          "BR-PAY-01"
+        ]
+      },
+      {
+        "id": "AC-PAY-02",
+        "statement": "결제 성공 시 사용자에게 주문 번호와 영수증 링크가 즉시 제공된다",
+        "related_rules": []
+      },
+      {
+        "id": "AC-PAY-03",
+        "statement": "결제 실패 시 입력한 결제 정보는 즉시 폐기된다",
+        "related_rules": []
+      }
+    ]
+  },
+  "_meta": {
+    "version": 1,
+    "history": [
+      {
+        "version": 1,
+        "date": "2026-05-08",
+        "change": "LLM auto-generated from src/payment/checkout.tsx",
+        "author": "doklo-cli"
+      }
+    ],
+    "created_at": "2026-05-08T10:30:00Z",
+    "updated_at": "2026-05-08T10:30:00Z",
+    "generation_confidence": 0.72
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-12T00:00:00Z",
+  "roles": [
+    {
+      "role_id": "ROLE-VISITOR",
+      "name": { "term_ref": "TERM-ROLE-VISITOR" },
+      "description": "로그인하지 않은 익명 방문자. 공개 페이지·검색·로그인만 사용 가능.",
+      "kind": "actor_type",
+      "extends": [],
+      "scope": "global"
+    },
+    {
+      "role_id": "ROLE-CUSTOMER",
+      "name": { "term_ref": "TERM-ROLE-CUSTOMER" },
+      "description": "로그인한 일반 사용자. 장바구니·결제·주문 내역 등 자기 자원에 대한 모든 액션을 수행한다.",
+      "kind": "actor_type",
+      "extends": ["ROLE-VISITOR"],
+      "scope": "global"
+    },
+    {
+      "role_id": "ROLE-MANAGER",
+      "name": { "term_ref": "TERM-ROLE-MANAGER" },
+      "description": "매장/조직 단위의 운영자. 자기 조직 데이터에 대한 조회·수정 권한.",
+      "kind": "access",
+      "extends": ["ROLE-CUSTOMER"],
+      "scope": "tenant"
+    },
+    {
+      "role_id": "ROLE-ADMIN",
+      "name": { "term_ref": "TERM-ROLE-ADMIN" },
+      "description": "시스템 전체 관리자. 환불·계정 정지·서비스 설정을 포함한 모든 작업 가능.",
+      "kind": "access",
+      "extends": ["ROLE-MANAGER"],
+      "scope": "global"
+    },
+    {
+      "role_id": "ROLE-SELLER",
+      "name": "판매자",
+      "description": "자기 상품과 주문을 등록·관리하는 판매자.",
+      "kind": "actor_type",
+      "extends": ["ROLE-USER"],
+      "scope": "tenant"
+    }
+  ]
+}

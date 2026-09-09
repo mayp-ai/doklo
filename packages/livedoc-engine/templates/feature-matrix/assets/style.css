@@ -1,0 +1,43 @@
+/* layer: template */
+/* feature-matrix — product feature coverage as plain tables.
+ * One accent, three greys; no stat tiles, no status colors.
+ * extends_default_css: false (full replace). */
+:root {
+  --font-sans: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI",
+               "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --ink: #1f2328; --ink-soft: #3b434b; --ink-muted: #57606a;
+  --line: #e6e8eb; --bg: #ffffff; --bg-soft: #f6f8fa; --accent: #1f6feb;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+body { font-family: var(--font-sans); font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased; word-break: keep-all; }
+main.livedoc { max-width: 960px; margin: 0 auto; padding: 40px 24px 72px; }
+h1, h2, p { margin: 0; }
+a { color: var(--accent); }
+
+.fm-hero { padding-bottom: 20px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.fm-title { font-size: 28px; line-height: 1.25; font-weight: 700; letter-spacing: -0.01em; }
+.fm-subtitle { font-size: 16px; color: var(--ink-soft); margin-top: 8px; }
+.fm-summary { font-size: 14px; color: var(--ink-muted); margin-top: 10px; }
+
+.fm-domain { padding-top: 24px; }
+.fm-domain + .fm-domain { margin-top: 8px; border-top: 1px solid var(--line); }
+.fm-domain-title { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
+.fm-domain-count { font-weight: 400; color: var(--ink-muted); font-size: 14px; margin-left: 6px; }
+
+.fm-table { width: 100%; border-collapse: collapse; }
+.fm-table th, .fm-table td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.fm-table th { font-weight: 600; color: var(--ink-muted); font-size: 13px; }
+.fm-feat-name { font-weight: 600; }
+.fm-status { color: var(--ink-soft); }
+.fm-surfaces { color: var(--ink-soft); }
+.fm-surface + .fm-surface::before { content: ", "; }
+.fm-dash { color: var(--ink-muted); }
+.fm-depth-col, .fm-depth { text-align: right; white-space: nowrap; }
+.fm-depth-sep { color: var(--ink-muted); margin: 0 3px; }
+
+@media (max-width: 640px) {
+  main.livedoc { padding: 24px 16px 56px; }
+  .fm-title { font-size: 24px; }
+  .fm-table { display: block; overflow-x: auto; }
+}

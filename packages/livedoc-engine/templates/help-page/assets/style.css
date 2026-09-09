@@ -1,0 +1,106 @@
+/* layer: template */
+/* ============================================================
+ * help-page — customer help article.
+ * One accent, three greys, hierarchy from size and spacing.
+ * Structure follows mainstream help centers: title, one-line
+ * summary, task steps, conditions, verification, support link.
+ * extends_default_css: false (full replace).
+ * ============================================================ */
+
+:root {
+  --font-sans: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI",
+               "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --ink: #1f2328;
+  --ink-soft: #3b434b;
+  --ink-muted: #57606a;
+  --line: #e6e8eb;
+  --bg: #ffffff;
+  --bg-soft: #f6f8fa;
+  --accent: #1f6feb;
+  --measure: 720px;
+}
+
+/* ----- reset (extends_default_css: false) ----- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+body {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  word-break: keep-all;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 40px 24px 72px;
+}
+h1, h2, h3, p, ol, ul, figure { margin: 0; }
+img { max-width: 100%; height: auto; display: block; }
+a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ----- hero: breadcrumb, title, summary ----- */
+.help-hero { padding-bottom: 24px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.help-crumb { font-size: 14px; color: var(--ink-muted); margin-bottom: 14px; }
+.help-crumb a { color: var(--ink-muted); }
+.help-title { font-size: 30px; line-height: 1.25; font-weight: 700; letter-spacing: -0.01em; }
+.help-lede { font-size: 17px; color: var(--ink-soft); margin-top: 10px; }
+
+/* ----- sections ----- */
+.help-section { padding-top: 28px; }
+.help-section + .help-section { margin-top: 8px; border-top: 1px solid var(--line); }
+.help-section-title { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
+
+/* ----- steps: one numbered list, automatic steps unnumbered ----- */
+.help-steps { list-style: none; padding: 0; counter-reset: helpstep; }
+.help-step { position: relative; padding: 0 0 14px 34px; }
+.help-step--user { counter-increment: helpstep; }
+.help-step--user::before {
+  content: counter(helpstep) ".";
+  position: absolute; left: 0; top: 0;
+  width: 26px; text-align: right;
+  font-weight: 600; color: var(--ink);
+}
+.help-step-actor { font-size: 13px; color: var(--ink-muted); margin-bottom: 2px; }
+.help-step-intent { font-weight: 600; }
+.help-step-pre, .help-step-result { color: var(--ink-soft); margin-top: 4px; }
+.help-step-pre-label, .help-step-result-label { color: var(--ink-muted); font-size: 14px; margin-right: 6px; }
+.help-step--auto { padding-left: 34px; }
+.help-step-auto-text { color: var(--ink-soft); }
+.help-step-auto-label { color: var(--ink-muted); font-size: 14px; margin-right: 6px; }
+.help-step-auto-cond { color: var(--ink-soft); font-size: 15px; }
+.help-step-auto-cond-label { color: var(--ink-muted); font-size: 14px; margin-right: 6px; }
+
+/* ----- step screenshots ----- */
+.help-step-screenshot { margin-top: 10px; }
+.help-shot-wrap { position: relative; display: block; }
+.help-screenshot-img { border: 1px solid var(--line); }
+/* annotation overlay: the capture pipeline measured where the user acts */
+.help-shot-box { position: absolute; border: 2px solid var(--accent); pointer-events: none; }
+.help-shots-multi { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.help-shot-pane { min-width: 0; }
+.help-shot-pane:has(.help-shot-plat--mobile) { max-width: 320px; }
+.help-shot-plat { display: block; font-size: 13px; color: var(--ink-muted); margin-bottom: 4px; }
+
+/* ----- conditions and limits ----- */
+.help-tips { list-style: none; padding: 0; }
+.help-tip { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.help-tip:last-child { border-bottom: 0; }
+.help-tip-type { color: var(--ink-muted); font-size: 14px; margin-right: 8px; }
+.help-tip-text { color: var(--ink); }
+
+/* ----- verification ----- */
+.help-checks { padding-left: 22px; }
+.help-check { padding: 3px 0; }
+.help-check-rules { color: var(--ink-muted); font-size: 14px; margin-left: 6px; }
+.help-check-rules-label { margin-right: 4px; }
+.help-check-rule + .help-check-rule::before { content: ", "; }
+
+/* ----- support ----- */
+.help-feedback { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 15px; color: var(--ink-soft); }
+.help-feedback-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+
+/* ----- responsive ----- */
+@media (max-width: 640px) {
+  body { padding: 24px 16px 56px; font-size: 15px; }
+  .help-title { font-size: 26px; }
+  .help-shots-multi { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,16 @@
+{
+  "dok_id": "AUTH-RESET",
+  "name": "비밀번호 재설정",
+  "status": "active",
+  "tags": [],
+  "surfaces": [],
+  "description": "재설정 링크 토큰 검증 후 새 비밀번호 저장",
+  "_meta": {
+    "version": 1,
+    "history": [
+      { "version": 1, "date": "2026-04-20", "change": "initial draft", "author": "PM-jin" }
+    ],
+    "generation_confidence": 0.91,
+    "updated_at": "2026-04-20T00:00:00Z"
+  }
+}

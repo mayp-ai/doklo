@@ -1,0 +1,17 @@
+# Example theme — delete or edit to match your organization.
+# Every field is optional; the engine fills the rest from its defaults.
+colors:
+  accent: "#0B3D91"      # primary brand color (headers, step badges)
+fonts:
+  body:    { ko: "맑은 고딕", en: "Inter" }
+  heading: { ko: "맑은 고딕", en: "Inter" }
+footer:
+  text:
+    ko: "기관명 · 대외비"
+    en: "Organization · Confidential"
+  show_page_number: true
+# logo:
+#   asset: "assets/logo.png"   # place the file under this template's assets/
+#   position: "top-left"
+# cover:
+#   background_color: "#0B3D91"

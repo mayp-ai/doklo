@@ -1,0 +1,7 @@
+{
+  "workspace_id": "render-test",
+  "name": "Render Test",
+  "services": [],
+  "default_locale": "en",
+  "supported_locales": ["en", "ko"]
+}

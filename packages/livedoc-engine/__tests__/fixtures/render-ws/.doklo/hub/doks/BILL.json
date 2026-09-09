@@ -1,0 +1,9 @@
+{
+  "dok_id": "BILL",
+  "name": "Charge card",
+  "status": "active",
+  "tags": [],
+  "surfaces": [],
+  "description": "Charge a credit card.",
+  "_meta": { "version": 1, "history": [] }
+}

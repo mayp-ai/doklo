@@ -1,0 +1,83 @@
+{
+  "$schema": "https://doklo.dev/template-manifest-v2.json",
+  "name": "compliance-audit",
+  "version": "2.0.0",
+  "display_name": {
+    "en": "Security & Compliance Audit",
+    "ko": "보안 · 컴플라이언스 감사"
+  },
+  "description": {
+    "en": "Auditor-facing report of every access-control (permission) and constraint (restriction) rule enforced across the product, grouped by rule semantics with Dok traceability. Print/PDF-friendly.",
+    "ko": "제품 전반에 적용된 접근 제어(permission)와 제약(restriction) 규칙을 규칙 유형별로 정리하고 각 Dok로 추적 가능하게 보여주는 감사관용 보고서. 인쇄/PDF 친화."
+  },
+  "author": { "name": "doklo", "url": "https://github.com/mayp-ai/doklo" },
+  "license": "MIT",
+  "stability": "experimental",
+  "audience": { "en": "Security and compliance reviewers", "ko": "보안 및 컴플라이언스 검토자" },
+  "purpose": { "en": "Summarize access-control and constraint rules for review.", "ko": "접근 제어와 제약 규칙을 검토용으로 요약합니다." },
+  "job": { "en": "Prepare a point-in-time compliance review packet.", "ko": "특정 시점의 컴플라이언스 검토 자료를 준비합니다." },
+  "required_input": { "en": "Product features with business rules", "ko": "비즈니스 규칙이 있는 제품 기능" },
+  "variables": {},
+  "default_format": "markdown",
+  "outputs": {
+    "markdown": { "entry": "template.md.tpl", "output_path": "compliance-audit.md", "source": "markdown" },
+    "html": { "entry": "template.html.tpl", "output_path": "compliance-audit.html", "source": "html" }
+  },
+  "scope": "workspace",
+  "supported_locales": ["en", "ko"],
+  "default_locale": "ko",
+  "extends_default_css": false,
+  "strings": {
+    "ko": {
+      "doc_title": "보안 · 컴플라이언스 감사 보고서",
+      "subtitle": "코드에서 추출된 접근 제어 및 제약 규칙",
+      "generated": "생성일",
+      "scope_label": "감사 범위",
+      "stat_doks": "기능(Dok)",
+      "stat_permission": "접근 제어 규칙",
+      "stat_restriction": "제약 규칙",
+      "stat_total": "전체 비즈니스 규칙",
+      "section_summary": "1. 요약",
+      "summary_lead": "이 보고서는 현재 코드베이스에서 결정적으로 추출된 비즈니스 규칙 중 보안 관련 항목을 집계합니다. 모든 규칙은 출처 기능(Dok)으로 추적 가능합니다.",
+      "section_access": "2. 접근 제어 (Permission)",
+      "access_lead": "누가 무엇에 접근/실행할 수 있는지를 규정하는 규칙입니다.",
+      "section_constraints": "3. 제약 사항 (Restriction)",
+      "constraints_lead": "기능 사용에 적용되는 제한·금지 규칙입니다.",
+      "section_other": "4. 기타 규칙 (Policy · Validation)",
+      "other_lead": "정책 및 입력 검증 규칙은 보안 1차 범위는 아니지만 컴플라이언스 맥락에서 함께 검토합니다.",
+      "col_id": "규칙 ID",
+      "col_dok": "기능",
+      "col_desc": "규칙 내용",
+      "type_policy": "정책",
+      "type_validation": "입력 검증",
+      "no_rules": "해당 유형의 규칙이 없습니다.",
+      "disclaimer": "본 보고서는 현재 Hub 스냅샷에서 생성되었습니다. 코드나 Hub 변경은 담당자가 다시 렌더한 뒤에만 반영됩니다. 법적 효력을 위한 최종 검토는 담당자가 수행해야 합니다."
+    },
+    "en": {
+      "doc_title": "Security & Compliance Audit",
+      "subtitle": "Access-control and constraint rules extracted from code",
+      "generated": "Generated",
+      "scope_label": "Audit scope",
+      "stat_doks": "Features (Doks)",
+      "stat_permission": "Access-control rules",
+      "stat_restriction": "Constraint rules",
+      "stat_total": "Total business rules",
+      "section_summary": "1. Summary",
+      "summary_lead": "This report aggregates the security-relevant business rules deterministically extracted from the current codebase. Every rule is traceable to its source feature (Dok).",
+      "section_access": "2. Access Control (Permission)",
+      "access_lead": "Rules governing who may access or perform what.",
+      "section_constraints": "3. Constraints (Restriction)",
+      "constraints_lead": "Limits and prohibitions applied to feature use.",
+      "section_other": "4. Other Rules (Policy · Validation)",
+      "other_lead": "Policy and input-validation rules are not primary security scope but are reviewed in compliance context.",
+      "col_id": "Rule ID",
+      "col_dok": "Feature",
+      "col_desc": "Rule",
+      "type_policy": "Policy",
+      "type_validation": "Validation",
+      "no_rules": "No rules of this type.",
+      "disclaimer": "Generated from the current Hub snapshot. Code or Hub changes appear only after a responsible party renders the report again. Final review for legal effect remains required."
+    }
+  },
+  "requires_hub_layers": ["doks"]
+}

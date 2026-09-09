@@ -1,0 +1,82 @@
+{
+  "$schema": "https://doklo.dev/template-manifest-v2.json",
+  "name": "rtm-trace",
+  "version": "1.0.0",
+  "display_name": {
+    "en": "Requirements Traceability Matrix",
+    "ko": "요구사항 추적표"
+  },
+  "description": {
+    "en": "Korean public-procurement Requirements Traceability Matrix (요구사항추적표) as a two-sheet workbook. Sheet 1 is the audit-grade trace table — one row per acceptance criterion, joining requirement ID, test-case ID, implementing program (code anchors), verified rules, and status. Sheet 2 aggregates per feature. This is the deliverable a 정보시스템 감리 reviewer checks for end-to-end traceability: code anchors auto-prove the design→implementation link that auditors otherwise verify by hand.",
+    "ko": "한국 공공 정보화사업의 요구사항추적표를 2-시트 워크북으로. 시트①은 감리용 추적표 — 수용기준(AC)당 1행으로 요구사항ID·시험케이스ID·구현 프로그램(코드 앵커)·검증 규칙·상태를 한 줄에 조인한다. 시트②는 기능(Dok)별 집계. 정보시스템 감리가 end-to-end 추적성을 확인하는 산출물이며, 코드 앵커가 감리원이 수작업으로 확인하던 설계→구현 연결을 자동 증명한다."
+  },
+  "author": { "name": "doklo", "url": "https://github.com/mayp-ai/doklo" },
+  "license": "MIT",
+  "stability": "experimental",
+  "audience": { "en": "Delivery auditors and quality reviewers", "ko": "납품 감사자와 품질 검토자" },
+  "purpose": { "en": "Trace requirements through checks, rules, and implementation evidence.", "ko": "요구사항을 확인 기준, 규칙, 구현 증거까지 추적합니다." },
+  "job": { "en": "Submit or inspect end-to-end requirements traceability evidence.", "ko": "요구사항의 end-to-end 추적 증거를 제출하거나 점검합니다." },
+  "required_input": { "en": "Features with acceptance criteria, related rules, and implementation references", "ko": "수용 기준, 관련 규칙, 구현 참조가 있는 기능" },
+  "variables": {},
+  "default_format": "xlsx",
+  "outputs": {
+    "xlsx": { "output_path": "RTM.xlsx", "source": "binary" }
+  },
+  "renderer": "xlsx",
+  "scope": "workspace",
+  "supported_locales": ["en", "ko"],
+  "default_locale": "ko",
+  "requires_hub_layers": ["doks"],
+  "strings": {
+    "ko": {
+      "sheet_trace": "요구사항추적표",
+      "sheet_summary": "기능별 집계",
+      "trace_title": "요구사항 추적표 (Requirements Traceability Matrix)",
+      "trace_subtitle": "사업명: {workspace}    작성일: {date}    총 {count}건 (수용기준 단위)",
+      "summary_title": "기능별 집계표 (Feature Coverage Summary)",
+      "summary_subtitle": "사업명: {workspace}    작성일: {date}    총 {count}건 (기능 단위)",
+      "col_req_id": "요구사항ID",
+      "col_req_name": "요구사항명",
+      "col_domain": "유형/도메인",
+      "col_detail": "상세설명",
+      "col_impl": "구현 프로그램",
+      "col_tc_id": "시험케이스ID",
+      "col_tc_stmt": "시험기준(검증내용)",
+      "col_rules": "관련규칙",
+      "col_status": "상태",
+      "col_remark": "비고",
+      "col_s_req_id": "요구사항ID",
+      "col_s_req_name": "요구사항명",
+      "col_s_steps": "단계수",
+      "col_s_rules": "규칙수",
+      "col_s_acs": "시험케이스수",
+      "col_s_files": "구현파일수",
+      "col_s_status": "상태"
+    },
+    "en": {
+      "sheet_trace": "Traceability Matrix",
+      "sheet_summary": "Feature Summary",
+      "trace_title": "Requirements Traceability Matrix",
+      "trace_subtitle": "Project: {workspace}    Date: {date}    {count} rows (per acceptance criterion)",
+      "summary_title": "Feature Coverage Summary",
+      "summary_subtitle": "Project: {workspace}    Date: {date}    {count} features",
+      "col_req_id": "Requirement ID",
+      "col_req_name": "Requirement Name",
+      "col_domain": "Type / Domain",
+      "col_detail": "Description",
+      "col_impl": "Implementing Program",
+      "col_tc_id": "Test Case ID",
+      "col_tc_stmt": "Verification Criterion",
+      "col_rules": "Related Rules",
+      "col_status": "Status",
+      "col_remark": "Remarks",
+      "col_s_req_id": "Requirement ID",
+      "col_s_req_name": "Requirement Name",
+      "col_s_steps": "Steps",
+      "col_s_rules": "Rules",
+      "col_s_acs": "Test Cases",
+      "col_s_files": "Impl. Files",
+      "col_s_status": "Status"
+    }
+  }
+}

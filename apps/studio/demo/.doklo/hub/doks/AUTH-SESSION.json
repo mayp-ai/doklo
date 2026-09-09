@@ -1,0 +1,16 @@
+{
+  "dok_id": "AUTH-SESSION",
+  "name": "세션 관리",
+  "status": "active",
+  "tags": [],
+  "surfaces": [],
+  "description": "JWT 세션 발급·검증·갱신과 미들웨어 인가",
+  "_meta": {
+    "version": 1,
+    "history": [
+      { "version": 1, "date": "2026-05-12", "change": "initial draft", "author": "PM-jin" }
+    ],
+    "generation_confidence": 0.95,
+    "updated_at": "2026-05-12T00:00:00Z"
+  }
+}

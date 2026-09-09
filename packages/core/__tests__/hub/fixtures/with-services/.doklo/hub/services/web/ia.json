@@ -1,0 +1,16 @@
+{
+  "service_id": "web",
+  "trees": [
+    {
+      "tree_id": "nav-desktop",
+      "type": "navigation",
+      "platform": "desktop",
+      "source": "auto",
+      "nodes": [
+        { "path": "/dashboard", "label": "Dashboard", "children": [] }
+      ]
+    }
+  ],
+  "edges": [],
+  "version": 1
+}

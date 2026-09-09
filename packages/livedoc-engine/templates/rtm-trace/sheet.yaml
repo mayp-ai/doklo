@@ -1,0 +1,109 @@
+# Requirements Traceability Matrix (요구사항추적표) — declarative xlsx spec.
+#
+# Genre: 한국 공공 정보화사업 감리 산출물. The visual identity is the
+# audit-table convention (감리 산출물 표): a 공공 표제 row (사업명/작성일/총건수),
+# a single muted-gray header band (FFD9D9D9), thin grid borders, no zebra, no
+# color flourish — the deliberately plain ledger a 정보시스템 감리 reviewer reads.
+# The RTM signature is the COLUMN SYSTEM itself: requirement ID → test-case ID
+# → implementing program (code anchor) → verified rules → status, laid out so an
+# auditor can walk end-to-end traceability across one row.
+#
+# Sheet ① "요구사항추적표": one row per acceptance criterion (= 시험케이스 추적행).
+# Sheet ② "기능별 집계":   one row per Dok (단계/규칙/AC/구현파일 카운트).
+
+sheets:
+  # ── Sheet ① : the trace table, AC-grained (the killer 감리 deliverable) ──
+  - name_key: sheet_trace
+    rows: acs
+    title_key: trace_title
+    subtitle_key: trace_subtitle
+    header_fill: FFD9D9D9      # 공공 산출물 표 회색 머리글
+    freeze_header: true
+    zebra: false               # 감사 문서다움 — 무지개·줄무늬 없이 단색 격자
+    columns:
+      - key: req_id
+        value: dok.dok_id
+        width: 18
+        align: left
+      - key: req_name
+        value: dok.name
+        translate: true
+        width: 24
+        align: left
+      - key: domain
+        value: dok.tags
+        join: ", "
+        width: 18
+        align: left
+      - key: detail
+        value: criterion.statement
+        translate: true
+        width: 50
+        align: left
+      - key: impl
+        value: anchors          # _meta.source_anchors[].file — Doklo 차별 컬럼
+        join: "\n"
+        width: 30
+        align: left
+      - key: tc_id
+        value: criterion.id
+        width: 24
+        align: left
+      - key: rules
+        value: rules            # this AC가 검증하는 규칙들
+        map: id
+        join: "\n"
+        width: 22
+        align: left
+      - key: status
+        value: dok.status       # 데이터 기반 — 결정 불가하므로 dok.status 그대로
+        width: 10
+        align: center
+      - key: remark
+        value: dok.surfaces      # 노출 면 (honest data note)
+        join: ", "
+        width: 12
+        align: left
+
+  # ── Sheet ② : per-feature aggregation (기능 단위 조감) ──
+  - name_key: sheet_summary
+    rows: doks
+    title_key: summary_title
+    subtitle_key: summary_subtitle
+    header_fill: FFD9D9D9
+    freeze_header: true
+    zebra: false
+    columns:
+      - key: s_req_id
+        value: dok.dok_id
+        width: 18
+        align: left
+      - key: s_req_name
+        value: dok.name
+        translate: true
+        width: 28
+        align: left
+      - key: s_steps
+        value: dok.user_actions.steps
+        count: true
+        width: 10
+        align: center
+      - key: s_rules
+        value: dok.business_rules.rules
+        count: true
+        width: 10
+        align: center
+      - key: s_acs
+        value: dok.acceptance_criteria.criteria
+        count: true
+        width: 12
+        align: center
+      - key: s_files
+        value: dok._meta.source_anchors
+        count: true
+        width: 12
+        align: center
+      - key: s_status
+        value: dok.status
+        width: 10
+        align: center

@@ -1,0 +1,44 @@
+{
+  "name": "@doklo-beta/livedoc-engine",
+  "version": "0.0.0",
+  "description": "Live Docs engine with 7 stable Markdown/HTML templates and 9 explicitly experimental templates",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "templates",
+    "src/css"
+  ],
+  "scripts": {
+    "build": "tsc -b && node -e \"const fs=require('node:fs');if(fs.existsSync('src/css'))fs.cpSync('src/css','dist/css',{recursive:true});if(fs.existsSync('templates'))fs.cpSync('templates','dist/templates',{recursive:true});\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@doklo-beta/core": "workspace:*",
+    "exceljs": "^4.4.0",
+    "gray-matter": "^4.0.3",
+    "handlebars": "^4.7.8",
+    "isomorphic-dompurify": "^2.16.0",
+    "js-yaml": "^4.1.0",
+    "jszip": "^3.10.1",
+    "kordoc": "^2.9.0",
+    "marked": "^14.1.0",
+    "pptxgenjs": "^3.12.0",
+    "simple-git": "^3.27.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9"
+  },
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,16 @@
+{
+  "dok_id": "AUTH-VERIFY",
+  "name": "이메일 인증",
+  "status": "active",
+  "tags": [],
+  "surfaces": [],
+  "description": "가입 시 이메일 소유를 확인하는 인증 메일 발송·검증",
+  "_meta": {
+    "version": 1,
+    "history": [
+      { "version": 1, "date": "2026-05-14", "change": "initial draft", "author": "PM-jin" }
+    ],
+    "generation_confidence": 0.93,
+    "updated_at": "2026-05-14T00:00:00Z"
+  }
+}

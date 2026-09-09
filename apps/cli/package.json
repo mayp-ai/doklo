@@ -1,0 +1,65 @@
+{
+  "name": "@doklo-beta/cli",
+  "version": "0.0.0",
+  "description": "Doklo — turn your codebase into a trustworthy, queryable product-context layer for AI agents. Local-first, BYOK.",
+  "keywords": [
+    "documentation",
+    "living-documentation",
+    "ai",
+    "mcp",
+    "llm",
+    "code-to-docs",
+    "developer-tools",
+    "product-context"
+  ],
+  "private": true,
+  "type": "module",
+  "bin": {
+    "doklo": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "default": "./dist/index.js"
+    },
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "default": "./dist/api.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && node -e \"require('node:fs').cpSync('src/i18n','dist/i18n',{recursive:true})\"",
+    "build:release": "node scripts/build-release.mjs",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@clack/prompts": "1.6.0",
+    "@doklo-beta/adapter-nextjs": "workspace:*",
+    "@doklo-beta/core": "workspace:*",
+    "@doklo-beta/cost": "workspace:*",
+    "@doklo-beta/evaluator": "workspace:*",
+    "@doklo-beta/generator": "workspace:*",
+    "@doklo-beta/livedoc-capture": "workspace:*",
+    "@doklo-beta/livedoc-engine": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@napi-rs/keyring": "1.3.0",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "prompts": "^2.4.2",
+    "simple-git": "^3.27.0",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@types/prompts": "^2.4.9",
+    "esbuild": "^0.28.1",
+    "execa": "^9.5.1",
+    "tsx": "^4.7.0"
+  },
+  "license": "Apache-2.0"
+}

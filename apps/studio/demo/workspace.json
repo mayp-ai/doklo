@@ -1,0 +1,29 @@
+{
+  "workspace_id": "doklo-studio-demo",
+  "name": "Doklo Studio Demo",
+  "services": [
+    {
+      "service_id": "web",
+      "type": "frontend",
+      "framework": "nextjs",
+      "code_root": "apps/web",
+      "description": "고객용 웹앱"
+    },
+    {
+      "service_id": "api",
+      "type": "backend",
+      "framework": "express",
+      "code_root": "apps/api",
+      "description": "REST API 서버"
+    },
+    {
+      "service_id": "admin",
+      "type": "admin",
+      "framework": "nextjs",
+      "code_root": "apps/admin",
+      "description": "관리자 페이지"
+    }
+  ],
+  "default_locale": "ko",
+  "supported_locales": ["ko", "en"]
+}

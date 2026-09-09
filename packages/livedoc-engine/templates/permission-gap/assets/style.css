@@ -1,0 +1,36 @@
+/* permission-gap — review sheet for missing permission rules.
+ * Same tokens as the other stable templates; plain, printable.
+ * Pure-markdown body → bare-element styling only. */
+:root {
+  --font-sans: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI",
+               "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --ink: #1f2328; --ink-soft: #3b434b; --ink-muted: #57606a;
+  --line: #e6e8eb; --bg: #ffffff; --bg-soft: #f6f8fa; --accent: #1f6feb;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+body { font-family: var(--font-sans); font-size: 15px; line-height: 1.65; -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: break-word; }
+main.livedoc { max-width: 880px; margin: 0 auto; padding: 40px 24px 64px; }
+
+h1 { font-size: 28px; line-height: 1.25; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 12px; }
+h2 { font-size: 18px; font-weight: 700; margin: 32px 0 10px; padding-top: 20px; border-top: 1px solid var(--line); }
+p { margin: 0 0 12px; }
+strong { font-weight: 600; }
+a { color: var(--accent); }
+
+blockquote { margin: 16px 0 20px; padding: 10px 14px; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 6px; color: var(--ink-soft); }
+blockquote p { margin: 0; }
+
+ol { padding-left: 22px; margin: 0 0 12px; }
+li { margin: 4px 0; }
+
+table { width: 100%; border-collapse: collapse; margin: 0 0 16px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; color: var(--ink-muted); font-size: 13px; }
+
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; background: var(--bg-soft); padding: 0.1em 0.3em; border-radius: 3px; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0 12px; }
+hr + p { color: var(--ink-muted); font-size: 14px; }
+
+@media print { main.livedoc { padding: 0; } blockquote { background: none; } }
+@media (max-width: 640px) { main.livedoc { padding: 24px 16px 48px; } h1 { font-size: 24px; } table { display: block; overflow-x: auto; } }

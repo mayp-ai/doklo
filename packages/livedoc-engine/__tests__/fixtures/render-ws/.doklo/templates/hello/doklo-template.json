@@ -1,0 +1,15 @@
+{
+  "name": "hello",
+  "version": "1.0.0",
+  "display_name": { "en": "Hello", "ko": "안녕" },
+  "output_formats": ["markdown", "html"],
+  "scope": "per_dok",
+  "output_path": "{{dok.dok_id}}.md",
+  "entry": "template.md.tpl",
+  "supported_locales": ["en", "ko"],
+  "default_locale": "en",
+  "strings": {
+    "en": { "intro": "Intro" },
+    "ko": { "intro": "소개" }
+  }
+}

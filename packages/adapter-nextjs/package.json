@@ -1,0 +1,24 @@
+{
+  "name": "@doklo-beta/adapter-nextjs",
+  "version": "0.0.0",
+  "description": "Next.js/TypeScript adapter that extracts a code intermediate representation (IR) for Doklo",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@doklo-beta/core": "workspace:*",
+    "glob": "^10.3.10",
+    "ts-morph": "^22.0.0"
+  },
+  "license": "Apache-2.0"
+}

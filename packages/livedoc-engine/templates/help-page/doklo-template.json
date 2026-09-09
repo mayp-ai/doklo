@@ -1,0 +1,141 @@
+{
+  "$schema": "https://doklo.dev/template-manifest-v2.json",
+  "name": "help-page",
+  "version": "2.0.0",
+  "display_name": {
+    "en": "Help Page",
+    "ko": "도움말"
+  },
+  "description": {
+    "en": "Customer-facing help article for one reviewed product task. Available actions, automatic behavior, rules, limitations, success checks, and screenshots are presented without implementation details or empty sections.",
+    "ko": "검토된 제품 작업 하나를 위한 고객용 도움말입니다. 제공되는 행동, 자동 처리, 규칙, 제한, 정상 동작 확인, 스크린샷만 구현 세부사항이나 빈 섹션 없이 보여줍니다."
+  },
+  "author": {
+    "name": "doklo",
+    "url": "https://github.com/mayp-ai/doklo"
+  },
+  "license": "MIT",
+  "stability": "stable",
+  "audience": {
+    "en": "Customers and product users",
+    "ko": "고객과 제품 사용자"
+  },
+  "purpose": {
+    "en": "Explain how to complete one product task safely and verify the result.",
+    "ko": "하나의 제품 작업을 안전하게 완료하고 결과를 확인하는 방법을 설명합니다."
+  },
+  "job": {
+    "en": "Complete a product task without implementation knowledge or direct support.",
+    "ko": "구현 지식이나 직접 지원 없이 제품 작업을 완료합니다."
+  },
+  "required_input": {
+    "en": "Reviewed feature context; actions, rules, checks, and screenshots are included only when available",
+    "ko": "검토된 기능 맥락; 행동, 규칙, 확인 기준, 스크린샷은 제공되는 경우에만 포함"
+  },
+  "variables": {
+    "hide_screenshots": {
+      "type": "boolean",
+      "required": false,
+      "description": "Omit available screenshots from the published article.",
+      "default": false
+    },
+    "support_url": {
+      "type": "string",
+      "required": false,
+      "description": "Customer support URL used by the optional contact link."
+    },
+    "index_url": {
+      "type": "string",
+      "required": false,
+      "description": "URL of the help index page; when set, the breadcrumb links back to it."
+    }
+  },
+  "default_format": "markdown",
+  "outputs": {
+    "markdown": {
+      "entry": "template.md.tpl",
+      "output_path": "{{dok.dok_id}}.md",
+      "source": "markdown"
+    },
+    "html": {
+      "entry": "template.html.tpl",
+      "output_path": "{{dok.dok_id}}.html",
+      "source": "html"
+    }
+  },
+  "scope": "per_dok",
+  "partials": {
+    "rule-type-label": "partials/rule-type-label.tpl"
+  },
+  "supported_locales": [
+    "en",
+    "ko"
+  ],
+  "default_locale": "ko",
+  "extends_default_css": false,
+  "strings": {
+    "ko": {
+      "eyebrow_suffix": "사용 안내",
+      "meta_steps": "단계",
+      "toc_title": "페이지 구성",
+      "toc_how": "작업 순서",
+      "toc_tips": "조건과 제한",
+      "toc_done": "완료 확인",
+      "section_how": "작업 순서",
+      "step_result_label": "화면에서 확인",
+      "step_pre_label": "시작 전",
+      "auto_step_label": "자동 처리",
+      "auto_condition_label": "실행 조건",
+      "section_tips": "조건과 제한",
+      "section_done": "완료 확인",
+      "check_related_rule": "확인할 규칙",
+      "feedback_title": "고객지원 문의",
+      "feedback_body": "이 문서로 해결되지 않는 내용은 고객지원에서 확인합니다.",
+      "feedback_cta": "고객지원 열기",
+      "tip_type_permission": "접근 권한",
+      "tip_type_validation": "입력 조건",
+      "tip_type_policy": "운영 정책",
+      "tip_type_calculation": "계산 기준",
+      "tip_type_restriction": "이용 제한",
+      "platform_desktop": "데스크톱",
+      "platform_mobile": "모바일",
+      "platform_tablet": "태블릿",
+      "platform_tv": "TV",
+      "platform_cli": "CLI",
+      "platform_voice": "음성"
+    },
+    "en": {
+      "eyebrow_suffix": "User guide",
+      "meta_steps": "steps",
+      "toc_title": "Page sections",
+      "toc_how": "Steps",
+      "toc_tips": "Conditions and limits",
+      "toc_done": "Verify the task",
+      "section_how": "Steps",
+      "step_result_label": "What you see",
+      "step_pre_label": "Before you start",
+      "auto_step_label": "Automatic step",
+      "auto_condition_label": "Runs when",
+      "section_tips": "Conditions and limits",
+      "section_done": "Verify the task",
+      "check_related_rule": "Related rule",
+      "feedback_title": "Contact support",
+      "feedback_body": "Contact support if this guide does not answer your question.",
+      "feedback_cta": "Open support",
+      "tip_type_permission": "Access permission",
+      "tip_type_validation": "Input requirement",
+      "tip_type_policy": "Operating policy",
+      "tip_type_calculation": "Calculation rule",
+      "tip_type_restriction": "Usage limit",
+      "platform_desktop": "Desktop",
+      "platform_mobile": "Mobile",
+      "platform_tablet": "Tablet",
+      "platform_tv": "TV",
+      "platform_cli": "CLI",
+      "platform_voice": "Voice"
+    }
+  },
+  "requires_hub_layers": [
+    "doks"
+  ]
+}

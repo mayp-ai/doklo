@@ -1,0 +1,16 @@
+{
+  "dok_id": "SHOP-LIST",
+  "name": "상품 목록 조회",
+  "status": "active",
+  "tags": [],
+  "surfaces": [],
+  "description": "카테고리·태그·가격으로 필터링되는 상품 리스트",
+  "_meta": {
+    "version": 1,
+    "history": [
+      { "version": 1, "date": "2026-05-19", "change": "initial draft", "author": "PM-jin" }
+    ],
+    "generation_confidence": 0.95,
+    "updated_at": "2026-05-19T00:00:00Z"
+  }
+}

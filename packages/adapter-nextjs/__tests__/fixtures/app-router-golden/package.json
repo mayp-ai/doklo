@@ -1,0 +1,8 @@
+{
+  "name": "app-router-golden",
+  "version": "1.0.0",
+  "dependencies": {
+    "next": "15.4.0",
+    "zustand": "5.0.0"
+  }
+}

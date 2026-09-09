@@ -1,0 +1,89 @@
+{
+  "$schema": "https://doklo.dev/template-manifest-v2.json",
+  "name": "feature-matrix",
+  "version": "2.0.0",
+  "display_name": {
+    "en": "Feature Matrix",
+    "ko": "기능 매트릭스"
+  },
+  "description": {
+    "en": "A single-page product overview that groups every feature by domain and shows its status, surfaces, workflow depth, rules, and acceptance checks.",
+    "ko": "모든 기능을 도메인별로 묶고 상태, 노출 서비스, 흐름의 깊이, 규칙, 수용 기준을 한눈에 보여주는 제품 개요입니다."
+  },
+  "author": {
+    "name": "doklo",
+    "url": "https://github.com/mayp-ai/doklo"
+  },
+  "license": "MIT",
+  "stability": "stable",
+  "audience": {
+    "en": "Product stakeholders and delivery teams",
+    "ko": "제품 이해관계자와 실행 팀"
+  },
+  "purpose": {
+    "en": "Show the product feature set and its documented depth at a glance.",
+    "ko": "제품 기능 범위와 문서화 깊이를 한눈에 보여줍니다."
+  },
+  "job": {
+    "en": "Review product coverage before planning or reporting.",
+    "ko": "기획이나 보고 전에 제품 범위를 검토합니다."
+  },
+  "required_input": {
+    "en": "Product features, statuses, surfaces, actions, rules, and checks",
+    "ko": "제품 기능, 상태, 노출 영역, 행동, 규칙, 확인 기준"
+  },
+  "variables": {},
+  "default_format": "markdown",
+  "outputs": {
+    "markdown": {
+      "entry": "template.md.tpl",
+      "output_path": "feature-matrix.md",
+      "source": "markdown"
+    },
+    "html": {
+      "entry": "template.html.tpl",
+      "output_path": "feature-matrix.html",
+      "source": "html"
+    }
+  },
+  "scope": "workspace",
+  "supported_locales": [
+    "en",
+    "ko"
+  ],
+  "default_locale": "ko",
+  "extends_default_css": false,
+  "strings": {
+    "ko": {
+      "title": "제품 기능 범위 검토",
+      "subtitle": "도메인별 기능, 상태, 노출 영역, 문서화 깊이",
+      "stat_features": "전체 기능",
+      "stat_domains": "기능 도메인",
+      "stat_services": "연결 서비스",
+      "stat_active": "활성 기능",
+      "legend": "상태 범례",
+      "col_feature": "기능명",
+      "col_status": "문서 검토 상태",
+      "col_surfaces": "노출 영역",
+      "col_depth": "문서 항목 수 (단계 · 규칙 · 확인 기준)",
+      "domain_count_suffix": "개"
+    },
+    "en": {
+      "title": "Review Product Feature Coverage",
+      "subtitle": "Features, status, surfaces, and documentation depth by domain",
+      "stat_features": "Total features",
+      "stat_domains": "Feature domains",
+      "stat_services": "Connected services",
+      "stat_active": "Active features",
+      "legend": "Status legend",
+      "col_feature": "Feature name",
+      "col_status": "Review status",
+      "col_surfaces": "Product surface",
+      "col_depth": "Documented items (steps · rules · checks)",
+      "domain_count_suffix": ""
+    }
+  },
+  "requires_hub_layers": [
+    "doks"
+  ]
+}

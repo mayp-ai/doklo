@@ -1,0 +1,44 @@
+{
+  "name": "@doklo-beta/studio",
+  "version": "0.0.0",
+  "description": "Doklo Studio — a local web workbench for reviewing and editing your Dok Hub",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p ${DOKLO_STUDIO_PORT:-4321}",
+    "dev:demo": "DOKLO_WORKSPACE_ROOT=\"$(pwd)/demo\" next dev -p ${DOKLO_STUDIO_PORT:-4321}",
+    "build": "next build",
+    "build:standalone": "next build && node scripts/copy-standalone-assets.mjs",
+    "e2e:tarball": "node e2e/tarball-studio.mjs",
+    "e2e:publications": "node e2e/publication-workbench.mjs",
+    "e2e:bulk-review": "node e2e/dok-bulk-review.mjs",
+    "e2e:history-note": "node e2e/dok-history-note.mjs",
+    "test:tarball-contract": "node e2e/tarball-studio.mjs --self-test",
+    "start": "next start -p ${DOKLO_STUDIO_PORT:-4321}",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf .next node_modules/.cache"
+  },
+  "dependencies": {
+    "@doklo-beta/cli": "workspace:*",
+    "@doklo-beta/core": "workspace:*",
+    "@doklo-beta/livedoc-engine": "workspace:*",
+    "exceljs": "^4.4.0",
+    "lucide-react": "^1.14.0",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "postcss": "^8.4.49",
+    "playwright": "1.60.0",
+    "tailwindcss": "^4.0.0",
+    "vitest": "^2.1.0"
+  },
+  "license": "Apache-2.0"
+}

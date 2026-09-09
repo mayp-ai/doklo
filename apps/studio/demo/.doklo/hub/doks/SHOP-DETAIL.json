@@ -1,0 +1,16 @@
+{
+  "dok_id": "SHOP-DETAIL",
+  "name": "상품 상세 조회",
+  "status": "active",
+  "tags": [],
+  "surfaces": [],
+  "description": "이미지·옵션·재고·리뷰까지 한 페이지에 요약",
+  "_meta": {
+    "version": 1,
+    "history": [
+      { "version": 1, "date": "2026-05-16", "change": "initial draft", "author": "PM-jin" }
+    ],
+    "generation_confidence": 0.97,
+    "updated_at": "2026-05-16T00:00:00Z"
+  }
+}

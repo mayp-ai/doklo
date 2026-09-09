@@ -1,0 +1,16 @@
+{
+  "dok_id": "SHOP-CART-PAY",
+  "name": "결제 진행",
+  "status": "draft",
+  "tags": [],
+  "surfaces": [],
+  "description": "장바구니 결제를 시작해 PG 승인까지 처리",
+  "_meta": {
+    "version": 1,
+    "history": [
+      { "version": 1, "date": "2026-05-20", "change": "initial draft", "author": "PM-jin" }
+    ],
+    "generation_confidence": 0.88,
+    "updated_at": "2026-05-20T00:00:00Z"
+  }
+}

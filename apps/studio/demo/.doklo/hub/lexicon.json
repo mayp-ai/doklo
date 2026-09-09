@@ -1,0 +1,219 @@
+{
+  "version": 1,
+  "updated_at": "2026-05-12T00:00:00Z",
+  "terms": [
+    {
+      "term_id": "TERM-ROLE-VISITOR",
+      "category": "role",
+      "binding": { "type": "owned" },
+      "locales": {
+        "ko": "방문자",
+        "en": "Visitor"
+      },
+      "related_doks": ["AUTH-SOCIAL"]
+    },
+    {
+      "term_id": "TERM-ROLE-CUSTOMER",
+      "category": "role",
+      "binding": { "type": "owned" },
+      "locales": {
+        "ko": "고객",
+        "en": "Customer"
+      },
+      "related_doks": ["PAY", "PAY-INSTALL", "ORD", "CART"]
+    },
+    {
+      "term_id": "TERM-ROLE-MANAGER",
+      "category": "role",
+      "binding": { "type": "owned" },
+      "locales": {
+        "ko": "매니저",
+        "en": "Manager"
+      },
+      "related_doks": []
+    },
+    {
+      "term_id": "TERM-ROLE-ADMIN",
+      "category": "role",
+      "binding": { "type": "owned" },
+      "locales": {
+        "ko": "관리자",
+        "en": "Administrator"
+      },
+      "related_doks": []
+    },
+    {
+      "term_id": "TERM-NAV-MYPAGE",
+      "category": "concept",
+      "binding": {
+        "type": "i18n",
+        "key": "nav.mypage",
+        "files": ["apps/web/locales/ko.json", "apps/web/locales/en.json"],
+        "supported_locales": ["ko", "en"]
+      },
+      "related_doks": []
+    },
+    {
+      "term_id": "TERM-BTN-PAY",
+      "category": "concept",
+      "binding": {
+        "type": "constant",
+        "reference": "apps/web/src/constants/labels.ts:LABELS.PAY"
+      },
+      "snapshot": {
+        "ko": "결제하기",
+        "en": "Pay now"
+      },
+      "related_doks": ["PAY"]
+    },
+    {
+      "term_id": "TERM-ERR-PAY-MIN",
+      "category": "concept",
+      "binding": { "type": "owned" },
+      "locales": {
+        "ko": "결제 금액은 최소 1,000원 이상이어야 합니다.",
+        "en": "Minimum payment amount is 1,000 KRW."
+      },
+      "related_doks": ["PAY"]
+    },
+    {
+      "term_id": "TERM-CONCEPT-CART",
+      "category": "concept",
+      "binding": { "type": "owned" },
+      "locales": {
+        "ko": "장바구니",
+        "en": "Cart"
+      },
+      "related_doks": ["CART", "ORD"]
+    },
+    {
+      "term_id": "TERM-NAV-CATALOG",
+      "category": "concept",
+      "binding": {
+        "type": "i18n",
+        "key": "nav.catalog",
+        "files": ["locales/ko.json", "locales/en.json", "locales/ja.json"],
+        "supported_locales": ["ko", "en", "ja"]
+      },
+      "related_doks": [
+        "SHOP-LIST", "SHOP-DETAIL", "SHOP-CART-ADD", "SHOP-CART-PAY",
+        "SHOP-REVIEW", "SHOP-QNA"
+      ]
+    },
+    {
+      "term_id": "TERM-NAV-ORDERS",
+      "category": "concept",
+      "binding": {
+        "type": "i18n",
+        "key": "nav.orders",
+        "files": ["locales/ko.json", "locales/en.json"],
+        "supported_locales": ["ko", "en"]
+      },
+      "related_doks": ["ORD", "ORD-DETAIL"]
+    },
+    {
+      "term_id": "TERM-NAV-DASHBOARD",
+      "category": "concept",
+      "binding": {
+        "type": "i18n",
+        "key": "nav.dashboard",
+        "files": ["locales/ko.json", "locales/en.json", "locales/ja.json"],
+        "supported_locales": ["ko", "en", "ja"]
+      },
+      "related_doks": ["DASH", "HOME"]
+    },
+    {
+      "term_id": "TERM-BTN-SIGNIN",
+      "category": "concept",
+      "binding": {
+        "type": "i18n",
+        "key": "btn.signin",
+        "files": ["locales/ko.json", "locales/en.json", "locales/ja.json"],
+        "supported_locales": ["ko", "en", "ja"]
+      },
+      "related_doks": ["AUTH-SOCIAL", "AUTH-SIGNIN"]
+    },
+    {
+      "term_id": "TERM-BTN-ADD-CART",
+      "category": "concept",
+      "binding": {
+        "type": "constant",
+        "reference": "src/constants/labels.ts:LABELS.ADD_TO_CART"
+      },
+      "snapshot": { "ko": "장바구니 담기" },
+      "related_doks": ["SHOP-CART-ADD"]
+    },
+    {
+      "term_id": "TERM-BTN-SAVE",
+      "category": "concept",
+      "binding": {
+        "type": "i18n",
+        "key": "btn.save",
+        "files": ["locales/ko.json", "locales/en.json", "locales/ja.json"],
+        "supported_locales": ["ko", "en", "ja"]
+      },
+      "related_doks": [
+        "AUTH-SOCIAL", "AUTH-SIGNUP", "SHOP-CART-ADD", "SHOP-CART-PAY",
+        "MYPAGE"
+      ]
+    },
+    {
+      "term_id": "TERM-ERR-INVALID-CRED",
+      "category": "concept",
+      "binding": {
+        "type": "i18n",
+        "key": "err.invalid_cred",
+        "files": ["locales/ko.json", "locales/en.json", "locales/ja.json"],
+        "supported_locales": ["ko", "en", "ja"]
+      },
+      "related_doks": ["AUTH-SOCIAL"]
+    },
+    {
+      "term_id": "TERM-ERR-OUT-OF-STOCK",
+      "category": "concept",
+      "binding": { "type": "owned" },
+      "locales": { "ko": "재고가 부족합니다" },
+      "related_doks": ["SHOP-DETAIL", "SHOP-CART-ADD"]
+    },
+    {
+      "term_id": "TERM-ERR-PAYMENT-FAILED",
+      "category": "concept",
+      "binding": {
+        "type": "i18n",
+        "key": "err.payment_failed",
+        "files": ["locales/ko.json", "locales/en.json"],
+        "supported_locales": ["ko", "en"]
+      },
+      "related_doks": ["SHOP-CART-PAY", "PAY"]
+    },
+    {
+      "term_id": "TERM-CON-SELLER",
+      "category": "concept",
+      "binding": { "type": "owned" },
+      "locales": { "ko": "판매자", "en": "Seller", "ja": "セラー" },
+      "related_doks": [
+        "AUTH-SOCIAL", "AUTH-SIGNUP", "AUTH-SESSION", "AUTH-RESET", "AUTH-VERIFY",
+        "SHOP-LIST", "SHOP-DETAIL", "SHOP-CART-ADD", "SHOP-CART-PAY",
+        "SELL"
+      ]
+    },
+    {
+      "term_id": "TERM-CON-CUSTOMER",
+      "category": "concept",
+      "binding": { "type": "owned" },
+      "locales": { "ko": "고객", "en": "Customer", "ja": "カスタマー" },
+      "related_doks": ["SHOP-DETAIL", "SHOP-CART-ADD", "SHOP-CART-PAY"]
+    },
+    {
+      "term_id": "TERM-CON-COUPON",
+      "category": "concept",
+      "binding": {
+        "type": "i18n",
+        "key": "concept.coupon",
+        "files": ["locales/ko.json", "locales/en.json"],
+        "supported_locales": ["ko", "en"]
+      },
+      "related_doks": ["SHOP-CART-PAY", "PAY"]
+    }
+  ]
+}

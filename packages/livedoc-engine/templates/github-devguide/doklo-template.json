@@ -1,0 +1,67 @@
+{
+  "$schema": "https://doklo.dev/template-manifest-v2.json",
+  "name": "github-devguide",
+  "version": "1.0.0",
+  "display_name": {
+    "en": "GitHub-style Developer Guide",
+    "ko": "GitHub 스타일 개발자 가이드"
+  },
+  "description": {
+    "en": "Single-file per Dok with Quick Reference table + Change Impact section. Senior engineer-friendly format for 30-second PR review.",
+    "ko": "Dok 1건당 단일 파일. Quick Reference 표 + 변경 영향 섹션. PR 리뷰 30초 컷용."
+  },
+  "author": { "name": "doklo", "url": "https://github.com/mayp-ai/doklo" },
+  "license": "MIT",
+  "stability": "experimental",
+  "audience": { "en": "Engineers and code reviewers", "ko": "엔지니어와 코드 리뷰어" },
+  "purpose": { "en": "Provide a concise engineering reference for each feature.", "ko": "기능별 간결한 엔지니어링 참고 자료를 제공합니다." },
+  "job": { "en": "Assess feature behavior and change impact during review.", "ko": "리뷰 중 기능 동작과 변경 영향을 파악합니다." },
+  "required_input": { "en": "Feature behavior, rules, checks, and implementation references", "ko": "기능 동작, 규칙, 확인 기준, 구현 참조" },
+  "variables": {},
+  "default_format": "markdown",
+  "outputs": {
+    "markdown": { "entry": "template.md.tpl", "output_path": "{{dok.dok_id}}.md", "source": "markdown" }
+  },
+  "scope": "per_dok",
+  "supported_locales": ["en", "ko"],
+  "default_locale": "en",
+  "strings": {
+    "en": {
+      "quick_reference": "Quick Reference",
+      "field_id": "Dok ID",
+      "field_status": "Status",
+      "field_version": "Version",
+      "field_tags": "Tags",
+      "field_surfaces": "Surfaces",
+      "field_code_anchors": "Code anchors",
+      "section_change_impact": "변경 영향 / Change Impact",
+      "change_impact_placeholder": "_topology.edges is not populated by the LLM generator yet (Phase 3). When reverse sync ships, this section will list downstream Doks that reference this one._",
+      "section_intent": "Intent",
+      "section_actors": "Actors",
+      "section_flow": "Flow",
+      "section_rules": "Business Rules",
+      "section_acceptance": "Acceptance",
+      "section_references": "References",
+      "no_value": "—"
+    },
+    "ko": {
+      "quick_reference": "Quick Reference",
+      "field_id": "Dok ID",
+      "field_status": "상태",
+      "field_version": "버전",
+      "field_tags": "태그",
+      "field_surfaces": "서비스",
+      "field_code_anchors": "코드 위치",
+      "section_change_impact": "변경 영향 / Change Impact",
+      "change_impact_placeholder": "_topology.edges는 아직 LLM generator에서 채우지 않습니다 (Phase 3). 양방향 동기화 ship 후 이 섹션이 이 Dok을 참조하는 하위 Dok들을 나열합니다._",
+      "section_intent": "의도",
+      "section_actors": "행위자",
+      "section_flow": "흐름",
+      "section_rules": "비즈니스 규칙",
+      "section_acceptance": "수용 기준",
+      "section_references": "참고",
+      "no_value": "—"
+    }
+  },
+  "requires_hub_layers": ["doks"]
+}

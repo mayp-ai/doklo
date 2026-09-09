@@ -1,0 +1,25 @@
+{
+  "service_id": "web",
+  "version": 2,
+  "trees": [
+    {
+      "tree_id": "web-routes",
+      "type": "route_hierarchy",
+      "source": "auto",
+      "producer": "doklo-route-hierarchy@1",
+      "platform": "all",
+      "nodes": [
+        {
+          "path": "/dashboard",
+          "kind": "destination",
+          "label": "Dashboard",
+          "curated_fields": [],
+          "bindings": [{ "dok_ref": "AUTH-SIGNIN", "source": "auto" }],
+          "evidence": [{ "kind": "route_source", "file": "apps/web/app/dashboard/page.tsx" }],
+          "tags": [],
+          "children": []
+        }
+      ]
+    }
+  ]
+}

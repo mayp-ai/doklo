@@ -1,0 +1,136 @@
+/* ============================================================
+ * compliance-audit — formal, document-grade, print/PDF friendly.
+ * Cool slate palette, serif headings, dense tables. Deliberately
+ * un-playful: this is for auditors and regulators.
+ * extends_default_css: false.
+ * ============================================================ */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap');
+
+:root {
+  color-scheme: light dark;
+  --font-sans: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", sans-serif;
+  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --bg: #ffffff; --paper: #fbfbfa; --fg: #18181b; --fg-soft: #3f3f46; --fg-muted: #71717a;
+  --border: #e4e4e7; --border-strong: #d4d4d8;
+  --slate: #334155; --slate-deep: #1e293b;
+  --perm: #1d4ed8; --perm-soft: #eff6ff;
+  --restrict: #b91c1c; --restrict-soft: #fef2f2;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 2px 8px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0a0b; --paper: #131316; --fg: #fafafa; --fg-soft: #d4d4d8; --fg-muted: #a1a1aa;
+    --border: #27272a; --border-strong: #3f3f46;
+    --slate: #94a3b8; --slate-deep: #cbd5e1;
+    --perm: #60a5fa; --perm-soft: #172554;
+    --restrict: #f87171; --restrict-soft: #450a0a;
+    --shadow: 0 1px 2px rgba(0,0,0,.4);
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body {
+  font-family: var(--font-sans); font-size: 15px; line-height: 1.65;
+  -webkit-font-smoothing: antialiased; word-break: keep-all;
+}
+main.livedoc { max-width: 840px; margin: 0 auto; padding: 0 28px 80px; }
+code { font-family: var(--font-mono); }
+
+/* hero — formal letterhead */
+.aud-hero {
+  display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: center;
+  margin: 40px 0 36px; padding: 28px 32px;
+  background: var(--paper);
+  border: 1px solid var(--border); border-top: 4px solid var(--slate);
+  border-radius: 4px;
+}
+.aud-hero-mark { font-size: 2.6em; }
+.aud-eyebrow {
+  font-size: 0.78em; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--slate); margin: 0 0 4px;
+}
+.aud-title {
+  font-family: var(--font-serif); font-size: 2em; font-weight: 600;
+  margin: 0 0 4px; letter-spacing: -0.01em; color: var(--fg);
+}
+.aud-subtitle { color: var(--fg-soft); margin: 0 0 8px; font-size: 0.98em; }
+.aud-generated { font-size: 0.82em; color: var(--fg-muted); margin: 0; font-family: var(--font-mono); }
+
+/* sections */
+.aud-section { margin: 40px 0 0; }
+.aud-h2 {
+  font-family: var(--font-serif); font-size: 1.4em; font-weight: 600;
+  margin: 0 0 6px; padding-bottom: 8px; border-bottom: 2px solid var(--border-strong);
+}
+.aud-h2--perm { color: var(--perm); border-bottom-color: var(--perm); }
+.aud-h2--restrict { color: var(--restrict); border-bottom-color: var(--restrict); }
+.aud-lead { color: var(--fg-muted); font-size: 0.92em; margin: 8px 0 18px; }
+
+/* stats */
+.aud-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 16px 0 8px; }
+.aud-stat {
+  padding: 16px 18px; background: var(--paper);
+  border: 1px solid var(--border); border-left: 4px solid var(--slate); border-radius: 4px;
+}
+.aud-stat--perm { border-left-color: var(--perm); }
+.aud-stat--restrict { border-left-color: var(--restrict); }
+.aud-stat-num { display: block; font-family: var(--font-mono); font-size: 1.9em; font-weight: 700; line-height: 1; color: var(--fg); }
+.aud-stat-label { display: block; font-size: 0.78em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--fg-muted); margin-top: 6px; }
+
+/* tables */
+.aud-table {
+  width: 100%; border-collapse: collapse; margin: 8px 0 16px;
+  font-size: 0.88em; background: var(--bg); box-shadow: var(--shadow);
+  border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+}
+.aud-table th {
+  background: var(--paper); text-align: left; padding: 10px 14px;
+  font-size: 0.78em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--fg-soft); border-bottom: 2px solid var(--border-strong);
+}
+.aud-table td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.aud-table tr:last-child td { border-bottom: none; }
+.aud-table--perm th { color: var(--perm); }
+.aud-table--restrict th { color: var(--restrict); }
+.aud-rule-id { font-family: var(--font-mono); font-size: 0.86em; font-weight: 600; white-space: nowrap; color: var(--fg); }
+.aud-rule-dok { font-size: 0.92em; }
+.aud-rule-dokid { font-family: var(--font-mono); font-size: 0.78em; color: var(--fg-muted); }
+
+.aud-empty { color: var(--fg-muted); font-style: italic; padding: 14px 0; }
+
+/* collapsible policy/validation */
+.aud-details {
+  margin: 10px 0; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--paper); overflow: hidden;
+}
+.aud-details summary {
+  cursor: pointer; padding: 12px 16px; font-weight: 600; font-size: 0.92em;
+  font-family: var(--font-mono);
+}
+.aud-details[open] summary { border-bottom: 1px solid var(--border); }
+.aud-details .aud-table { box-shadow: none; border: none; border-radius: 0; margin: 0; }
+
+/* footer / disclaimer */
+.aud-footer {
+  margin-top: 48px; padding: 16px 20px;
+  background: var(--paper); border: 1px solid var(--border); border-radius: 4px;
+  font-size: 0.82em; color: var(--fg-muted); line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .aud-hero { grid-template-columns: 1fr; text-align: center; }
+  .aud-stats { grid-template-columns: 1fr; }
+  .aud-table { font-size: 0.82em; }
+}
+@media print {
+  body { background: white; font-size: 11pt; }
+  .aud-section { break-inside: auto; }
+  .aud-table tr { break-inside: avoid; }
+  .aud-hero, .aud-stat, .aud-footer { box-shadow: none; }
+  .aud-details { border: none; }
+  .aud-details summary { display: none; }
+  .aud-details[open] .aud-table, .aud-details .aud-table { display: table; }
+}

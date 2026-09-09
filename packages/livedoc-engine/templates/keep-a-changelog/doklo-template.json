@@ -1,0 +1,57 @@
+{
+  "$schema": "https://doklo.dev/template-manifest-v2.json",
+  "name": "keep-a-changelog",
+  "version": "1.0.0",
+  "display_name": {
+    "en": "Keep a Changelog",
+    "ko": "Keep a Changelog"
+  },
+  "description": {
+    "en": "A date-grouped release history that collects recorded change notes, approvals, and deprecations in the Keep a Changelog format.",
+    "ko": "기록된 변경 노트, 승인, 지원 중단을 날짜별로 모아 Keep a Changelog 형식으로 보여주는 릴리스 이력입니다."
+  },
+  "author": { "name": "doklo", "url": "https://github.com/mayp-ai/doklo" },
+  "license": "MIT",
+  "stability": "stable",
+  "audience": { "en": "Maintainers and product users", "ko": "유지보수자와 제품 사용자" },
+  "purpose": { "en": "Aggregate recorded feature changes into a release history.", "ko": "기록된 기능 변경을 릴리스 이력으로 모읍니다." },
+  "job": { "en": "Prepare or review release notes.", "ko": "릴리스 노트를 준비하거나 검토합니다." },
+  "required_input": { "en": "Recorded feature history with change notes, approvals, and deprecations", "ko": "변경 노트, 승인, 지원 중단이 포함된 기능 이력" },
+  "variables": {},
+  "default_format": "markdown",
+  "outputs": {
+    "markdown": { "entry": "template.md.tpl", "output_path": "CHANGELOG.md", "source": "markdown" }
+  },
+  "scope": "workspace",
+  "supported_locales": ["en", "ko"],
+  "default_locale": "en",
+  "strings": {
+    "en": {
+      "title": "Review Product Changes",
+      "intro": "This changelog lists notable product changes by date.",
+      "intro2": "Entries follow the categories from [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).",
+      "added": "Added",
+      "changed": "Changed",
+      "deprecated": "Deprecated",
+      "removed": "Removed",
+      "fixed": "Fixed",
+      "security": "Security",
+      "restored": "Restored to active",
+      "empty": "No product changes have been recorded."
+    },
+    "ko": {
+      "title": "제품 변경 내역 확인",
+      "intro": "제품의 주요 변경 사항을 날짜별로 표시합니다.",
+      "intro2": "항목은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/)의 변경 유형으로 구분합니다.",
+      "added": "추가",
+      "changed": "변경",
+      "deprecated": "지원 중단",
+      "removed": "제거",
+      "fixed": "수정",
+      "security": "보안",
+      "restored": "다시 제공",
+      "empty": "기록된 제품 변경 사항이 없습니다."
+    }
+  },
+  "requires_hub_layers": ["doks"]
+}

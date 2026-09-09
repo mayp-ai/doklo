@@ -1,0 +1,7 @@
+{
+  "workspace_id": "test-legacy",
+  "name": "Test Workspace (legacy)",
+  "services": [],
+  "default_locale": "en",
+  "supported_locales": ["en", "ko"]
+}

@@ -1,0 +1,9 @@
+{
+  "dok_id": "AUTH-SIGNIN",
+  "name": "Email login",
+  "status": "active",
+  "tags": ["tutorial", "auth"],
+  "surfaces": ["web"],
+  "description": "User logs in with email + password.",
+  "_meta": { "version": 1, "history": [] }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@doklo-beta/evaluator",
+  "version": "0.0.0",
+  "description": "Quality evaluator for generated Doks — structure, format, and completeness scoring",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@doklo-beta/core": "workspace:*",
+    "zod": "^4.1.8"
+  },
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,9 @@
+Doklo Studio demo workspace.
+
+Every Dok, term, role and IA node under this directory is hand-written sample
+data used to develop and demonstrate Studio. None of it was generated from
+anyone's codebase, and none of it is a real analysis result.
+
+Studio reads this file (.doklo/DEMO_WORKSPACE) and labels the whole UI as demo
+data while it is loaded. Do not copy this file into a real workspace, and do
+not delete it from this one.

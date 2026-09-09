@@ -1,0 +1,111 @@
+{
+  "service_id": "web",
+  "version": 1,
+  "updated_at": "2026-05-21T00:00:00Z",
+  "trees": [
+    {
+      "tree_id": "nav-main",
+      "type": "navigation",
+      "platform": "all",
+      "source": "manual",
+      "nodes": [
+        {
+          "path": "/auth",
+          "label": "인증",
+          "dok_ref": null,
+          "children": [
+            {
+              "path": "/auth/signin",
+              "label": "로그인 페이지",
+              "dok_ref": "AUTH-SOCIAL"
+            },
+            {
+              "path": "/auth/signup",
+              "label": "회원가입",
+              "dok_ref": null,
+              "children": [
+                {
+                  "path": "/auth/signup/[token]",
+                  "label": "토큰 기반 가입",
+                  "dok_ref": "AUTH-SIGNUP"
+                }
+              ]
+            },
+            {
+              "path": "/auth/recover-pw",
+              "label": "비밀번호 찾기",
+              "dok_ref": "AUTH-FORGOT"
+            },
+            {
+              "path": "/auth/reset-pw",
+              "label": "비밀번호 재설정",
+              "dok_ref": null,
+              "children": [
+                {
+                  "path": "/auth/reset-pw/[token]",
+                  "label": "토큰으로 재설정",
+                  "dok_ref": "AUTH-RESET"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "path": "/catalog",
+          "label": "상품 카탈로그",
+          "dok_ref": "SHOP-LIST",
+          "children": [
+            {
+              "path": "/catalog/[id]",
+              "label": "상품 상세",
+              "dok_ref": "SHOP-DETAIL",
+              "children": [
+                {
+                  "path": "/catalog/[id]/reviews",
+                  "label": "상품 리뷰",
+                  "children": [
+                    {
+                      "path": "/catalog/[id]/reviews/[rid]",
+                      "label": "리뷰 상세"
+                    }
+                  ]
+                },
+                {
+                  "path": "/catalog/[id]/qna",
+                  "label": "상품 문의",
+                  "platform": "desktop"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "path": "/mypage",
+          "label": "내 정보",
+          "children": [
+            {
+              "path": "/mypage/profile",
+              "label": "프로필 수정"
+            },
+            {
+              "path": "/mypage/password",
+              "label": "비밀번호 변경"
+            }
+          ]
+        },
+        {
+          "path": "/admin",
+          "label": "관리자 콘솔",
+          "dok_ref": null,
+          "platform": "desktop",
+          "children": []
+        },
+        {
+          "path": "/legacy/redirect-old",
+          "label": "레거시 리다이렉트"
+        }
+      ]
+    }
+  ],
+  "edges": []
+}

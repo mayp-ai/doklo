@@ -1,0 +1,16 @@
+{
+  "dok_id": "SHOP-CART-ADD",
+  "name": "장바구니 담기",
+  "status": "active",
+  "tags": [],
+  "surfaces": [],
+  "description": "상품을 장바구니에 추가하고 수량을 조정",
+  "_meta": {
+    "version": 1,
+    "history": [
+      { "version": 1, "date": "2026-05-17", "change": "initial draft", "author": "PM-jin" }
+    ],
+    "generation_confidence": 0.94,
+    "updated_at": "2026-05-17T00:00:00Z"
+  }
+}

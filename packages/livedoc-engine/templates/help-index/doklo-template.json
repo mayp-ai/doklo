@@ -1,0 +1,80 @@
+{
+  "$schema": "https://doklo.dev/template-manifest-v2.json",
+  "name": "help-index",
+  "version": "1.0.0",
+  "display_name": {
+    "en": "Help Center Index",
+    "ko": "도움말 인덱스"
+  },
+  "description": {
+    "en": "An entry page that organizes a set of help articles around the product's navigation structure instead of a flat file list.",
+    "ko": "도움말 묶음을 파일 목록이 아닌 제품 탐색 구조에 맞춰 정리한 진입 페이지입니다."
+  },
+  "author": {
+    "name": "doklo",
+    "url": "https://github.com/mayp-ai/doklo"
+  },
+  "license": "MIT",
+  "stability": "stable",
+  "audience": {
+    "en": "Customers browsing help articles",
+    "ko": "도움말을 탐색하는 고객"
+  },
+  "purpose": {
+    "en": "Route a customer's question to the right help article.",
+    "ko": "고객의 질문을 알맞은 도움말 문서로 안내합니다."
+  },
+  "job": {
+    "en": "Answer \"which page has my answer?\" for a help-article set.",
+    "ko": "도움말 묶음에서 \"내 문제는 어느 문서에 있어요?\"에 답합니다."
+  },
+  "required_input": {
+    "en": "Reviewed product features selected for the help set; an optional service navigation structure improves grouping",
+    "ko": "도움말 묶음으로 선택한 검토 완료 기능과 선택 사항인 서비스 탐색 구조"
+  },
+  "variables": {
+    "link_extension": {
+      "type": "string",
+      "required": false,
+      "description": "File extension appended to help article links.",
+      "default": ".html"
+    },
+    "link_prefix": {
+      "type": "string",
+      "required": false,
+      "description": "Path prefix for help article links, for example ./pages/ when the articles are published in a subfolder.",
+      "default": "./"
+    }
+  },
+  "default_format": "markdown",
+  "outputs": {
+    "markdown": { "entry": "template.md.tpl", "output_path": "help-index.md", "source": "markdown" },
+    "html": { "entry": "template.md.tpl", "output_path": "help-index.html", "source": "markdown" }
+  },
+  "scope": "workspace",
+  "partials": {
+    "index-node": "partials/index-node.tpl"
+  },
+  "supported_locales": [
+    "en",
+    "ko"
+  ],
+  "default_locale": "en",
+  "extends_default_css": true,
+  "strings": {
+    "en": {
+      "title": "Find Product Help",
+      "intro": "Choose a product area or topic to open the matching guide.",
+      "section_other": "Topics outside navigation"
+    },
+    "ko": {
+      "title": "제품 도움말 찾기",
+      "intro": "제품 영역이나 주제를 선택해 해당 안내를 엽니다.",
+      "section_other": "메뉴에 없는 주제"
+    }
+  },
+  "requires_hub_layers": [
+    "doks",
+    "ia"
+  ]
+}

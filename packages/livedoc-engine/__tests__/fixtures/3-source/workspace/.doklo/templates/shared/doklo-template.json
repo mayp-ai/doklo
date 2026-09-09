@@ -1,0 +1,10 @@
+{
+  "name": "shared",
+  "version": "1.0.0",
+  "output_formats": ["markdown"],
+  "scope": "workspace",
+  "output_path": "out.md",
+  "entry": "template.md.tpl",
+  "supported_locales": ["en"],
+  "default_locale": "en"
+}

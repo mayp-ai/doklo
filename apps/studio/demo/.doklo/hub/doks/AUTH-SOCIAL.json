@@ -1,0 +1,91 @@
+{
+  "dok_id": "AUTH-SOCIAL",
+  "name": "소셜 로그인",
+  "status": "active",
+  "tags": [
+    "auth",
+    "oauth"
+  ],
+  "surfaces": [
+    "web",
+    "api"
+  ],
+  "description": "Google · Apple · Kakao OAuth 공급자를 통해 사용자가 계정 없이 한 번에 로그인한다. 첫 로그인 시 자동으로 사용자 프로필이 생성된다.",
+  "user_actions": {
+    "steps": [
+      {
+        "order": 1,
+        "actor": {
+          "kind": "role",
+          "role_ref": "ROLE-VISITOR"
+        },
+        "intent": "로그인 화면에서 공급자를 선택한다",
+        "outcome": "선택한 공급자의 인증 페이지로 리다이렉트된다",
+        "variants": [
+          {
+            "platform": "desktop",
+            "interaction": "click"
+          },
+          {
+            "platform": "mobile",
+            "interaction": "tap"
+          }
+        ]
+      },
+      {
+        "order": 2,
+        "actor": {
+          "kind": "system"
+        },
+        "intent": "OAuth 콜백을 검증한다",
+        "outcome": "신규 사용자면 프로필 생성, 기존 사용자면 세션 발급",
+        "variants": [
+          {
+            "platform": "all",
+            "interaction": "auto"
+          }
+        ]
+      }
+    ]
+  },
+  "business_rules": {
+    "rules": [
+      {
+        "id": "BR-AUTH-SOCIAL-01",
+        "description": "동일 이메일이 다른 공급자로 가입된 경우 자동 계정 통합",
+        "type": "policy"
+      }
+    ]
+  },
+  "acceptance_criteria": {
+    "criteria": [
+      {
+        "id": "AC-AUTH-SOCIAL-01",
+        "statement": "OAuth 콜백 응답을 5초 이내에 검증한다",
+        "related_rules": []
+      }
+    ]
+  },
+  "_meta": {
+    "version": 3,
+    "history": [
+      {
+        "version": 1,
+        "date": "2026-03-12",
+        "change": "초기 구현 (Google만)"
+      },
+      {
+        "version": 2,
+        "date": "2026-04-02",
+        "change": "Apple 추가"
+      },
+      {
+        "version": 3,
+        "date": "2026-04-28",
+        "change": "Kakao 추가, 계정 통합 정책"
+      }
+    ],
+    "created_at": "2026-03-12T09:00:00Z",
+    "updated_at": "2026-04-28T14:20:00Z"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "dok_id": "AUTH-SIGNUP",
+  "name": "회원가입",
+  "status": "active",
+  "tags": [],
+  "surfaces": [],
+  "description": "이메일 인증을 거쳐 고객 계정을 생성하는 가입 흐름",
+  "_meta": {
+    "version": 1,
+    "history": [
+      { "version": 1, "date": "2026-05-15", "change": "initial draft", "author": "PM-jin" }
+    ],
+    "generation_confidence": 0.92,
+    "updated_at": "2026-05-15T00:00:00Z"
+  }
+}

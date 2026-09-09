@@ -1,0 +1,82 @@
+{
+  "$schema": "https://doklo.dev/template-manifest-v2.json",
+  "name": "github-onboarding",
+  "version": "1.2.0",
+  "display_name": {
+    "en": "Repository Onboarding",
+    "ko": "저장소 온보딩"
+  },
+  "description": {
+    "en": "A repository guide that introduces product workflows and groups domains into concise, expandable sections.",
+    "ko": "제품 흐름을 소개하고 도메인을 간결한 확장형 섹션으로 묶은 저장소 안내서입니다."
+  },
+  "author": {
+    "name": "doklo",
+    "url": "https://github.com/mayp-ai/doklo"
+  },
+  "license": "MIT",
+  "stability": "stable",
+  "audience": { "en": "New contributors and team members", "ko": "신규 기여자와 팀원" },
+  "purpose": { "en": "Introduce the product scope, domains, and workflows to review before changing code.", "ko": "코드 변경 전에 확인할 제품 범위, 도메인, 사용자 흐름을 소개합니다." },
+  "job": { "en": "Orient a new team member before they change the codebase.", "ko": "새 팀원이 코드 변경 전에 제품 맥락을 익히게 합니다." },
+  "required_input": { "en": "Workspace services, product features, and setup guidance", "ko": "워크스페이스 서비스, 제품 기능, 환경 설정 안내" },
+  "variables": {
+    "setup_commands": { "type": "string", "required": false, "description": "Optional reviewed setup commands rendered verbatim." }
+  },
+  "default_format": "markdown",
+  "outputs": {
+    "markdown": { "entry": "template.md.tpl", "output_path": "ONBOARDING.md", "source": "markdown" },
+    "html": { "entry": "template.md.tpl", "output_path": "ONBOARDING.html", "source": "markdown" }
+  },
+  "scope": "workspace",
+  "supported_locales": [
+    "en",
+    "ko"
+  ],
+  "default_locale": "en",
+  "strings": {
+    "en": {
+      "welcome": "Start Working in This Repository",
+      "intro": "Review the product scope and key workflows before changing code, then prepare the repository with its own setup instructions.",
+      "section_what": "## Review the product scope",
+      "section_week_one": "## Review these workflows first",
+      "section_domains": "## Find features by domain",
+      "section_setup": "## Set up the repository",
+      "what_lead": "is documented with the following product features and services",
+      "count_doks_prefix": "**",
+      "count_doks_suffix": "** documented features",
+      "count_services_prefix": "**",
+      "count_services_suffix": "** connected service(s)",
+      "meta_separator": " · ",
+      "week_one_intro": "Review these user-facing workflows before changing code:",
+      "domains_intro": "Each domain lists the product features documented for it.",
+      "setup_intro": "Use the setup instructions in this repository. Request required credentials from the team.",
+      "more_prefix": "+ ",
+      "more_suffix": " more",
+      "setup_pm_note": "> Choose the package manager from this repository's lockfile."
+    },
+    "ko": {
+      "welcome": "이 저장소에서 작업 시작하기",
+      "intro": "코드를 바꾸기 전에 제품 범위와 주요 흐름을 살펴본 뒤 저장소의 실제 안내에 따라 환경을 준비합니다.",
+      "section_what": "## 제품 범위 확인",
+      "section_week_one": "## 먼저 확인할 사용자 흐름",
+      "section_domains": "## 도메인별 기능 찾기",
+      "section_setup": "## 저장소 환경 준비",
+      "what_lead": "워크스페이스에 문서화된 제품 기능과 서비스 현황입니다",
+      "count_doks_prefix": "**",
+      "count_doks_suffix": "**개 문서화된 기능",
+      "count_services_prefix": "**",
+      "count_services_suffix": "**개 연결 서비스",
+      "meta_separator": " · ",
+      "week_one_intro": "코드를 바꾸기 전에 다음 사용자 흐름을 확인합니다.",
+      "domains_intro": "각 도메인에 문서화된 제품 기능을 표시합니다.",
+      "setup_intro": "이 저장소의 설정 안내를 따릅니다. 필요한 자격 증명은 팀에 요청합니다.",
+      "more_prefix": "+ ",
+      "more_suffix": "개 더",
+      "setup_pm_note": "> 이 저장소의 잠금파일에 맞는 패키지 관리자를 사용합니다."
+    }
+  },
+  "requires_hub_layers": [
+    "doks"
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://doklo.dev/template-manifest-v2.json",
+  "name": "release-digest",
+  "version": "1.0.0",
+  "display_name": {
+    "en": "Release Customer Digest",
+    "ko": "릴리스 고객 다이제스트"
+  },
+  "description": {
+    "en": "One customer-facing page announcing what changed since the last digest render: new, improved, and discontinued features, computed deterministically from the publication's own render evidence.",
+    "ko": "지난 다이제스트 렌더 이후 달라진 것(새 기능·개선·중단)을 발행물 자신의 렌더 증거와 대조해 결정적으로 계산한 고객 공지 한 장입니다."
+  },
+  "author": {
+    "name": "doklo",
+    "url": "https://github.com/mayp-ai/doklo"
+  },
+  "license": "MIT",
+  "stability": "stable",
+  "audience": {
+    "en": "Customers and product users",
+    "ko": "고객과 제품 사용자"
+  },
+  "purpose": {
+    "en": "Announce at release time what changed for customers, in one page.",
+    "ko": "릴리스 시점에 고객 기준으로 무엇이 달라졌는지 한 장으로 공지합니다."
+  },
+  "job": {
+    "en": "Answer \"what changed in this release?\" without internal notes.",
+    "ko": "내부 문서 없이 \"이번에 뭐가 달라졌어요?\"에 답합니다."
+  },
+  "required_input": {
+    "en": "Reviewed features selected for release; evidence from an earlier render enables the new, improved, and discontinued split",
+    "ko": "릴리스 대상으로 선택한 검토 완료 기능과 새 기능, 개선, 중단 분류에 사용할 이전 렌더 증거"
+  },
+  "variables": {
+    "release_label": {
+      "type": "string",
+      "required": false,
+      "description": "Release name or date shown in the title, e.g. \"v1.4 (2026-07-28)\"."
+    },
+    "support_url": {
+      "type": "string",
+      "required": false,
+      "description": "Customer support URL for the footer link."
+    }
+  },
+  "default_format": "markdown",
+  "outputs": {
+    "markdown": { "entry": "template.md.tpl", "output_path": "release-digest.md", "source": "markdown" },
+    "html": { "entry": "template.md.tpl", "output_path": "release-digest.html", "source": "markdown" }
+  },
+  "scope": "workspace",
+  "supported_locales": [
+    "en",
+    "ko"
+  ],
+  "default_locale": "en",
+  "extends_default_css": true,
+  "strings": {
+    "en": {
+      "title": "What Changed in This Release",
+      "intro": "Review the product features added, changed, or removed in this release.",
+      "section_added": "New features",
+      "section_changed": "Changed features",
+      "changed_item_suffix": "was changed.",
+      "section_removed": "Removed features",
+      "no_changes": "This release has no documented customer-facing changes.",
+      "first_edition_intro": "This first digest summarizes the product features currently available.",
+      "support": "Contact support"
+    },
+    "ko": {
+      "title": "이번 릴리스에서 달라진 점",
+      "intro": "이번 릴리스에서 추가·변경·중단된 제품 기능을 확인합니다.",
+      "section_added": "추가된 기능",
+      "section_changed": "변경된 기능",
+      "changed_item_suffix": "기능이 변경되었습니다.",
+      "section_removed": "중단된 기능",
+      "no_changes": "이번 릴리스에는 문서화된 고객 대상 변경 사항이 없습니다.",
+      "first_edition_intro": "첫 릴리스 요약으로 현재 제공 중인 제품 기능을 표시합니다.",
+      "support": "고객지원에 문의"
+    }
+  },
+  "requires_hub_layers": [
+    "doks"
+  ]
+}

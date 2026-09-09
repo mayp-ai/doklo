@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "noUncheckedIndexedAccess": false
+  },
+  "references": [
+    { "path": "../core" },
+    { "path": "../cost" }
+  ],
+  "include": ["src/**/*"],
+  "exclude": ["dist", "__tests__", "node_modules"]
+}

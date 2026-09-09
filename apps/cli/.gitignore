@@ -1,0 +1,7 @@
+# Generated publishable package dir (see scripts/build-release.mjs)
+release/
+*.tgz
+
+# Staging dir for the release build. A failed build deliberately leaves its
+# stage behind for recovery, so it must never be committable.
+.release.stage-*/

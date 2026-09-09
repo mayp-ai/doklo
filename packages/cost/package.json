@@ -1,0 +1,22 @@
+{
+  "name": "@doklo-beta/cost",
+  "version": "0.0.0",
+  "description": "Token and cost estimation for Doklo LLM generation",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@doklo-beta/core": "workspace:*"
+  },
+  "license": "Apache-2.0"
+}

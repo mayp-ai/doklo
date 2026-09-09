@@ -1,0 +1,16 @@
+{
+  "dok_id": "PAY-INSTALL",
+  "name": "분할 결제",
+  "status": "planned",
+  "tags": ["payment", "installment"],
+  "surfaces": ["web"],
+  "description": "고액 주문에 대해 사용자가 2~12개월의 분할 결제 옵션을 선택할 수 있다.",
+  "_meta": {
+    "version": 1,
+    "history": [
+      { "version": 1, "date": "2026-05-02", "change": "기획 단계, 구현 미정" }
+    ],
+    "created_at": "2026-05-02T15:00:00Z",
+    "updated_at": "2026-05-02T15:00:00Z"
+  }
+}

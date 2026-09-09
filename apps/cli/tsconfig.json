@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src"
+  },
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/generator" },
+    { "path": "../../packages/adapter-nextjs" },
+    { "path": "../../packages/evaluator" },
+    { "path": "../../packages/cost" },
+    { "path": "../../packages/livedoc-engine" },
+    { "path": "../../packages/livedoc-capture" }
+  ],
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules"]
+}

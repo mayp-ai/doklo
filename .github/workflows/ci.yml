@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least privilege: CI only needs to read the repo.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref (e.g. rapid pushes / PR updates).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      # pnpm MUST be installed before setup-node so that setup-node's
+      # `cache: pnpm` can resolve the pnpm store path. `version` is omitted so
+      # the pnpm version is read from the `packageManager` field in package.json.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Build CLI
+        run: pnpm -C apps/cli build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+  release-rehearsal:
+    name: Release rehearsal (fresh clone)
+    runs-on: ubuntu-latest
+    # `pnpm release:pack` builds every workspace package, the CLI, and the
+    # Studio standalone (Next.js production build) before packing the tarball.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      # pnpm MUST be installed before setup-node so that setup-node's
+      # `cache: pnpm` can resolve the pnpm store path. `version` is omitted so
+      # the pnpm version is read from the `packageManager` field in package.json.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Deliberately NOT preceded by `pnpm build` or `pnpm -C apps/cli build`:
+      # the release build has to recover its own prerequisites. Two release
+      # blockers stayed hidden for months because every developer machine
+      # already had the dist/ directories a clean runner does not.
+      - name: pnpm release:pack (no prior build)
+        run: pnpm release:pack 2>&1 | tee "$RUNNER_TEMP/release-pack.log"
+
+      - name: Verify the tarball and the content guard
+        working-directory: apps/cli/release
+        run: |
+          tarball="$(ls ./*.tgz)"
+          echo "tarball=${tarball} bytes=$(stat -c%s "${tarball}")"
+          # The guard runs on the staged tree just before it is published; its
+          # log line is the only proof it ran on this artefact.
+          grep -Fq 'release content guard: clean.' "$RUNNER_TEMP/release-pack.log"
+          echo "engines.node=$(jq -r '.engines.node' package.json)"
+          npm pack --dry-run --json > "$RUNNER_TEMP/pack.json"
+          echo "----- pack summary -----"
+          jq -r '.[0] | "files=\(.entryCount) tarball_bytes=\(.size) unpacked_bytes=\(.unpackedSize)"' "$RUNNER_TEMP/pack.json"
+
+      # What a user actually does. Installing needs the registry (the package
+      # declares its dependencies instead of bundling them); everything after
+      # the install is offline work.
+      - name: Install the tarball globally and smoke the CLI
+        run: |
+          npm install -g "$(ls "$PWD"/apps/cli/release/*.tgz)"
+          command -v doklo
+          doklo --version
+          project="$RUNNER_TEMP/smoke-app"
+          mkdir -p "$project/app"
+          cat > "$project/package.json" <<'JSON'
+          {
+            "name": "release-rehearsal-app",
+            "private": true,
+            "dependencies": {
+              "next": "^14.0.0",
+              "react": "^18.0.0",
+              "react-dom": "^18.0.0"
+            }
+          }
+          JSON
+          cat > "$project/app/layout.tsx" <<'TSX'
+          export default function RootLayout({ children }: { children: React.ReactNode }) {
+            return <html><body>{children}</body></html>;
+          }
+          TSX
+          cat > "$project/app/page.tsx" <<'TSX'
+          export default function Page() {
+            return <main>hello</main>;
+          }
+          TSX
+          cd "$project"
+          doklo init --yes --json | tee "$RUNNER_TEMP/init.jsonl"
+          # A workspace, not just a zero exit code.
+          test -f "$project/workspace.json"
+          test -d "$project/.doklo/hub/doks"
+          grep -Fq '"status":"success"' "$RUNNER_TEMP/init.jsonl"

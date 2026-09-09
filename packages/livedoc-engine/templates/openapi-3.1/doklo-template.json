@@ -1,0 +1,31 @@
+{
+  "$schema": "https://doklo.dev/template-manifest-v2.json",
+  "name": "openapi-3.1",
+  "version": "1.0.0",
+  "display_name": {
+    "en": "OpenAPI 3.1",
+    "ko": "OpenAPI 3.1"
+  },
+  "description": {
+    "en": "OpenAPI 3.1 spec derived from Hub Doks. Endpoints with code_anchor.file ending in route/handler get a stub entry with x-doklo-status: stub until real endpoint extraction lands.",
+    "ko": "Hub Doks에서 파생한 OpenAPI 3.1 명세. endpoint 추출이 정식 동작하기 전까지 x-doklo-status: stub 모델로 stub 출력."
+  },
+  "author": { "name": "doklo", "url": "https://github.com/mayp-ai/doklo" },
+  "license": "MIT",
+  "stability": "experimental",
+  "audience": { "en": "API consumers and integration engineers", "ko": "API 사용자와 연동 엔지니어" },
+  "purpose": { "en": "Describe available HTTP operations as an OpenAPI contract.", "ko": "사용 가능한 HTTP 작업을 OpenAPI 계약으로 설명합니다." },
+  "job": { "en": "Plan or implement an integration against the documented API.", "ko": "문서화된 API를 기준으로 연동을 계획하거나 구현합니다." },
+  "required_input": { "en": "API-facing product features with routes and behavior", "ko": "라우트와 동작이 있는 API 기능" },
+  "variables": {},
+  "default_format": "yaml",
+  "outputs": {
+    "yaml": { "entry": "template.yaml.tpl", "output_path": "openapi.yaml", "source": "yaml" },
+    "json": { "entry": "template.yaml.tpl", "output_path": "openapi.json", "source": "yaml" }
+  },
+  "scope": "workspace",
+  "supported_locales": ["en"],
+  "default_locale": "en",
+  "strings": {},
+  "requires_hub_layers": ["doks"]
+}

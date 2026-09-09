@@ -1,0 +1,16 @@
+{
+  "dok_id": "AUTH-FORGOT",
+  "name": "비밀번호 찾기",
+  "status": "active",
+  "tags": [],
+  "surfaces": [],
+  "description": "이메일로 24시간 유효 재설정 토큰을 발송",
+  "_meta": {
+    "version": 1,
+    "history": [
+      { "version": 1, "date": "2026-05-10", "change": "initial draft", "author": "PM-jin" }
+    ],
+    "generation_confidence": 0.94,
+    "updated_at": "2026-05-10T00:00:00Z"
+  }
+}

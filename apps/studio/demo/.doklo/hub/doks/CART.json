@@ -1,0 +1,56 @@
+{
+  "dok_id": "CART",
+  "name": "장바구니",
+  "status": "active",
+  "tags": ["cart", "checkout"],
+  "surfaces": ["web", "api"],
+  "description": "사용자가 상품을 장바구니에 담고, 수량을 조정하고, 결제 직전까지 보관한다. 비로그인 사용자의 장바구니는 브라우저 세션 단위로 유지된다.",
+  "user_actions": {
+    "steps": [
+      {
+        "order": 1,
+        "actor": { "kind": "role", "role_ref": "ROLE-CUSTOMER" },
+        "intent": "상품 상세에서 장바구니에 담는다",
+        "outcome": "헤더 카운트가 +1 되고 토스트 알림이 표시된다",
+        "variants": [
+          { "platform": "desktop", "interaction": "click" },
+          { "platform": "mobile", "interaction": "tap" }
+        ]
+      },
+      {
+        "order": 2,
+        "actor": { "kind": "role", "role_ref": "ROLE-CUSTOMER" },
+        "intent": "장바구니에서 수량을 조정한다",
+        "outcome": "합계 금액이 실시간으로 갱신된다",
+        "variants": [{ "platform": "all", "interaction": "input" }]
+      }
+    ]
+  },
+  "business_rules": {
+    "rules": [
+      {
+        "id": "BR-CART-01",
+        "description": "단일 상품 수량은 99개를 초과할 수 없다",
+        "type": "validation"
+      }
+    ]
+  },
+  "acceptance_criteria": {
+    "criteria": [
+      {
+        "id": "AC-CART-01",
+        "statement": "장바구니가 30일간 유지된다 (로그인 사용자)",
+        "related_rules": []
+      }
+    ]
+  },
+  "_meta": {
+    "version": 2,
+    "history": [
+      { "version": 1, "date": "2026-03-20", "change": "초기 구현" },
+      { "version": 2, "date": "2026-04-15", "change": "비로그인 세션 지원 추가" }
+    ],
+    "created_at": "2026-03-20T11:00:00Z",
+    "updated_at": "2026-04-15T16:30:00Z"
+  }
+}

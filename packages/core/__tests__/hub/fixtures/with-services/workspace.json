@@ -1,0 +1,9 @@
+{
+  "workspace_id": "test-svcs",
+  "name": "Test Workspace (with services)",
+  "services": [
+    { "service_id": "web", "type": "frontend", "framework": "nextjs", "code_root": "apps/web" }
+  ],
+  "default_locale": "en",
+  "supported_locales": ["en", "ko"]
+}

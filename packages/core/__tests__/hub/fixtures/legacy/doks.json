@@ -1,0 +1,11 @@
+[
+  {
+    "dok_id": "BILL-CHARGE",
+    "name": "Charge card",
+    "status": "active",
+    "tags": [],
+    "surfaces": [],
+    "description": "Charge user card via Stripe.",
+    "_meta": { "version": 1, "history": [] }
+  }
+]

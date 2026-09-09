@@ -1,0 +1,203 @@
+import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { marked } from 'marked';
+import DOMPurify from 'isomorphic-dompurify';
+import type { Writer } from './types.js';
+import { resolveTemplatePath } from '../path-security.js';
+import { writePlannedArtifact } from '../atomic-output.js';
+
+let defaultCssCache: string | null = null;
+
+async function loadDefaultCss(): Promise<string> {
+  if (defaultCssCache !== null) return defaultCssCache;
+  const here = fileURLToPath(import.meta.url);
+  const writersDir = dirname(here);
+  const candidates = [
+    join(writersDir, '..', 'css', 'default.css'),
+    join(writersDir, '..', '..', 'src', 'css', 'default.css'),
+  ];
+  for (const c of candidates) {
+    try {
+      defaultCssCache = await readFile(c, 'utf-8');
+      return defaultCssCache;
+    } catch {
+      // try next
+    }
+  }
+  defaultCssCache = '';
+  return defaultCssCache;
+}
+
+async function readContainedIfExists(
+  root: string,
+  relativePath: string,
+  label: string,
+): Promise<string | null> {
+  const path = await resolveTemplatePath(root, relativePath, label, {
+    allowMissingLeaf: true,
+    rejectSymlinkLeaf: true,
+  });
+  try {
+    return await readFile(path, 'utf-8');
+  } catch (error) {
+    if (isMissingPathError(error)) return null;
+    throw error;
+  }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return false;
+  const code = (error as { code?: unknown }).code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+/**
+ * Build the cascaded stylesheet for one HTML emit.
+ *
+ *  1. Engine default (unless the template opts out via extends_default_css: false)
+ *  2. Template-level `assets/style.css`
+ *  3. Workspace-level `.doklo/branding/livedoc.css`
+ *
+ * Each layer is wrapped in a comment marker so authors can see in DevTools
+ * which file contributed what. Later layers override earlier ones via normal
+ * CSS cascade (same specificity, later wins).
+ */
+async function buildStylesheet(
+  templateDir: string | undefined,
+  workspaceRoot: string | undefined,
+  extendsDefault: boolean,
+): Promise<string> {
+  const parts: string[] = [];
+  if (extendsDefault) {
+    const def = await loadDefaultCss();
+    if (def) parts.push(`/* layer: doklo-default */\n${def}`);
+  }
+  if (templateDir) {
+    const tmplCss = await readContainedIfExists(
+      templateDir,
+      'assets/style.css',
+      'template stylesheet',
+    );
+    if (tmplCss) parts.push(`/* layer: template */\n${tmplCss}`);
+  }
+  if (workspaceRoot) {
+    const brandCss = await readContainedIfExists(
+      workspaceRoot,
+      '.doklo/branding/livedoc.css',
+      'workspace branding stylesheet',
+    );
+    if (brandCss) parts.push(`/* layer: workspace-branding */\n${brandCss}`);
+  }
+  return parts.join('\n\n');
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * Configure a marked instance that:
+ *  - turns ```mermaid blocks into <div class="mermaid">…</div> so the
+ *    Mermaid CDN script picks them up at runtime,
+ *  - leaves other code blocks alone (default marked renderer).
+ * Returns { parse, hasMermaid } where hasMermaid is whether the source
+ * contained at least one mermaid block (drives CDN script injection).
+ */
+function renderMarkdown(src: string): { html: string; hasMermaid: boolean } {
+  let hasMermaid = false;
+  const renderer = new marked.Renderer();
+  const originalCode = renderer.code.bind(renderer);
+  renderer.code = function (this: unknown, token: any) {
+    const lang = (token?.lang ?? '').trim().toLowerCase();
+    if (lang === 'mermaid') {
+      hasMermaid = true;
+      return `<div class="mermaid">\n${token.text}\n</div>\n`;
+    }
+    return originalCode(token);
+  } as typeof renderer.code;
+  const html = marked.parse(src, { renderer }) as string;
+  return { html, hasMermaid };
+}
+
+function wrapInShell(args: {
+  title: string;
+  lang: string;
+  body: string;
+  css: string;
+  hasMermaid: boolean;
+}): string {
+  const mermaidScript = args.hasMermaid
+    ? `<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({ startOnLoad: true, securityLevel: 'strict' });
+</script>`
+    : '';
+  return `<!DOCTYPE html>
+<html lang="${escapeHtml(args.lang)}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="@doklo-beta/livedoc-engine">
+<title>${escapeHtml(args.title)}</title>
+<style>${args.css}</style>
+</head>
+<body>
+<main class="livedoc">
+${args.body}
+</main>
+${mermaidScript}
+</body>
+</html>
+`;
+}
+
+/**
+ * Derive the document <title> from the first <h1> in the rendered body
+ * (per-Dok pages get "이메일 로그인 — 도움말" instead of a bare "도움말"),
+ * falling back to the template display name when no h1 exists.
+ */
+function deriveTitle(body: string, displayName: string): string {
+  const m = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(body);
+  if (!m?.[1]) return displayName;
+  const text = m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  if (!text) return displayName;
+  return text === displayName ? text : `${text} — ${displayName}`;
+}
+
+export const htmlWriter: Writer = async (ctx) => {
+  const { html: rawHtml, hasMermaid } = ctx.source === 'html'
+    ? { html: ctx.content, hasMermaid: false }
+    : renderMarkdown(ctx.content);
+  // dompurify strips <script>, so we sanitize the body (Mermaid CDN script
+  // is added by the shell *after* sanitization, never from user content).
+  const safeBody = DOMPurify.sanitize(rawHtml, {
+    USE_PROFILES: { html: true },
+    ADD_TAGS: ['div'],
+    // style: templates position screenshot annotation boxes via inline
+    // percentage coords (left/top/width/height) — no other way to carry
+    // per-image geometry through a static stylesheet.
+    ADD_ATTR: ['class', 'style'],
+  });
+  const extendsDefault =
+    (ctx.template as { extends_default_css?: boolean }).extends_default_css !== false;
+  const css = await buildStylesheet(ctx.templateDir, ctx.workspaceRoot, extendsDefault);
+  const displayName =
+    ctx.template.display_name?.[ctx.locale] ??
+    ctx.template.display_name?.[ctx.template.default_locale] ??
+    ctx.template.name;
+  const title = deriveTitle(safeBody, displayName);
+  const html = wrapInShell({
+    title,
+    lang: ctx.locale,
+    body: safeBody,
+    css,
+    hasMermaid,
+  });
+  const path = await writePlannedArtifact(ctx.outputRoot, ctx.plannedOutput, html);
+  return { path, bytes: Buffer.byteLength(html), format: 'html' };
+};

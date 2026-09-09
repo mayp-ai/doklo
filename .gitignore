@@ -1,0 +1,40 @@
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+
+.env
+.env.local
+
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+.turbo/
+.next/
+
+# Livedoc engine local smoke artefacts
+.doklo/smoke-output/
+.doklo/output/
+
+# Scan caches are derived (runScan output) — anywhere, incl. studio demo workspace
+**/.doklo/cache/
+
+# gstack (browse daemon) local audit/telemetry
+.gstack/
+
+# Claude Code worktrees (local session sandboxes — never commit)
+.claude/worktrees/
+
+# Codex implementation worktrees (local session sandboxes — never commit)
+.worktrees/
+
+# module-evals judge debug artefacts
+.doklo-eval-debug/
+
+# Model-matrix benchmark outputs
+benchmarks/.runs/
+
+# agent-context bench: local repo paths, never committed
+benchmarks/agent-context/tasks.json

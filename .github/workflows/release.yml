@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Least privilege at the top level; the publish job elevates to id-token: write.
+permissions:
+  contents: read
+
+# Never cancel an in-flight publish; group per tag ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @mayp/doklo to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # id-token: write is required for npm trusted publishing (OIDC).
+    # Job-level permissions REPLACE the top-level set, so contents: read is repeated.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # pnpm before setup-node so `cache: pnpm` can resolve the store path.
+      # `version` omitted -> read from the packageManager field in package.json.
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          # No registry-url / NODE_AUTH_TOKEN: npm trusted publishing (OIDC)
+          # replaces long-lived tokens. Before the first tag push, the npm-side
+          # trusted publisher (repo mayp-ai/doklo, workflow release.yml) must be
+          # registered in the npm web UI: https://docs.npmjs.com/trusted-publishers/
+
+      # Trusted publishing (OIDC) requires a recent npm CLI. Per the npm docs:
+      # "Trusted publishing requires npm CLI version 11.5.1 or later and Node
+      # version 22.14.0 or higher." (https://docs.npmjs.com/trusted-publishers/)
+      # Node 22's bundled npm is older than 11.5.1, so upgrade npm before publishing.
+      - name: Upgrade npm (>= 11.5.1) for trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Quality gate — mirror CI; do not publish a build that cannot pass.
+      - name: Build packages
+        run: pnpm build
+
+      - name: Build CLI
+        run: pnpm -C apps/cli build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build release package dir
+        run: pnpm -C apps/cli run build:release
+
+      # Version guard: the built package version must equal the pushed tag (minus 'v').
+      - name: Verify package version matches pushed tag
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          actual="$(jq -r .version apps/cli/release/package.json)"
+          echo "tag=${GITHUB_REF_NAME} expected=${expected} actual=${actual}"
+          if [ "${expected}" != "${actual}" ]; then
+            echo "::error::version mismatch — tag '${GITHUB_REF_NAME}' implies '${expected}' but apps/cli/release/package.json is '${actual}'"
+            exit 1
+          fi
+
+      - name: Apply npm preview documentation
+        run: |
+          cp apps/cli/npm/README.md apps/cli/release/README.md
+          cp apps/cli/npm/README.ko.md apps/cli/release/README.ko.md
+
+      # Publish via npm trusted publishing (OIDC). Provenance is automatic under
+      # trusted publishing; --provenance is kept explicit (harmless). --access
+      # public is required for the first publish of a scoped package.
+      - name: Publish to npm (provenance + public)
+        working-directory: apps/cli/release
+        run: npm publish --provenance --access public --tag preview

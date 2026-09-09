@@ -1,0 +1,53 @@
+{
+  "projectName": "doklo-studio-demo",
+  "basedOnFeaturesAt": "2026-07-07T00:00:00.000Z",
+  "generatedAt": "2026-07-07T00:00:00.000Z",
+  "model": "claude-haiku-4-5",
+  "originalFeatureIds": ["auth-signin", "cart", "order", "order-confirm", "pay", "pay-refund", "catalog-legacy"],
+  "userReviewed": false,
+  "stats": { "originalFeatures": 6, "consolidatedFeatures": 5, "merges": 1, "excluded": 1 },
+  "groups": [
+    {
+      "group_id": "auth", "label": "인증", "excluded": [],
+      "features": [
+        { "canonical_id": "auth-signin", "label": "로그인", "decision": "keep",
+          "members": ["auth-signin"], "primary_route": "/signin", "reason": "",
+          "user_reviewed": false, "dok_id_prefix": "AUTH",
+          "source_files": ["app/signin/page.tsx"] }
+      ]
+    },
+    {
+      "group_id": "catalog", "label": "카탈로그", "excluded": [
+        { "id": "catalog-legacy", "reason": "구버전 목록 페이지 — 사용 안 함" }
+      ],
+      "features": [
+        { "canonical_id": "cart", "label": "장바구니", "decision": "keep",
+          "members": ["cart"], "primary_route": "/cart", "reason": "",
+          "user_reviewed": false, "dok_id_prefix": "CART",
+          "source_files": ["app/cart/page.tsx"] }
+      ]
+    },
+    {
+      "group_id": "order", "label": "주문", "excluded": [],
+      "features": [
+        { "canonical_id": "order", "label": "주문 흐름", "decision": "merge",
+          "members": ["order", "order-confirm"], "primary_route": "/order", "reason": "주문/확인 화면 통합",
+          "user_reviewed": false, "dok_id_prefix": "ORD",
+          "source_files": ["app/order/page.tsx", "app/order/confirm/page.tsx"] }
+      ]
+    },
+    {
+      "group_id": "payment", "label": "결제", "excluded": [],
+      "features": [
+        { "canonical_id": "pay", "label": "결제", "decision": "keep",
+          "members": ["pay"], "primary_route": "/pay", "reason": "",
+          "user_reviewed": false, "dok_id_prefix": "PAY",
+          "source_files": ["app/pay/page.tsx"] },
+        { "canonical_id": "pay-refund", "label": "환불", "decision": "keep",
+          "members": ["pay-refund"], "primary_route": "/pay/refund", "reason": "",
+          "user_reviewed": false, "dok_id_prefix": "PAY-REFUND",
+          "source_files": ["app/pay/refund/page.tsx"] }
+      ]
+    }
+  ]
+}
