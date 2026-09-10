@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   publish:
-    name: Publish @mayp/doklo to npm
+    name: Stage @mayp/doklo for npm approval
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # id-token: write is required for npm trusted publishing (OIDC).
@@ -40,13 +40,11 @@ jobs:
           # trusted publisher (repo mayp-ai/doklo, workflow release.yml) must be
           # registered in the npm web UI: https://docs.npmjs.com/trusted-publishers/
 
-      # Trusted publishing (OIDC) requires a recent npm CLI. Per the npm docs:
-      # "Trusted publishing requires npm CLI version 11.5.1 or later and Node
-      # version 22.14.0 or higher." (https://docs.npmjs.com/trusted-publishers/)
-      # Node 22's bundled npm is older than 11.5.1, so upgrade npm before publishing.
-      - name: Upgrade npm (>= 11.5.1) for trusted publishing
+      # Staged publishing requires npm >=11.15.0 and Node >=22.14.0.
+      # Pin a compatible npm so future major releases cannot change this flow.
+      - name: Install npm with staged publishing support
         run: |
-          npm install -g npm@latest
+          npm install -g npm@11.19.1
           npm --version
 
       - name: Install dependencies
@@ -84,9 +82,9 @@ jobs:
           cp apps/cli/npm/README.md apps/cli/release/README.md
           cp apps/cli/npm/README.ko.md apps/cli/release/README.ko.md
 
-      # Publish via npm trusted publishing (OIDC). Provenance is automatic under
-      # trusted publishing; --provenance is kept explicit (harmless). --access
-      # public is required for the first publish of a scoped package.
-      - name: Publish to npm (provenance + public)
+      # Only stage via OIDC. A maintainer must review and approve with 2FA on
+      # npm before this version becomes public. Keep direct publishing disabled
+      # in the npm Trusted Publisher settings. Never approve from this workflow.
+      - name: Stage on npm (provenance + preview; human approval required)
         working-directory: apps/cli/release
-        run: npm publish --provenance --access public --tag preview
+        run: npm stage publish --provenance --access public --tag preview
