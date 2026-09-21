@@ -460,6 +460,7 @@ function DokEditorActionBar({
   pendingChange?: DokPendingChange;
 }) {
   const { push } = useSafeNavigation();
+  const { editingDok } = useStudio();
 
   return (
     <nav
@@ -467,14 +468,25 @@ function DokEditorActionBar({
       className="mb-6 flex flex-col gap-2 border-b border-border pb-4"
     >
       <div className="flex min-h-9 items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => void push('/doks')}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-sm text-[12.5px] font-medium text-ink-muted transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-        >
-          <ArrowLeft aria-hidden size={14} strokeWidth={1.75} />
-          Back to Doks
-        </button>
+        <div className="flex shrink-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void push('/doks')}
+            className="inline-flex items-center gap-1.5 rounded-sm text-[12.5px] font-medium text-ink-muted transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+          >
+            <ArrowLeft aria-hidden size={14} strokeWidth={1.75} />
+            Back to Doks
+          </button>
+          {editingDok && (
+            <button
+              type="button"
+              onClick={() => void push(`/doks/${editingDok.dok_id}`)}
+              className="rounded-sm text-[12.5px] font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Read view
+            </button>
+          )}
+        </div>
         <div className="flex min-w-0 items-center gap-2">
           <input
             name="change-note"

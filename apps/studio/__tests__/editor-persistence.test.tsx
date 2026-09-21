@@ -54,7 +54,12 @@ vi.mock('../lib/actions', () => ({
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ id: 'AUTH-SOCIAL' }),
+  useSearchParams: () => new URLSearchParams('edit=1'),
   useRouter: () => ({ push: actions.routerPush, refresh: vi.fn() }),
+}));
+
+vi.mock('../lib/source-repository-action', () => ({
+  readSourceRepositoryAction: vi.fn().mockResolvedValue(null),
 }));
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })

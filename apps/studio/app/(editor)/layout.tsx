@@ -17,14 +17,14 @@ export const dynamic = 'force-dynamic';
 export default async function EditorLayout({ children }: { children: ReactNode }) {
   const workspace = await loadWorkspace();
   return (
-    <div className="grid h-screen grid-cols-[240px_minmax(0,1fr)] grid-rows-[56px_minmax(0,1fr)] bg-canvas">
+    <div className="grid h-screen grid-cols-1 grid-rows-[56px_minmax(0,1fr)] bg-canvas md:grid-cols-[240px_minmax(0,1fr)]">
       <div className="col-span-full row-start-1">
         <AppHeader workspace={workspace} />
       </div>
-      <div className="col-start-1 row-start-2 overflow-y-auto">
+      <div className="hidden overflow-y-auto md:col-start-1 md:row-start-2 md:block">
         <EditorTreeRail />
       </div>
-      <div className="col-start-2 row-start-2 min-h-0 overflow-hidden">
+      <div className="col-start-1 row-start-2 min-h-0 overflow-hidden md:col-start-2">
         {children}
       </div>
     </div>

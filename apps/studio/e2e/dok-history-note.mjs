@@ -74,9 +74,26 @@ try {
 
   await check('A note with no other edit saves and records an `edited` entry', async () => {
     await page.goto(`${baseUrl}/doks/${NOTE_DOK}`, { waitUntil: 'domcontentloaded' });
+    await visible(page.getByTestId('dok-detail-view'));
+    await page.getByRole('link', { name: 'Edit Dok', exact: true }).click();
     await visible(page.getByRole('navigation', { name: 'Dok editor actions' }));
     const before = await readDok(NOTE_DOK);
     assert(before.status === 'active', `${NOTE_DOK} did not start active.`);
+
+    const description = page.getByRole('textbox', { name: 'Description' });
+    const persistedDescription = await description.inputValue();
+    const unsavedDescription = `${persistedDescription} UNSAVED DISCARD CHECK`;
+    await description.fill(unsavedDescription);
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Read view', exact: true }).click();
+    await visible(page.getByTestId('dok-detail-view'));
+    assert(!(await page.getByTestId('dok-detail-view').innerText()).includes('UNSAVED DISCARD CHECK'),
+      'Read view displayed an unsaved optimistic description after discard.');
+    await page.getByRole('link', { name: 'Edit Dok', exact: true }).click();
+    await visible(page.getByRole('navigation', { name: 'Dok editor actions' }));
+    assert(await description.inputValue() === persistedDescription,
+      'Re-entering the editor restored an unsaved discarded description.');
+
     assert(
       await saveButton(page).textContent() === 'Saved',
       'The action bar offered a save before anything changed.',
@@ -133,6 +150,8 @@ try {
 
   await check('A staged proposal shows in the action bar before approval', async () => {
     await page.goto(`${baseUrl}/doks/${PROPOSAL_DOK}`, { waitUntil: 'domcontentloaded' });
+    await visible(page.getByTestId('dok-detail-view'));
+    await page.getByRole('link', { name: 'Edit Dok', exact: true }).click();
     const banner = page.getByTestId('pending-proposal');
     await visible(banner);
     const text = (await banner.innerText()).replace(/\s+/g, ' ').trim();
