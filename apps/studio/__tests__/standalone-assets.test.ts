@@ -142,13 +142,12 @@ describe('copyStandaloneAssets', () => {
       new URL('../../cli/scripts/build-release.mjs', import.meta.url),
     );
     await writeFixtureFile(releaseScript, await readFile(sourceScript, 'utf-8'));
-    // build-release.mjs imports three sibling modules by relative path: the
-    // content guard, the release prerequisite contract, and the Node.js
-    // support range.
+    // Keep the isolated fixture's sibling modules aligned with build-release.
     for (const sibling of [
       'release-content-guard.mjs',
       'release-node-support.mjs',
       'release-prerequisites.mjs',
+      'release-studio-tree.mjs',
     ]) {
       await writeFixtureFile(
         join(cliDir, 'scripts', sibling),
@@ -700,6 +699,7 @@ describe('copyStandaloneAssets', () => {
       'release-content-guard.mjs',
       'release-node-support.mjs',
       'release-prerequisites.mjs',
+      'release-studio-tree.mjs',
     ]) {
       await writeFixtureFile(
         join(cliDir, 'scripts', sibling),
