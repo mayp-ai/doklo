@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-23
+
+### Added
+- Generic source analysis, Dok generation, and change detection for projects
+  without a dedicated framework parser, including projects without package.json.
+  Next.js App Router retains its specialized route and dependency extraction.
+- Korean installation, review, and coding-agent guidance in the repository and
+  the published package.
+
+### Fixed
+- Revalidate source permissions for cached analysis, framework detection, change
+  checks, and prepared generation inputs. Files excluded after generation
+  approval are checked again before model access.
+- Preserve separate dependency versions in the installed Studio bundle so Dok
+  and Live Docs pages can load their required modules.
+
+### Changed
+- The default npm installation uses the `latest` channel for 0.2.0. The package
+  remains a developer preview, with generated drafts requiring human review.
+- Generic analysis excludes known sensitive paths, ignored files, dependencies,
+  build output, binary files, and files over 1 MiB. Feature source above 192,000
+  characters is rejected rather than silently truncated.
+
 ## [0.1.0] - 2026-09-09
 
 ### Security
@@ -96,4 +119,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `doklo live-docs capture` is experimental and currently unavailable. Its hidden direct command fails closed before browser or filesystem access until output publication is race-safe and an app → capture → stable document E2E is release-gated.
 - `doklo template` — list, inspect, validate, scaffold, add, and remove Live Doc templates across built-in, user, and workspace sources.
 
+[0.2.0]: https://github.com/mayp-ai/doklo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mayp-ai/doklo/releases/tag/v0.1.0

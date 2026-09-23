@@ -77,7 +77,7 @@ jobs:
             exit 1
           fi
 
-      - name: Apply npm preview documentation
+      - name: Apply npm documentation
         run: |
           cp apps/cli/npm/README.md apps/cli/release/README.md
           cp apps/cli/npm/README.ko.md apps/cli/release/README.ko.md
@@ -85,6 +85,6 @@ jobs:
       # Only stage via OIDC. A maintainer must review and approve with 2FA on
       # npm before this version becomes public. Keep direct publishing disabled
       # in the npm Trusted Publisher settings. Never approve from this workflow.
-      - name: Stage on npm (provenance + preview; human approval required)
+      - name: Stage on npm (provenance + latest; human approval required)
         working-directory: apps/cli/release
-        run: npm stage publish --provenance --access public --tag preview
+        run: npm stage publish --provenance --access public --tag latest

@@ -36,12 +36,12 @@ Doklo reads AI-built software and turns it into product docs people can read, re
 ## Install
 
 ```bash
-npm install -g @mayp/doklo@preview
+npm install -g @mayp/doklo
 ```
 
 Node.js 20.9+. One project per workspace. See [current framework support](#what-to-know-before-you-start) before running Doklo on your project.
 
-The generic analysis described below is in the repository source for the next release. The published `0.1.0` preview supports Next.js App Router; install a package built from this source to try generic analysis before the next npm release.
+Version `0.2.0` adds generic source analysis alongside the specialized Next.js App Router parser. Doklo remains a developer preview; review generated drafts and the limitations below before relying on them.
 
 ## Quickstart
 

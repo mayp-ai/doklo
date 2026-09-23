@@ -5,10 +5,10 @@ Doklo reads supported application code and creates feature-document drafts for p
 ## Install
 
 ```bash
-npm install -g @mayp/doklo@preview
+npm install -g @mayp/doklo
 ```
 
-Requires Node.js 20.9 or newer, with one project per workspace. Generic source analysis works without a framework-specific parser or package.json. Next.js App Router adds specialized route and dependency extraction. Other frameworks use generic source evidence; framework detection does not guarantee complete route or behavior extraction.
+Version 0.2.0 requires Node.js 20.9 or newer, with one project per workspace. Generic source analysis works without a framework-specific parser or package.json. Next.js App Router adds specialized route and dependency extraction. Other frameworks use generic source evidence; framework detection does not guarantee complete route or behavior extraction.
 
 ## Start in your project
 
