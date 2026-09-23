@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-23
+
+### Changed
+- Separate supported features, existing-document tracking recovery, and current
+  limitations in the English and Korean npm READMEs.
+- Clarify that ordinary sync preserves human-edited documents, while
+  `doklo sync --force` overwrites their edits without automatic merging.
+- Distinguish the available local Dok review UI from the Live Review integration
+  that is not included in this preview. This release changes documentation only;
+  runtime behavior and existing limits are unchanged.
+
 ## [0.2.0] - 2026-09-23
 
 ### Added
@@ -119,5 +130,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `doklo live-docs capture` is experimental and currently unavailable. Its hidden direct command fails closed before browser or filesystem access until output publication is race-safe and an app → capture → stable document E2E is release-gated.
 - `doklo template` — list, inspect, validate, scaffold, add, and remove Live Doc templates across built-in, user, and workspace sources.
 
+[0.2.1]: https://github.com/mayp-ai/doklo/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/mayp-ai/doklo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mayp-ai/doklo/releases/tag/v0.1.0
