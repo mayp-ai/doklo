@@ -112,15 +112,15 @@ const DEPENDENCY_CATEGORIES: Record<string, string[]> = {
 /**
  * Next.js 프로젝트 메타데이터 추출
  */
-export async function parseNextJsProject(scanResult: ScanResult): Promise<NextJsProjectMeta> {
+export async function parseNextJsProject(scanResult: ScanResult, allowedSourceFiles?: ReadonlySet<string>): Promise<NextJsProjectMeta> {
   const rootDir = scanResult.rootDir;
 
   const [packageJson, nextConfig, appRouteAnalysis, middleware, envKeys] = await Promise.all([
-    parsePackageJson(rootDir),
-    parseNextConfig(rootDir),
+    !allowedSourceFiles || allowedSourceFiles.has('package.json') ? parsePackageJson(rootDir) : Promise.resolve(null),
+    parseNextConfig(rootDir, allowedSourceFiles),
     parseAppRoutes(rootDir, scanResult.files),
-    parseMiddleware(rootDir),
-    parseEnvFiles(rootDir),
+    parseMiddleware(rootDir, allowedSourceFiles),
+    parseEnvFiles(rootDir, allowedSourceFiles),
   ]);
 
   return {
@@ -219,10 +219,11 @@ function isNoteworthyPackage(name: string): boolean {
 /**
  * next.config 파싱
  */
-async function parseNextConfig(rootDir: string): Promise<NextConfigInfo | null> {
+async function parseNextConfig(rootDir: string, allowedSourceFiles?: ReadonlySet<string>): Promise<NextConfigInfo | null> {
   const configFiles = ['next.config.js', 'next.config.mjs', 'next.config.ts'];
 
   for (const configFile of configFiles) {
+    if (allowedSourceFiles && !allowedSourceFiles.has(configFile)) continue;
     const configPath = path.join(rootDir, configFile);
     try {
       const content = await fs.readFile(configPath, 'utf-8');
@@ -356,7 +357,7 @@ function extractDynamicParams(dirPath: string): string[] {
 /**
  * Middleware 파싱
  */
-async function parseMiddleware(rootDir: string): Promise<MiddlewareInfo | null> {
+async function parseMiddleware(rootDir: string, allowedSourceFiles?: ReadonlySet<string>): Promise<MiddlewareInfo | null> {
   const middlewarePaths = [
     'middleware.ts',
     'middleware.js',
@@ -365,6 +366,7 @@ async function parseMiddleware(rootDir: string): Promise<MiddlewareInfo | null> 
   ];
 
   for (const mwPath of middlewarePaths) {
+    if (allowedSourceFiles && !allowedSourceFiles.has(mwPath)) continue;
     try {
       const content = await fs.readFile(path.join(rootDir, mwPath), 'utf-8');
       
@@ -397,11 +399,12 @@ async function parseMiddleware(rootDir: string): Promise<MiddlewareInfo | null> 
 /**
  * 환경변수 키 추출 (.env 파일들)
  */
-async function parseEnvFiles(rootDir: string): Promise<string[]> {
+async function parseEnvFiles(rootDir: string, allowedSourceFiles?: ReadonlySet<string>): Promise<string[]> {
   const envFiles = ['.env', '.env.local', '.env.development', '.env.production', '.env.example'];
   const allKeys = new Set<string>();
 
   for (const envFile of envFiles) {
+    if (allowedSourceFiles && !allowedSourceFiles.has(envFile)) continue;
     try {
       const content = await fs.readFile(path.join(rootDir, envFile), 'utf-8');
       const lines = content.split('\n');

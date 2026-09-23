@@ -9,7 +9,7 @@ import type { Command } from 'commander';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import {
-  extractIR,
+  extractProjectIR,
   type ParserFileLedgerEntry,
 } from '@doklo-beta/adapter-nextjs';
 import { resolveContainedOutputPath, resolveContainedPath } from '@doklo-beta/generator';
@@ -25,7 +25,6 @@ import { loadWorkspaceWithPaths } from '../lib/workspace.js';
 import type { CliContext } from '../lib/context.js';
 import { writeTextFileAtomic } from '../lib/atomic-file.js';
 import {
-  assertSupportedFramework,
   assertSupportedRuntimeProject,
 } from '../lib/runtime-support.js';
 import { recordCommandResult, type CommandDiagnostic } from '../lib/command-result.js';
@@ -39,7 +38,7 @@ export interface ScanDeps {
 }
 
 const DEFAULT_DEPS: ScanDeps = {
-  extractIR,
+  extractIR: extractProjectIR,
 };
 
 export interface RunScanOptions {
@@ -137,9 +136,6 @@ export async function runScan(
     throw new ScanServiceNotFoundError(opts.serviceId);
   }
   const services = selectedService ? [selectedService] : workspace.services;
-  for (const service of services) {
-    assertSupportedFramework(service.framework);
-  }
 
   const results: ScanServiceResult[] = [];
   const skipped: ScanSkip[] = [];
@@ -355,6 +351,14 @@ export async function validateProjectIrPaths(
   ir: ProjectIR,
 ): Promise<void> {
   const candidates = new Set<string>(ir.files);
+  const unitIds = new Set<string>();
+  for (const unit of ir.analysis_units ?? []) {
+    if (unitIds.has(unit.id)) throw new Error('Duplicate analysis unit id.');
+    unitIds.add(unit.id);
+    for (const file of unit.files) {
+      if (!candidates.has(file)) throw new Error('Analysis unit references an undiscovered source file.');
+    }
+  }
   for (const route of ir.routes) {
     candidates.add(route.file);
     for (const layout of route.layout_chain) candidates.add(layout);

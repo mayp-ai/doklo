@@ -124,7 +124,7 @@ describe('runInit', () => {
     expect(ws.services[0].type).toBe('frontend');
   });
 
-  it('rejects a non-Next project before creating .doklo', async () => {
+  it('initializes a non-Next project', async () => {
     const root = await mkdtemp(join(tmpdir(), 'doklo-init-empty-'));
     await writeFile(
       join(root, 'package.json'),
@@ -139,11 +139,11 @@ describe('runInit', () => {
       defaultLocale: 'ko',
       supportedLocales: ['ko', 'en'],
       serviceId: 'web',
-    })).rejects.toMatchObject({ code: 'UNSUPPORTED_NEXTJS_PROJECT' });
-    await expect(access(join(root, '.doklo'))).rejects.toMatchObject({ code: 'ENOENT' });
+    })).resolves.toMatchObject({ framework: 'unknown' });
+    await access(join(root, '.doklo'));
   });
 
-  it('rejects a declared non-Next framework before inspecting a valid App Router project', async () => {
+  it('preserves the declared framework as metadata', async () => {
     const root = await nextjsTmp();
 
     await expect(runInit({
@@ -154,41 +154,17 @@ describe('runInit', () => {
       supportedLocales: ['en'],
       serviceId: 'web',
       framework: 'react-native',
-    })).rejects.toMatchObject({
-      code: 'UNSUPPORTED_FRAMEWORK',
-      details: { framework: 'react-native' },
-    });
-    await expect(access(join(root, '.doklo'))).rejects.toMatchObject({ code: 'ENOENT' });
+    })).resolves.toMatchObject({ framework: 'react-native' });
+    await access(join(root, '.doklo'));
   });
 
-  it.each([
-    [
-      'en',
-      'Detected framework: Express. Doklo 0.1.0 analyzes Next.js (App Router) projects only. NestJS and Express adapters, and an AI-draft analysis mode for other frameworks, are next on the roadmap. Updates and early access: https://doklo.io/contact',
-    ],
-    [
-      'ko',
-      '감지된 프레임워크: Express. Doklo 0.1.0은 Next.js(App Router) 프로젝트만 분석할 수 있습니다. NestJS와 Express 어댑터, 그리고 다른 프레임워크를 위한 AI 초안 분석 기능을 다음 순서로 준비하고 있습니다. 진행 소식과 사전 이용 신청은 https://doklo.io/contact 에서 확인하실 수 있습니다.',
-    ],
-  ] as const)('reports a detected Express project with the %s guidance', async (locale, expected) => {
+  it.each(['en', 'ko'] as const)('initializes Express with locale %s', async locale => {
     const root = await mkdtemp(join(tmpdir(), 'doklo-init-express-'));
-    await writeFile(
-      join(root, 'package.json'),
-      JSON.stringify({ dependencies: { express: '^5.0.0' } }),
-      'utf-8',
-    );
-    vi.stubEnv('DOKLO_LOCALE', locale);
+    await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { express: '^5.0.0' } }));
     const program = new Command();
     registerInitCommand(program, createContext(locale));
-
-    await expect(
-      program.parseAsync(['init', '--root', root, '--yes'], { from: 'user' }),
-    ).rejects.toMatchObject({
-      code: 'UNSUPPORTED_FRAMEWORK',
-      message: expected,
-      details: { framework: 'express' },
-    });
-    await expect(access(join(root, '.doklo'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await program.parseAsync(['init', '--root', root, '--yes', '--no-scan'], { from: 'user' });
+    expect(JSON.parse(await readFile(join(root, 'workspace.json'), 'utf8')).services[0].framework).toBe('express');
   });
 
   it('returns the resolved workspace paths (so the CLI can print them)', async () => {

@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -64,6 +65,23 @@ describe('anchor reads', () => {
     const async_ = await readAnchorContents(['a.ts', '../escape.ts'], root);
     expect(async_.contents).toEqual([{ file: 'a.ts', content: 'A' }]);
     expect(async_.missing).toEqual(['../escape.ts']);
+  });
+
+  it.each([false, true])('excludes a source ignored after it was anchored (tracked=%s)', async tracked => {
+    if (tracked) {
+      execFileSync('git', ['init', '-q', root]);
+      execFileSync('git', ['-C', root, 'add', 'a.ts', 'lib/b.ts']);
+    }
+    writeFileSync(join(root, '.gitignore'), 'a.ts\n');
+    writeFileSync(join(root, 'a.ts'), 'SYNTHETIC_PRIVATE_SOURCE');
+    const expected = { contents: [{ file: 'lib/b.ts', content: 'B' }], missing: ['a.ts'] };
+    expect(readAnchorContentsSync(['a.ts', 'lib/b.ts'], root)).toEqual(expected);
+    expect(await readAnchorContents(['a.ts', 'lib/b.ts'], root)).toEqual(expected);
+  });
+
+  it('excludes credential files referenced by legacy anchors', () => {
+    writeFileSync(join(root, '.env'), 'SYNTHETIC_PRIVATE_SOURCE');
+    expect(readAnchorContentsSync(['.env'], root)).toEqual({ contents: [], missing: ['.env'] });
   });
 
   it('resolves the sync and async readers to identical results (compute ≡ verify)', async () => {

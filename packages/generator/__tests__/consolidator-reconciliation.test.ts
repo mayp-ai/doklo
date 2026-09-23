@@ -221,3 +221,21 @@ describe('consolidateFeatures — id reconciliation', () => {
       .toEqual(['app/auth/signin/page.tsx']);
   });
 });
+
+it('retains generic source for generation when metadata-only consolidation excludes it', async () => {
+  const source = features();
+  const f = source.featureGroups[0]!.features[0]!;
+  f.routePath = '';
+  f.entryPoint = 'src/notices.py';
+  f.files = [{ path: 'src/notices.py', role: 'entry', depth: 0, isShared: false }];
+  callModelMock.mockResolvedValue({ success: true, content: JSON.stringify({ groups: [{
+    group_id: 'auth', group_label: 'Auth', decisions: [{ canonical_id: f.id,
+      label: 'Source', decision: 'exclude', members: [f.id], primary_route: '',
+      reason: 'Only one file, no route metadata',
+    }],
+  }] }), usage: null, processingTime: 1, error: null });
+  const result = await consolidateFeatures(source, { serviceId: 'web' });
+  expect(result.config?.groups[0]?.features).toHaveLength(1);
+  expect(result.config?.groups[0]?.features[0]?.source_files).toEqual(['src/notices.py']);
+  expect(result.config?.groups[0]?.excluded).toEqual([]);
+});

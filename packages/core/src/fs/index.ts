@@ -26,3 +26,6 @@ export type {
   UnlinkContainedOptions,
   WriteFileAtomicContainedOptions,
 } from './atomic-file.js';
+
+export { isSensitiveSourcePath, isExcludedSourcePath } from './source-policy.js';
+export { currentSourcePathsSync } from './source-inventory.js';

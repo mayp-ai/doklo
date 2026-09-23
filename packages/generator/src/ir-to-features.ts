@@ -107,6 +107,22 @@ export function irToFeatures(ir: ProjectIR, opts: IrToFeaturesOptions): FeatureC
     });
   }
 
+  const unitFiles = new Set<string>();
+  if (ir.analysis_units?.length) {
+    const candidates: Feature[] = ir.analysis_units.map(unit => {
+      for (const file of unit.files) unitFiles.add(file);
+      return {
+        id: unit.id, label: unit.label, routePath: '', entryPoint: unit.files[0]!,
+        files: unit.files.map((path, index) => ({ path, role: index === 0 ? 'entry' as const : 'util' as const, depth: 0, isShared: false })),
+        // No dependency parser: conservatively track all discovered source.
+        logic_files: [...ir.files], apiRoutes: [], components: [], stores: [], enabled: true,
+      };
+    });
+    featureGroups.push({ id: '_source', label: 'Source analysis', routePrefix: '',
+      description: 'File-based candidates for analysis; no HTTP routes inferred.', features: candidates,
+      totalFileCount: unitFiles.size, enabled: true });
+  }
+
   // Shared infrastructure: bucket the shared-file set by role. Without a
   // graph, fall back to the prior heuristic (every component / hook / store
   // declared in the IR is "shared").
@@ -147,7 +163,7 @@ export function irToFeatures(ir: ProjectIR, opts: IrToFeaturesOptions): FeatureC
     terminology: opts.terminology ?? {},
     generatedAt: new Date().toISOString(),
     totalFiles: ir.files.length,
-    unmappedFiles,
+    unmappedFiles: unmappedFiles.filter(file => !unitFiles.has(file)),
   };
 }
 

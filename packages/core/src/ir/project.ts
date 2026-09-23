@@ -19,6 +19,12 @@ export const ProjectIRSchema = z.object({
   root: z.string().min(1),
   // All discovered source files relative to `root`.
   files: z.array(z.string()).default([]),
+  // File-based analysis candidates; these are not inferred HTTP routes.
+  analysis_units: z.array(z.object({
+    id: z.string().min(1),
+    label: z.string().min(1),
+    files: z.array(z.string().min(1)).min(1),
+  })).optional(),
   routes: z.array(RouteIRSchema).default([]),
   components: z.array(ComponentIRSchema).default([]),
   stores: z.array(StoreIRSchema).default([]),

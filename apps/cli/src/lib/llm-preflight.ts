@@ -1,3 +1,4 @@
+import { isSensitiveSourcePath } from '@doklo-beta/core';
 import { createHash, randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { LLMUsage, ProviderKind } from '@doklo-beta/generator';
@@ -700,6 +701,7 @@ function runtimeTrustRoute(llm: {
 }
 
 export function isSensitiveLlmPath(file: string): boolean {
+  if (isSensitiveSourcePath(file)) return true;
   const normalized = file.replaceAll('\\', '/').replace(/^\.\//, '');
   const lower = normalized.toLowerCase();
   const parts = lower.split('/').filter(Boolean);

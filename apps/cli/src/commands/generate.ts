@@ -6,6 +6,7 @@ import { resolveLlmTokenLimits, readLlmTokenBudget, estimateConservativeLlmCallT
 // and writes one .doklo/hub/doks/<DOK-ID>.json per success. Failures are
 // surfaced in result.failures (whole run does not throw).
 
+import { validateCurrentSourceFiles } from '../lib/current-source-policy.js';
 import { assertRecordingSource, assertCacheSource } from '../lib/recording-branch.js';
 import type { Command } from 'commander';
 import { InvalidArgumentError } from 'commander';
@@ -15,6 +16,7 @@ import { dirname, join, relative } from 'node:path';
 import {
   assignDokIds,
   buildDokPromptParts,
+  DOK_SOURCE_MAX_CHARS,
   capDokRolesForPrompt,
   carryForwardMeta,
   joinPromptParts,
@@ -91,7 +93,7 @@ import {
   type UnverifiedIdReuseNotice,
 } from './consolidate.js';
 import { scanCachePath, runScan, validateProjectIrPaths } from './scan.js';
-import { hasValidatedTrackingGraph, refreshTrackingMappings } from '../lib/tracking-recovery.js';
+import { hasValidatedTrackingEvidence, refreshTrackingMappings } from '../lib/tracking-recovery.js';
 import { runServe } from './serve.js';
 import { DEFAULT_STUDIO_PORT, pickStudioPort } from '../lib/studio-port.js';
 import { InvalidRolesFileError, runRolesRefresh } from './roles.js';
@@ -115,7 +117,6 @@ import {
   runGateInteraction,
 } from '../lib/generate-gate.js';
 import {
-  assertSupportedFramework,
   assertSupportedRuntimeProject,
 } from '../lib/runtime-support.js';
 import {
@@ -397,9 +398,6 @@ export async function preflightGenerateHub(
     throw new GenerateServiceNotFoundError(opts.serviceId);
   }
   const services = selectedService ? [selectedService] : workspace.services;
-  for (const service of services) {
-    assertSupportedFramework(service.framework);
-  }
   // Normalize malformed roles into a file-scoped error before the shared Hub
   // validator's raw JSON parser can erase the affected-file identity.
   await loadKnownRoles(
@@ -530,7 +528,6 @@ export async function runGenerate(
   const services = selectedService ? [selectedService] : workspace.services;
   const serviceRoots = new Map<Service, string>();
   for (const service of services) {
-    assertSupportedFramework(service.framework);
     const serviceRoot = await resolveContainedPath(paths.root, service.code_root);
     await assertSupportedRuntimeProject(serviceRoot);
     serviceRoots.set(service, serviceRoot);
@@ -636,7 +633,7 @@ export async function runGenerate(
     } else {
       ir = ProjectIRSchema.parse(JSON.parse(await readFile(scanPath, 'utf-8')));
       await validateProjectIrPaths(serviceRoot, ir);
-      if (hasValidatedTrackingGraph(ir)) {
+      if (hasValidatedTrackingEvidence(ir)) {
         consolidated = refreshTrackingMappings(consolidated, ir);
         await validateConsolidatedPaths(serviceRoot, consolidated);
       }
@@ -749,6 +746,19 @@ export async function runGenerate(
     ? { roles: [], sources: [] }
     : buildProspectiveRolePlan(serviceContexts);
 
+  // Resolve legacy route fallbacks before checking current permission. Batch by
+  // service so a many-Dok preview inventories Git once, not once per document.
+  const currentFilesByRoot = new Map<string, Set<string>>();
+  for (const item of workList) {
+    const feature = buildFeatureForGeneration(item.feature, item.ir);
+    const files = currentFilesByRoot.get(item.serviceRoot) ?? new Set<string>();
+    for (const file of [...feature.files, ...(feature.logic_files ?? [])]) files.add(file);
+    currentFilesByRoot.set(item.serviceRoot, files);
+  }
+  for (const [root, files] of currentFilesByRoot) {
+    await validateCurrentSourceFiles(root, files);
+  }
+
   for (const item of workList) {
     transmissions.push({
       phase: 'generate',
@@ -758,13 +768,13 @@ export async function runGenerate(
       dokId: item.dokId,
     });
     const forGen = buildFeatureForGeneration(item.feature, item.ir);
-    for (const [index, file] of forGen.files.slice(0, 8).entries()) {
+    for (const file of forGen.files) {
       await resolveContainedPath(item.serviceRoot, file);
       transmissions.push({
         phase: 'generate',
         serviceId: item.serviceId,
         file: file.replaceAll('\\', '/'),
-        maxChars: index < 4 ? 2_000 : 0,
+        maxChars: DOK_SOURCE_MAX_CHARS,
         dokId: item.dokId,
       });
     }
@@ -1004,6 +1014,14 @@ export async function runGenerate(
     const forGen = preparedItem.feature;
     const ctx = preparedItem.ctx;
 
+    // Approval preserves the prepared payload, but source access may have
+    // changed since preview. Check the exact payload before authorizing a call.
+    await validateCurrentSourceFiles(projectRoot, new Set([
+      ...forGen.files,
+      ...(forGen.logic_files ?? []),
+      ...Object.keys(ctx.fileContext),
+    ]));
+
     emit({
       stage: 'dok-start',
       index,
@@ -1185,7 +1203,7 @@ export async function runGenerate(
     // and partial reads cannot establish a new trusted baseline.
     delete dok._meta.tracking_version;
     delete dok._meta.tracking_review_required;
-    if (p.ir && hasValidatedTrackingGraph(p.ir) && driftFiles.length > 0 && anchorRead.missing.length === 0 && logicHash) {
+    if (p.ir && hasValidatedTrackingEvidence(p.ir) && driftFiles.length > 0 && anchorRead.missing.length === 0 && logicHash) {
       dok._meta.tracking_version = 2;
     } else if (existingDokByPlannedId.get(p.dokId)?._meta.tracking_review_required) {
       dok._meta.tracking_review_required = true;
@@ -1714,7 +1732,7 @@ function buildFeatureForGeneration(
     const logicSeen = new Set<string>();
     const deduped: string[] = [];
     for (const f of feature.logic_files) {
-      if (!logicSeen.has(f)) {
+      if (!isSensitiveLlmPath(f) && !logicSeen.has(f)) {
         logicSeen.add(f);
         deduped.push(f);
       }
@@ -2208,13 +2226,17 @@ async function loadFileContext(
   files: string[],
 ): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
-  for (const f of files.slice(0, 4)) {
+  let totalChars = 0;
+  for (const f of files) {
     const absolute = await resolveContainedPath(projectRoot, f);
-    try {
-      out[f] = (await readFile(absolute, 'utf-8')).slice(0, 2_000);
-    } catch {
-      // missing file — skip silently. The LLM works from whatever it has.
+    // Do not stamp an unread or truncated file as evidence. Fail before the
+    // approved provider call so the user can rescan or split the feature.
+    const content = await readFile(absolute, 'utf-8');
+    totalChars += content.length;
+    if (totalChars > DOK_SOURCE_MAX_CHARS) {
+      throw new Error(`Source context exceeds ${DOK_SOURCE_MAX_CHARS} characters at ${f}; split the service or feature before generation. No source was silently omitted.`);
     }
+    out[f] = content;
   }
   return out;
 }
@@ -2242,6 +2264,7 @@ async function validateConsolidatedPaths(
     }
   }
   await validateServicePaths(serviceRoot, paths);
+  await validateCurrentSourceFiles(serviceRoot, [...paths].filter(path => !isSensitiveLlmPath(path)));
 }
 
 async function validateServicePaths(

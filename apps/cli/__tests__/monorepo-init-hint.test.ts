@@ -1,8 +1,7 @@
 // __tests__/monorepo-init-hint.test.ts
 //
-// A monorepo root has no `next` dependency, so `doklo init` correctly fails —
-// but "framework unknown" is a dead end when the app is one directory down.
-// These tests pin the hint that turns it into a pointer.
+// A monorepo root is now admitted through generic analysis. Legacy error
+// formatting remains available for compatibility.
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -53,37 +52,9 @@ describe('UnsupportedFrameworkError', () => {
 });
 
 describe('runInit in a monorepo root', () => {
-  it('fails, but points at the app it found', async () => {
+  it.each(['unknown', 'react-native'] as const)('initializes the entire root with %s metadata', async framework => {
     const root = monorepo();
-
-    await expect(runInit({ ...initArgs(root), framework: 'unknown' })).rejects.toMatchObject({
-      code: 'UNSUPPORTED_FRAMEWORK',
-      details: { framework: 'unknown', monorepoApps: ['apps/web'] },
-    });
-    // The failure must stay clean: no half-written workspace.
-    await expect(access(join(root, '.doklo'))).rejects.toMatchObject({ code: 'ENOENT' });
-  });
-
-  it('does not claim a monorepo when the repo is a plain single package', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'doklo-solo-init-'));
-    write(root, 'package.json', { name: 'solo' });
-
-    await expect(runInit({ ...initArgs(root), framework: 'unknown' })).rejects.toMatchObject({
-      code: 'UNSUPPORTED_FRAMEWORK',
-      details: { monorepoApps: [] },
-    });
-  });
-
-  it('points at the apps even when a non-Next framework was declared', async () => {
-    // Whatever the user declared, the actionable part of the failure is where
-    // the Next.js apps actually are.
-    const root = monorepo();
-
-    const error = await runInit({ ...initArgs(root), framework: 'react-native' }).catch(
-      (e: unknown) => e as UnsupportedFrameworkError,
-    );
-
-    expect(error.details.framework).toBe('react-native');
-    expect(error.details.monorepoApps).toEqual(['apps/web']);
+    await expect(runInit({ ...initArgs(root), framework })).resolves.toMatchObject({ framework });
+    await access(join(root, '.doklo'));
   });
 });

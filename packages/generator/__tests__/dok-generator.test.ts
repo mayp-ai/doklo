@@ -24,6 +24,15 @@ const ctx: DokGenContext = {
 };
 
 describe('buildDokPrompt', () => {
+  it('preserves late rules instead of silently truncating supplied source', () => {
+    const content = '// context\n'.repeat(1500) + 'LATE_BUSINESS_RULE';
+    expect(buildDokPrompt(sampleFeature, {...ctx, fileContext: {'src/rules.ts': content}})).toContain('LATE_BUSINESS_RULE');
+  });
+
+  it('rejects an oversized combined context before making an incomplete prompt', () => {
+    expect(() => buildDokPrompt(sampleFeature, {...ctx, fileContext: {'a.ts': 'a'.repeat(100_000), 'b.ts': 'b'.repeat(100_000)}})).toThrow(/context.*192000/i);
+  });
+
   it('embeds the chosen dok_id verbatim', () => {
     const p = buildDokPrompt(sampleFeature, ctx);
     expect(p).toContain('AUTH');

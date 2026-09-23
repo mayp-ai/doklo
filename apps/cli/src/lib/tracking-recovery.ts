@@ -38,8 +38,27 @@ export function hasValidatedTrackingGraph(ir: ProjectIR): boolean {
   return true;
 }
 
+/** Generic text inventory establishes a conservative file baseline, not import edges. */
+export function hasValidatedTrackingEvidence(ir: ProjectIR): boolean {
+  if (hasValidatedTrackingGraph(ir)) return true;
+  if (ir.framework_specific?.['analysis_strategy'] !== 'generic-files-v1') return false;
+  const files = new Set(ir.files);
+  const ledger = ir.framework_specific['file_ledger'];
+  if (files.size === 0 || files.size !== ir.files.length || !Array.isArray(ledger)) return false;
+  const included = new Set<string>();
+  for (const entry of ledger) {
+    if (!entry || typeof entry !== 'object') return false;
+    if (entry.status === 'excluded') continue;
+    if (entry.status !== 'processed' || entry.reason !== 'TEXT_SOURCE' || included.has(entry.file) || !files.has(entry.file)) return false;
+    included.add(entry.file);
+  }
+  const units = ir.analysis_units ?? [];
+  const covered = new Set(units.flatMap(unit => unit.files));
+  return included.size === files.size && covered.size === files.size && [...covered].every(file => files.has(file));
+}
+
 export function refreshTrackingMappings(config: ConsolidatedFeatureConfig, ir: ProjectIR): ConsolidatedFeatureConfig {
-  if (!hasValidatedTrackingGraph(ir)) throw new TrackingRecoveryError('Tracking recovery requires a current validated import graph. Run doklo scan first.');
+  if (!hasValidatedTrackingEvidence(ir)) throw new TrackingRecoveryError('Tracking recovery requires validated source evidence. Run doklo scan first.');
   const source = irToFeatures(ir, { projectName: config.projectName });
   const ids = new Set(source.featureGroups.flatMap(group => group.features.map(feature => feature.id)));
   const missing = config.groups.flatMap(group => group.features.flatMap(feature => feature.members.filter(id => !ids.has(id))));

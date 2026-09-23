@@ -1,3 +1,4 @@
+import { sourceFileSystem } from './source-filesystem.js';
 // ============================================
 // Store Parser: 상태 관리 구조 추출
 // ============================================
@@ -65,6 +66,7 @@ export interface ContextInfo {
  */
 export function parseStores(scanResult: ScanResult): StoreAnalysis {
   const project = new Project({
+    fileSystem: sourceFileSystem(scanResult.rootDir, scanResult.files),
     compilerOptions: {
       allowJs: true,
       jsx: 2,

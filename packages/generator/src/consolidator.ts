@@ -324,6 +324,9 @@ function summarizeFeatures(config: FeatureConfig): FeatureSummary[] {
  * 한 Feature의 대표 파일 추출 — 의미 판단에 도움되는 컴포넌트 위주
  */
 function pickKeyFiles(feature: Feature): string[] {
+  if (feature.routePath === '') {
+    return [...new Set([feature.entryPoint, ...feature.files.map(file => file.path)])].slice(0, MAX_KEY_FILES_PER_FEATURE);
+  }
   // page.tsx 자기 자신은 너무 generic하므로 컴포넌트 위주로 픽
   // shared가 아니고, depth가 낮은 (entry에 가까운) 컴포넌트가 의미 판단에 유용
   const candidates = feature.files
@@ -357,7 +360,9 @@ function buildConsolidationPrompt(
 ): PromptParts {
   const systemPrompt = `# Feature Consolidation Task
 
-You are analyzing a Next.js project's auto-extracted feature list. The structural extractor split each \`page.tsx\` into a separate Feature, but some features are likely **semantic duplicates or dead variants** that should be consolidated before generating documentation (Doks).
+You are analyzing code-derived candidates from a software project. Route-based candidates come from an optional framework parser. Generic file-based candidates group source files for analysis and are not confirmed business features. Some candidates may be semantic duplicates that should be consolidated before generating documentation (Doks).
+
+For file-based candidates with an empty routePath, preserve an empty primary_route. Never invent an HTTP route or assume a frontend. Use the source filenames and labels as evidence, keep uncertain candidates for code review, and do not apply page-wrapper or route-variant exclusion rules to them.
 
 ## Your Task
 
@@ -584,9 +589,16 @@ function normalizeConsolidationOutput(
 
       if (d.decision === 'exclude') {
         for (const id of validMembers) {
+          const candidate = sourceGroup.features.find(feature => feature.id === id)!;
+          // Consolidation sees filenames, not source. It cannot decide generic
+          // application code has no business behavior. Leave it unhandled so
+          // the deterministic keep below sends it to the source-reading phase.
+          const metadataOnly = candidate.files.every(file =>
+            /(?:^|\/)(?:package\.json|pom\.xml|requirements\.txt|pyproject\.toml|go\.mod|Cargo\.toml|composer\.json|Gemfile)$/.test(file.path));
+          if (candidate.routePath === '' && !metadataOnly) continue;
           excluded.push({ id, reason: d.reason });
+          excludeCount += 1;
         }
-        excludeCount += validMembers.length;
       } else {
         // dok_id_prefix 정규화 + 충돌 회피
         const prefix = ensureUniquePrefix(
@@ -628,7 +640,7 @@ function normalizeConsolidationOutput(
         decision: 'keep',
         members: [orphan.id],
         primary_route: orphan.routePath,
-        reason: '(자동 keep — LLM 응답 누락)',
+        reason: '(자동 keep — 소스 검토 필요 또는 LLM 응답 누락)',
         user_reviewed: false,
         dok_id_prefix: prefix,
       });

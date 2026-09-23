@@ -37,6 +37,8 @@ export interface ExtractIROptions {
    * irToFeatures to attribute non-entry files to features.
    */
   includeImportGraph?: boolean;
+  /** Optional shared discovery boundary supplied by the parser registry. */
+  allowedSourceFiles?: ReadonlySet<string>;
 }
 
 // Run the full Next.js adapter pipeline and emit a ProjectIR.
@@ -52,10 +54,14 @@ export interface ExtractIROptions {
 export async function extractIR(options: ExtractIROptions): Promise<ProjectIR> {
   const support = await inspectNextJsSupport(options.rootDir);
   const scan = await scanProject(options.rootDir);
+  if (options.allowedSourceFiles) {
+    scan.files = scan.files.filter(file => options.allowedSourceFiles!.has(file));
+    scan.candidates = scan.candidates.filter(candidate => options.allowedSourceFiles!.has(candidate.file));
+  }
 
   const [ast, next, storeAnalysis] = await Promise.all([
     Promise.resolve(parseProject(scan)),
-    parseNextJsProject(scan),
+    parseNextJsProject(scan, options.allowedSourceFiles),
     Promise.resolve(parseStores(scan)),
   ]);
 
@@ -92,6 +98,7 @@ export async function extractIR(options: ExtractIROptions): Promise<ProjectIR> {
       const graph = buildImportGraph({
         rootDir: scan.rootDir,
         entryFiles: pageEntryFiles,
+        allowedSourceFiles: options.allowedSourceFiles,
       });
       importGraphSerialized = serializeImportGraph(graph);
       importGraphDiagnostics = graph.diagnostics ?? [];
@@ -167,3 +174,6 @@ export type * from './legacy-types.js';
 
 // Sentinel for "is this package wired up?" smoke checks.
 export const ADAPTER_VERSION = '0.1.0';
+
+export * from './generic.js';
+export * from './registry.js';

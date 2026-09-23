@@ -36,10 +36,12 @@ Doklo reads AI-built software and turns it into product docs people can read, re
 ## Install
 
 ```bash
-npm install -g @mayp/doklo
+npm install -g @mayp/doklo@preview
 ```
 
 Node.js 20.9+. One project per workspace. See [current framework support](#what-to-know-before-you-start) before running Doklo on your project.
+
+The generic analysis described below is in the repository source for the next release. The published `0.1.0` preview supports Next.js App Router; install a package built from this source to try generic analysis before the next npm release.
 
 ## Quickstart
 
@@ -61,9 +63,10 @@ To connect a coding agent, see [Use it from your AI agent (MCP)](#use-it-from-yo
 
 ## What to know before you start
 
-- ⚠️ **Current framework support:** This release supports Next.js App Router. Parsers for additional frameworks are planned; they are not available yet. Other frameworks currently return `UNSUPPORTED_FRAMEWORK`.
+- **Framework support:** Generic source analysis works without a framework-specific parser or package.json. Next.js App Router adds specialized route and dependency extraction; more parsers can be registered over time. Other source files remain available for analysis, including in mixed-language projects.
 - `doklo sync` regenerates through a supported model and an authenticated profile you select; the credential-free local Claude Code route is `generate`-only.
-- Tracking follows static import declarations within a bounded depth. Dynamic imports and runtime wiring may be absent. Unresolved internal imports stop the scan. Older tracking is reported as unknown until it is rebuilt and reviewed.
+- Generic analysis keeps projects with up to 24 readable UTF-8 files together for model review; larger inventories are grouped by directory. It conservatively tracks the discovered source inventory. Known credential/config paths (including `.env`, private keys, `.properties`, and application credential configuration), dependency/build output and Git-ignored paths are excluded before source reads. Binary files and files over 1 MiB are also excluded. Path rules cannot recognize secrets embedded in arbitrarily named application source; exclude those paths with `.gitignore` before analysis. Rescan after adding files. With a specialized parser, tracking follows static import declarations within a bounded depth. Dynamic imports and runtime wiring may be absent. Unresolved internal imports stop the scan. Older tracking is reported as unknown until it is rebuilt and reviewed.
+- A feature whose combined source exceeds 192,000 characters is rejected before generation rather than silently truncated. Split large services or feature groups before retrying.
 - Descriptions may be wrong or incomplete. "Fresh" means the tracked source files have not changed, not that the text is correct.
 - In stable help docs, a description that still contains internal identifiers is skipped and reported. Terms listed in `workspace.json` under `stable_public_terms` are not treated as identifiers (exact match only).
 

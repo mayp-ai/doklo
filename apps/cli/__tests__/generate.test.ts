@@ -883,12 +883,12 @@ describe('runGenerate', () => {
 
   it('builds a contained, sensitive-filtered transmission preview without consent', async () => {
     const root = await tmpInit();
-    await writeFixtureFiles(root, ['src/auth.ts', 'src/auth.test.ts', '.env']);
+    await writeFixtureFiles(root, ['src/auth.ts', 'src/auth.test.ts', '.env', 'AuthKey.p8', 'application.properties']);
     await writeConsolidatedWithFiles(
       root,
       'web',
       'AUTH',
-      ['src/auth.ts', 'src/auth.test.ts', '.env'],
+      ['src/auth.ts', 'src/auth.test.ts', '.env', 'AuthKey.p8', 'application.properties'],
     );
 
     const result = await runGenerateDirect({
@@ -909,14 +909,59 @@ describe('runGenerate', () => {
         phase: 'generate',
         serviceId: 'web',
         file: 'src/auth.ts',
-        maxChars: 2_000,
+        maxChars: 192_000,
         dokId: 'AUTH',
       },
     ]);
     await expect(readFile(join(root, '.doklo/hub/doks/AUTH.json'), 'utf-8')).rejects.toThrow();
   });
 
-  it('manifests only the four source excerpts that contribute rendered characters', async () => {
+  it('rejects cached source newly excluded by gitignore before preparing generation', async () => {
+    const root = await tmpInit();
+    await writeFixtureFiles(root, ['src/customer-data.ts']);
+    await writeConsolidatedWithFiles(root, 'web', 'AUTH', ['src/customer-data.ts']);
+    await writeFile(join(root, '.gitignore'), 'src/customer-data.ts\n');
+    await expect(runGenerateDirect({ root, dryRun: true, noLexicon: true, noRoles: true, noIa: true, noCodeMapping: true })).rejects.toThrow(/no longer permitted/);
+  });
+
+  it('rejects newly ignored source resolved from a legacy route-only cache', async () => {
+    const root = await tmpInit();
+    const config = makeConsolidatedConfig(['AUTH']);
+    const feature = config.groups[0]!.features[0]!;
+    delete feature.source_files;
+    delete feature.logic_files;
+    feature.primary_route = '/';
+    await writeFile(join(root, '.doklo/cache/web.consolidated.json'), JSON.stringify(config));
+    await writeFile(join(root, '.gitignore'), 'app/page.tsx\n');
+    await writeFile(join(root, 'app/page.tsx'), 'SYNTHETIC_PRIVATE_LEGACY_SOURCE');
+    await expect(runGenerateDirect({
+      root, dryRun: true, noLexicon: true, noRoles: true, noIa: true, noCodeMapping: true,
+    })).rejects.toThrow(/no longer permitted/);
+  });
+
+  it('does not lose the only business rule after 24 source files', async () => {
+    const root = await tmpInit();
+    const files = Array.from({ length: 25 }, (_, index) => `src/source-${String(index).padStart(2, '0')}.ts`);
+    await writeFixtureFiles(root, files);
+    await writeFile(join(root, files[24]!), 'export const permission = "published AND no event";');
+    await writeConsolidatedWithFiles(root, 'web', 'AUTH', files);
+    const result = await runGenerateDirect({ root, dryRun: true, noLexicon: true, noRoles: true, noIa: true, noCodeMapping: true });
+    expect(result.preparedGeneration!.items[0]!.prompt).toContain('published AND no event');
+    expect(result.transmissions.some(source => source.file === files[24])).toBe(true);
+  });
+
+  it('includes the fifth source and rules beyond 2000 characters in the authorized prompt', async () => {
+    const root = await tmpInit();
+    const files = Array.from({ length: 6 }, (_, index) => `src/policy-${index + 1}.ts`);
+    await writeFixtureFiles(root, files);
+    await writeFile(join(root, files[4]!), '// context\n'.repeat(250) + 'export const visibility = "published AND no event";');
+    await writeConsolidatedWithFiles(root, 'web', 'AUTH', files);
+    const result = await runGenerateDirect({ root, dryRun: true, noLexicon: true, noRoles: true, noIa: true, noCodeMapping: true });
+    expect(result.preparedGeneration!.items[0]!.prompt).toContain('published AND no event');
+    expect(result.transmissions.some(source => source.file === files[5])).toBe(true);
+  });
+
+  it('manifests every source excerpt within the expanded context budget', async () => {
     const root = await tmpInit();
     const files = Array.from({ length: 8 }, (_, index) => `src/source-${index + 1}.ts`);
     await writeFixtureFiles(root, files);
@@ -931,14 +976,14 @@ describe('runGenerate', () => {
       noCodeMapping: true,
     });
 
-    expect(result.transmissions).toEqual(expect.arrayContaining(files.slice(0, 4).map((file) => ({
+    expect(result.transmissions).toEqual(expect.arrayContaining(files.map((file) => ({
       phase: 'generate',
       serviceId: 'web',
       file,
-      maxChars: 2_000,
+      maxChars: 192_000,
       dokId: 'AUTH',
     }))));
-    expect(result.transmissions).toHaveLength(5);
+    expect(result.transmissions).toHaveLength(9);
     expect(result.transmissions.some((source) => source.maxChars === 0)).toBe(false);
   });
 
@@ -1025,10 +1070,28 @@ describe('runGenerate', () => {
     expect(generator).not.toHaveBeenCalled();
   });
 
+  it('rechecks prepared source permission after approval even if current cache removes the path', async () => {
+    const root = await tmpInit();
+    await writeConsolidated(root, 'web', ['AUTH']);
+    const options = { root, noLexicon: true, noRoles: true, noIa: true, noCodeMapping: true };
+    const consent = await paidConsent(options);
+    const changed = makeConsolidatedConfig(['AUTH']);
+    changed.groups[0]!.features[0]!.source_files = [];
+    changed.groups[0]!.features[0]!.logic_files = [];
+    await writeFile(join(root, '.doklo/cache/web.consolidated.json'), JSON.stringify(changed));
+    await writeFile(join(root, '.gitignore'), 'app/page.tsx\n');
+    const generator = vi.fn(stubDeps.generateDokForFeature!);
+    await expect(runGenerateDirect({ ...options, ...consent }, {
+      generateDokForFeature: generator,
+    })).rejects.toThrow(/no longer permitted/);
+    expect(generator).not.toHaveBeenCalled();
+    await expect(readFile(join(root, '.doklo/hub/doks/AUTH.json'), 'utf8')).rejects.toThrow();
+  });
+
   it('forwards only the authorized exact prompt and capped source excerpts to the provider helper', async () => {
     const root = await tmpInit();
     await writeFixtureFiles(root, ['src/auth.ts']);
-    await writeFile(join(root, 'src/auth.ts'), 'x'.repeat(5_000));
+    await writeFile(join(root, 'src/auth.ts'), 'x'.repeat(20_000));
     await writeConsolidatedWithFiles(root, 'web', 'AUTH', ['src/auth.ts']);
     const options = {
       root,
@@ -1041,7 +1104,7 @@ describe('runGenerate', () => {
     const expectedPromptParts = preview.preparedGeneration!.items[0]!.promptParts;
     expect(preview.preparedGeneration!.items[0]!.prompt)
       .toBe(`${expectedPromptParts.systemPrompt}\n\n${expectedPromptParts.userPrompt}`);
-    expect(preview.preparedGeneration!.items[0]!.ctx.fileContext['src/auth.ts']).toHaveLength(2_000);
+    expect(preview.preparedGeneration!.items[0]!.ctx.fileContext['src/auth.ts']).toHaveLength(20_000);
     const generator = vi.fn(async (_feature, ctx, providerOptions) => ({
       success: true,
       dok: makeDok(ctx.dokId),
@@ -1326,7 +1389,7 @@ describe('runGenerate', () => {
     expect(generator).not.toHaveBeenCalled();
   });
 
-  it('rejects a Pages-only service before direct dry-run reads existing caches', async () => {
+  it('rejects stale missing source paths on a Pages-only dry run', async () => {
     const root = await tmpInit();
     await writeConsolidated(root, 'web', ['AUTH']);
     await rm(join(root, 'app'), { recursive: true });
@@ -1351,8 +1414,7 @@ describe('runGenerate', () => {
       noIa: true,
       noCodeMapping: true,
     })).rejects.toMatchObject({
-      code: 'UNSUPPORTED_NEXTJS_PROJECT',
-      details: { reason: 'APP_ROUTER_REQUIRED' },
+      code: 'ENOENT',
     });
 
     await expect(Promise.all(
@@ -4016,7 +4078,7 @@ describe('runGenerate — deterministic Hub layers', () => {
     );
   });
 
-  it('rejects a declared non-Next service before direct generation or cache policy', async () => {
+  it('allows a declared non-Next service through generation admission', async () => {
     const root = await tmpInit();
     await writeFile(
       join(root, 'workspace.json'),
@@ -4039,14 +4101,11 @@ describe('runGenerate — deterministic Hub layers', () => {
     await expect(runGenerate(
       { root, noLexicon: true },
       { generateDokForFeature: generator },
-    )).rejects.toMatchObject({
-      code: 'UNSUPPORTED_FRAMEWORK',
-      details: { framework: 'react-native' },
-    });
+    )).resolves.toMatchObject({ results: [] });
     expect(generator).not.toHaveBeenCalled();
   });
 
-  it('rejects a declared non-Next service before Hub policy, auto-scan, or credentials', async () => {
+  it('still validates Hub policy for a declared non-Next service before credentials', async () => {
     const root = await mkdtemp(join(tmpdir(), 'doklo-gen-unsupported-'));
     await mkdir(join(root, '.doklo/hub/doks'), { recursive: true });
     await mkdir(join(root, '.doklo/debug'), { recursive: true });
@@ -4105,8 +4164,7 @@ describe('runGenerate — deterministic Hub layers', () => {
           '--no-code-mapping',
         ], { from: 'user' }),
       ).rejects.toMatchObject({
-        code: 'UNSUPPORTED_FRAMEWORK',
-        details: { framework: 'react-native' },
+        name: 'InvalidRolesFileError',
       });
       expect(resolveLlmForRoleMock).not.toHaveBeenCalled();
     } finally {
@@ -4121,7 +4179,7 @@ describe('runGenerate — deterministic Hub layers', () => {
     }
   });
 
-  it('rejects Commander dry-run on Pages-only roots without cache or Hub mutation', async () => {
+  it('rejects missing cached source paths on a Pages-only Commander dry run', async () => {
     const root = await tmpInit();
     await writeConsolidated(root, 'web', ['AUTH']);
     await rm(join(root, 'app'), { recursive: true });
@@ -4144,8 +4202,7 @@ describe('runGenerate — deterministic Hub layers', () => {
       '--no-ia',
       '--no-code-mapping',
     ])).rejects.toMatchObject({
-      code: 'UNSUPPORTED_NEXTJS_PROJECT',
-      details: { reason: 'APP_ROUTER_REQUIRED' },
+      code: 'ENOENT',
     });
 
     await expect(Promise.all(
@@ -5548,4 +5605,40 @@ describe('generation tracking trust', () => {
     expect(dok).toEqual(old);
     expect(dok._meta.tracking_review_required).toBe(true);
   });
+});
+
+it('generates from Python source and detects an edit without a framework parser', async () => {
+  const root = await tmpInit();
+  await rm(join(root, 'app'), { recursive: true });
+  await rm(join(root, 'package.json'));
+  await writeFile(join(root, 'main.py'), 'def run(): return 1');
+  const { runScan } = await import('../src/commands/scan.js');
+  const scan = await runScan({ root });
+  const unit = scan.results[0]!.ir.analysis_units![0]!;
+  await writeConsolidatedWithFiles(root, 'web', 'PYTHON', unit.files);
+  const cachePath = join(root, '.doklo/cache/web.consolidated.json');
+  const cache = JSON.parse(await readFile(cachePath, 'utf8'));
+  cache.originalFeatureIds = [unit.id];
+  Object.assign(cache.groups[0].features[0], { canonical_id: unit.id, members: [unit.id], primary_route: '' });
+  await writeFile(cachePath, JSON.stringify(cache));
+  const result = await runGenerate({ root, noLexicon: true, noRoles: true, noIa: true, noCodeMapping: true }, stubDeps);
+  expect(result.failures).toEqual([]);
+  const dokFile = (await readdir(join(root, '.doklo/hub/doks'))).find(file => file.endsWith('.json'))!;
+  const dok = JSON.parse(await readFile(join(root, '.doklo/hub/doks', dokFile), 'utf8'));
+  expect(dok._meta.source_anchors).toContainEqual({ file: 'main.py' });
+  expect(isDokStale(dok, root)).toEqual({ stale: false });
+  await writeFile(join(root, 'main.py'), 'def run(): return 2');
+  expect(isDokStale(dok, root)).toEqual({ stale: true, reason: 'changed' });
+});
+
+// A stale cache must not reintroduce private material through drift hashing.
+it('keeps sensitive cached logic files out of generated tracking metadata', async () => {
+  const root = await tmpInit();
+  await writeFixtureFiles(root, ['src/notices.ts', 'AuthKey.p8']);
+  await writeConsolidatedWithLogicFiles(root, 'web', [{ prefix: 'NOTICE', route: '',
+    source_files: ['src/notices.ts'], logic_files: ['src/notices.ts', 'AuthKey.p8'],
+  }]);
+  await runGenerate({ root, noLexicon: true }, stubDeps);
+  const dok = JSON.parse(await readFile(join(root, '.doklo/hub/doks/NOTICE.json'), 'utf8'));
+  expect(dok._meta.logic_files).toEqual([{ file: 'src/notices.ts' }]);
 });

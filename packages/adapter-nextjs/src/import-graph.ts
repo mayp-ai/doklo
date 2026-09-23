@@ -1,3 +1,4 @@
+import { sourceFileSystem } from './source-filesystem.js';
 // Internal-import graph builder.
 //
 // For a set of entry files (typically Next.js page.tsx files) walks
@@ -21,6 +22,8 @@ export interface BuildImportGraphOptions {
   rootDir: string;
   /** Page / entry files relative to rootDir. */
   entryFiles: string[];
+  /** Shared inventory; imports outside it are diagnosed, never attributed. */
+  allowedSourceFiles?: ReadonlySet<string>;
   /** Walk depth cap. Defaults to 4 (page → comp → child → leaf). */
   maxDepth?: number;
   /**
@@ -56,8 +59,13 @@ export function buildImportGraph(options: BuildImportGraphOptions): ImportGraph 
   const { rootDir, entryFiles } = options;
   const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
 
-  const tsConfigFilePath = resolveTsConfig(rootDir, options.tsConfigFilePath);
+  const fileSystem = options.allowedSourceFiles
+    ? sourceFileSystem(rootDir, options.allowedSourceFiles) : undefined;
+  const candidateConfig = resolveTsConfig(rootDir, options.tsConfigFilePath);
+  const tsConfigFilePath = candidateConfig && (!fileSystem || fileSystem.fileExistsSync(candidateConfig))
+    ? candidateConfig : undefined;
   const project = new Project({
+    ...(fileSystem ? { fileSystem } : {}),
     ...(tsConfigFilePath ? { tsConfigFilePath } : {}),
     skipAddingFilesFromTsConfig: true,
     skipFileDependencyResolution: true,
@@ -138,6 +146,10 @@ export function buildImportGraph(options: BuildImportGraphOptions): ImportGraph 
         if (targetPath.includes('node_modules')) continue;
         const rel = relative(rootDir, targetPath);
         if (rel.startsWith('..')) continue; // outside project
+        if (options.allowedSourceFiles && !options.allowedSourceFiles.has(rel)) {
+          diagnostics.push({ filePath: relPath, stage: 'import-graph', message: `Internal import targets excluded source: ${importPath}` });
+          continue;
+        }
         importedHere.add(rel);
       }
       for (const call of source.getDescendantsOfKind(ts.SyntaxKind.CallExpression)) {

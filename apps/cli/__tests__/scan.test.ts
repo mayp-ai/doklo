@@ -151,29 +151,12 @@ describe('runScan', () => {
     expect(result.results.map((r) => r.serviceId).sort()).toEqual(['admin', 'web']);
   });
 
-  it('rejects a declared non-Next service before extraction or cache writes', async () => {
-    const root = await tmpWorkspaceWithServices([
-      { service_id: 'mobile', type: 'mobile', framework: 'react-native', code_root: '.' },
-    ]);
-    await writeFile(
-      join(root, 'package.json'),
-      JSON.stringify({ dependencies: { next: '15.4.0' } }),
-      'utf-8',
-    );
-    await mkdir(join(root, 'app'), { recursive: true });
-    await writeFile(
-      join(root, 'app/page.tsx'),
-      'export default function Page(){ return null }',
-      'utf-8',
-    );
-    const extractIR = vi.fn(async ({ rootDir }: { rootDir: string }) => makeIR({ root: rootDir }));
-
-    await expect(runScan({ root }, { extractIR })).rejects.toMatchObject({
-      code: 'UNSUPPORTED_FRAMEWORK',
-      details: { framework: 'react-native' },
-    });
-    expect(extractIR).not.toHaveBeenCalled();
-    await expect(readFile(join(root, '.doklo/cache/mobile.scan.json'), 'utf-8')).rejects.toThrow();
+  it('scans a declared non-Next service through the generic path', async () => {
+    const root = await tmpWorkspaceWithServices([{ service_id: 'mobile', type: 'mobile', framework: 'flutter', code_root: '.' }]);
+    await writeFile(join(root, 'main.dart'), 'void main() {}');
+    const result = await runScan({ root });
+    expect(result.results[0]?.ir.files).toContain('main.dart');
+    expect(result.results[0]?.ir.analysis_units?.length).toBeGreaterThan(0);
   });
 
   it('returns counts (routes, components, stores) for each scanned service', async () => {

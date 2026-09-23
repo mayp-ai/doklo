@@ -8,7 +8,7 @@ Doklo reads supported application code and creates feature-document drafts for p
 npm install -g @mayp/doklo@preview
 ```
 
-Requires Node.js 20.9 or newer. This preview supports Next.js App Router, with one project per workspace. The release acceptance exercise covered the BTV upload feature; broad framework coverage and improvements to AI answer quality have not been demonstrated.
+Requires Node.js 20.9 or newer, with one project per workspace. Generic source analysis works without a framework-specific parser or package.json. Next.js App Router adds specialized route and dependency extraction. Other frameworks use generic source evidence; framework detection does not guarantee complete route or behavior extraction.
 
 ## Start in your project
 
@@ -25,7 +25,9 @@ For command options, run `doklo --help` or `doklo <command> --help`. Coding agen
 
 ## Preview limits
 
-- Static import tracking has a bounded depth. Runtime wiring and dynamic imports may be absent. Unresolved internal imports stop the scan.
+- Generic analysis groups readable UTF-8 source files for model review. Known sensitive paths, Git-ignored files, dependencies, build output, binary files, and files over 1 MiB are excluded. Exclude arbitrary source files containing secrets with `.gitignore` before analysis; rescan after adding files.
+- Combined source over 192,000 characters per feature is rejected before generation. Split large services or feature groups; source is not silently truncated.
+- Specialized static import tracking has a bounded depth. Runtime wiring and dynamic imports may be absent. Unresolved internal imports stop the scan.
 - Older tracking is unknown until repaired and reviewed. `doklo scan --repair-tracking` repairs source tracking while preserving existing document content and history; repaired documents still need review.
 - Freshness means tracked source hashes match, not that a document is accurate or complete.
 - Ordinary sync preserves human-edited documents by skipping them. Automatic merging under forced regeneration has not been validated.

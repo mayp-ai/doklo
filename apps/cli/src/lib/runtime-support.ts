@@ -1,15 +1,10 @@
-import {
-  inspectNextJsSupport,
-  type NextJsSupportInspection,
-} from '@doklo-beta/adapter-nextjs';
+import { stat } from 'node:fs/promises';
 import type { Framework } from '@doklo-beta/core';
+import { detectFramework, frameworkDisplayName } from './framework.js';
 import { resolveLocale } from './context.js';
-import { frameworkDisplayName } from './framework.js';
 import { createI18n } from './i18n.js';
 
-export interface RuntimeSupportInspection extends NextJsSupportInspection {
-  nodeVersion: string;
-}
+export interface RuntimeSupportInspection { framework: Framework; nodeVersion: string; }
 
 export class UnsupportedRuntimeError extends Error {
   readonly code = 'UNSUPPORTED_RUNTIME' as const;
@@ -56,10 +51,10 @@ function unsupportedFrameworkMessage(
 export function assertSupportedFramework(
   framework: Framework,
   monorepoApps: readonly string[] = [],
-): asserts framework is 'nextjs' {
-  if (framework !== 'nextjs') {
-    throw new UnsupportedFrameworkError(framework, monorepoApps);
-  }
+): void {
+  // Framework is descriptive metadata. Specialist availability is not admission.
+  void framework;
+  void monorepoApps;
 }
 
 export function assertSupportedNode(version = process.versions.node): void {
@@ -83,8 +78,9 @@ export async function assertSupportedRuntimeProject(
   rootDir: string,
 ): Promise<RuntimeSupportInspection> {
   assertSupportedNode();
+  if (!(await stat(rootDir)).isDirectory()) throw new Error('Project root must be a directory.');
   return {
-    ...(await inspectNextJsSupport(rootDir)),
+    framework: await detectFramework(rootDir),
     nodeVersion: process.versions.node,
   };
 }

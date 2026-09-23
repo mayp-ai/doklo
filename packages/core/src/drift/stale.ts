@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
+import { currentSourcePathsSync } from '../fs/source-inventory.js';
 import { join } from 'node:path';
 import { resolveContainedPathSync } from '../fs/path-containment.js';
 import { computeLogicHash, type LogicHashInput } from './logic-hash.js';
@@ -43,10 +44,23 @@ export function readAnchorContentsSync(
 ): AnchorRead {
   const contents: LogicHashInput[] = [];
   const missing: string[] = [];
+  if (files.length === 0) return { contents, missing };
+  let available: Set<string>;
+  try {
+    available = currentSourcePathsSync(projectRoot);
+  } catch {
+    // A failed permission inventory must never widen source access.
+    return { contents, missing: [...files] };
+  }
   for (const file of files) {
     try {
+      if (!available.has(file)) throw new Error('Source is no longer permitted.');
       const absolute = resolveContainedPathSync(projectRoot, file);
-      contents.push({ file, content: readFileSync(absolute, 'utf-8') });
+      const info = lstatSync(absolute);
+      if (!info.isFile() || info.size > 1024 * 1024) throw new Error('Unsupported source file.');
+      const content = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(absolute));
+      if (content.includes('\0')) throw new Error('Binary source file.');
+      contents.push({ file, content });
     } catch {
       missing.push(file);
     }

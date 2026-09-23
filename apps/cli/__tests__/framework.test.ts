@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, writeFile, mkdir, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -45,6 +45,19 @@ describe('detectFramework', () => {
   it('returns "unknown" when package.json is missing', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'doklo-fw-empty-'));
     await mkdir(dir, { recursive: true });
+    expect(await detectFramework(dir)).toBe('unknown');
+  });
+
+  it('does not infer a framework from a Git-ignored manifest', async () => {
+    const dir = await tmpProject({ dependencies: { express: '*' } });
+    await writeFile(join(dir, '.gitignore'), 'package.json\n');
+    expect(await detectFramework(dir)).toBe('unknown');
+  });
+
+  it('does not read a manifest symlink outside the project', async () => {
+    const outside = await tmpProject({ dependencies: { express: '*' } });
+    const dir = await mkdtemp(join(tmpdir(), 'doklo-fw-link-'));
+    await symlink(join(outside, 'package.json'), join(dir, 'package.json'));
     expect(await detectFramework(dir)).toBe('unknown');
   });
 

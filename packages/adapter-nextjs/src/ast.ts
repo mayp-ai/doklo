@@ -1,3 +1,4 @@
+import { sourceFileSystem } from './source-filesystem.js';
 // ============================================
 // TS Parser: TypeScript/JavaScript 구조 추출
 // ============================================
@@ -23,6 +24,7 @@ import type {
  */
 export function parseProject(scanResult: ScanResult): ParseResult {
   const project = new Project({
+    fileSystem: sourceFileSystem(scanResult.rootDir, scanResult.files),
     compilerOptions: {
       allowJs: true,
       jsx: 2, // React

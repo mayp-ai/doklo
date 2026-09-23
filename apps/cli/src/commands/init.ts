@@ -11,7 +11,6 @@ import { access } from 'node:fs/promises';
 import { constants as FS } from 'node:fs';
 import type { Framework, Service, ServiceType } from '@doklo-beta/core';
 import { detectFramework } from '../lib/framework.js';
-import { findNextjsApps } from '../lib/monorepo-apps.js';
 import { bootstrapWorkspace, WorkspaceAlreadyInitializedError } from '../lib/bootstrap.js';
 import { workspacePaths, type WorkspacePaths } from '../lib/paths.js';
 import type { CliContext } from '../lib/context.js';
@@ -24,7 +23,6 @@ import { runScan } from './scan.js';
 import type { runServe } from './serve.js';
 import type { runInitHandoff } from '../lib/init-handoff.js';
 import {
-  assertSupportedFramework,
   assertSupportedRuntimeProject,
 } from '../lib/runtime-support.js';
 import {
@@ -84,15 +82,8 @@ const FRAMEWORK_TYPE: Record<Framework, ServiceType> = {
 };
 
 export async function runInit(opts: RunInitOptions): Promise<RunInitResult> {
-  if (opts.framework !== undefined && opts.framework !== 'nextjs') {
-    // Whatever the declared framework, if Next.js apps sit below this root the
-    // user needs to know where they are — that is the actionable part of the
-    // failure. Only computed on the failing path.
-    assertSupportedFramework(opts.framework, findNextjsApps(opts.root));
-  }
   const support = await assertSupportedRuntimeProject(opts.root);
   const framework = opts.framework ?? support.framework;
-  assertSupportedFramework(framework);
 
   const service: Service = {
     service_id: opts.serviceId,
@@ -238,7 +229,6 @@ export function registerInitCommand(
       // A monorepo root carries no `next` dependency, so detection fails here
       // while the app sits one directory down. Name the apps instead of
       // leaving the user at "framework unknown".
-      assertSupportedFramework(detected, detected === 'nextjs' ? [] : findNextjsApps(root));
       await assertSupportedRuntimeProject(root);
       requireExplicitApproval({
         command: 'doklo init',

@@ -7,6 +7,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Framework } from '@doklo-beta/core';
+import { validateCurrentSourceFiles } from './current-source-policy.js';
 
 interface PackageJson {
   dependencies?: Record<string, string>;
@@ -42,11 +43,13 @@ export function frameworkDisplayName(framework: Framework): string {
 export async function detectFramework(projectRoot: string): Promise<Framework> {
   let pkg: PackageJson;
   try {
+    await validateCurrentSourceFiles(projectRoot, ['package.json']);
     const raw = await readFile(join(projectRoot, 'package.json'), 'utf-8');
     pkg = JSON.parse(raw) as PackageJson;
   } catch {
     return 'unknown';
   }
+  if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg)) return 'unknown';
   const all = deps(pkg);
 
   // Order matters — prefer specific framework over generic "react".

@@ -374,3 +374,26 @@ describe('irToFeatures with import graph', () => {
     expect(feature.logic_files).toEqual(['app/x/page.tsx']);
   });
 });
+
+ it('carries generic file candidates without inventing HTTP routes', () => {
+    const fc = irToFeatures(ir({ framework: 'unknown', files: ['src/a.py', 'src/b.py'],
+      analysis_units: [{ id: 'source-src', label: 'src', files: ['src/a.py', 'src/b.py'] }],
+    }), { projectName: 'python' });
+    const feature = fc.featureGroups.flatMap(group => group.features)[0]!;
+    expect(feature.routePath).toBe('');
+    expect(feature.files.map(file => file.path)).toEqual(['src/a.py', 'src/b.py']);
+    expect(feature.logic_files).toEqual(['src/a.py', 'src/b.py']);
+    expect(fc.unmappedFiles).toEqual([]);
+  });
+
+it('describes non-web candidates and filenames to consolidation', async () => {
+  const { buildConsolidationPromptParts } = await import('../src/consolidator.js');
+  const fc = irToFeatures(ir({ framework: 'unknown', files: ['src/__init__.py', 'src/orders.py', 'src/billing.py'],
+    analysis_units: [{ id: 'source-src', label: 'src', files: ['src/__init__.py', 'src/orders.py', 'src/billing.py'] }],
+  }), { projectName: 'python' });
+  const prompt = buildConsolidationPromptParts(fc);
+  expect(prompt.userPrompt).toContain('orders.py');
+  expect(prompt.userPrompt).toContain('billing.py');
+  expect(prompt.systemPrompt).toContain('file-based');
+  expect(prompt.systemPrompt).not.toContain("analyzing a Next.js project");
+});
