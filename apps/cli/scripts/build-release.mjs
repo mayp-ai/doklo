@@ -31,11 +31,9 @@ import {
   cpSync,
   chmodSync,
   readdirSync,
-  statSync,
   lstatSync,
-  copyFileSync,
 } from 'node:fs';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
 import {
@@ -44,6 +42,7 @@ import {
   releaseBuildUnits,
 } from './release-prerequisites.mjs';
 import { RELEASE_NODE_ENGINE } from './release-node-support.mjs';
+import { hoistStudioTree } from './release-studio-tree.mjs';
 // The content guard imports only node builtins, so it is safe at module scope
 // even on a checkout where nothing has been built yet.
 import { assertPublishableReleaseContent } from './release-content-guard.mjs';
@@ -202,151 +201,6 @@ function copyAssets() {
   }
 }
 
-/**
- * Recursive symlink-dereferencing copy. `statSync` follows symlinks, so a
- * symlinked dir is recursed into and a symlinked file is materialized — the
- * result contains zero symlinks. Broken links are skipped with a warning.
- */
-function copyDeref(src, dst) {
-  let st;
-  try {
-    st = statSync(src); // follows symlinks
-  } catch {
-    warn(`skip unresolved path: ${src}`);
-    return;
-  }
-  if (st.isDirectory()) {
-    mkdirSync(dst, { recursive: true });
-    for (const entry of readdirSync(src)) copyDeref(join(src, entry), join(dst, entry));
-  } else {
-    copyFileSync(src, dst);
-  }
-}
-
-/** A `demo/` directory holding a `.doklo/` hub is Studio's development sample
- *  workspace. Next's tracer pulls a few of its JSON files into the standalone
- *  tree, but `serve` always injects DOKLO_WORKSPACE_ROOT, so the copy is
- *  unreachable dead weight — and it arrives WITHOUT the `.doklo/DEMO_WORKSPACE`
- *  marker that makes sample Doks legible as samples. Ship neither. */
-function isDemoWorkspace(dir) {
-  return basename(dir) === 'demo' && existsSync(join(dir, '.doklo'));
-}
-
-/** Like copyDeref but skips any nested `node_modules` (used for app + workspace
- *  code — their deps come from the flat-hoisted top-level node_modules). */
-function copyAppCode(src, dst) {
-  const st = statSync(src);
-  if (st.isDirectory()) {
-    if (isDemoWorkspace(src)) {
-      log(`skipped bundled demo workspace: ${basename(dirname(src))}/demo/`);
-      return;
-    }
-    mkdirSync(dst, { recursive: true });
-    for (const entry of readdirSync(src)) {
-      if (entry === 'node_modules') continue;
-      copyAppCode(join(src, entry), join(dst, entry));
-    }
-  } else {
-    copyFileSync(src, dst);
-  }
-}
-
-/** Real (non-symlink) package dirs directly under a `.pnpm/<id>/node_modules`,
- *  handling `@scope/name`. These are the packages that virtual store id owns;
- *  everything else there is a peer symlink (hoisted from its own id). */
-function realPackageDirs(inner) {
-  const out = [];
-  for (const e of readdirSync(inner)) {
-    if (e === '.bin') continue;
-    const p = join(inner, e);
-    if (e.startsWith('@')) {
-      for (const s of readdirSync(p)) {
-        const sp = join(p, s);
-        if (!lstatSync(sp).isSymbolicLink()) out.push([`${e}/${s}`, sp]);
-      }
-    } else if (!lstatSync(p).isSymbolicLink()) {
-      out.push([e, p]);
-    }
-  }
-  return out;
-}
-
-function pkgVersion(dir) {
-  try {
-    return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf-8')).version ?? '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
-}
-/** a > b on numeric major.minor.patch (prerelease ignored — fine for hoist tie-break). */
-function gtVersion(a, b) {
-  const pa = a.split(/[.-]/).map(Number);
-  const pb = b.split(/[.-]/).map(Number);
-  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
-  return false;
-}
-
-/**
- * Materialize a symlink-free, npm-publishable copy of the pnpm Next-standalone
- * tree. npm pack cannot ship symlinks (it dereferences relative ones and drops
- * external ones), and pnpm's store resolves deps via symlink+realpath siblings
- * under `.pnpm/<id>/node_modules/`. Naively dereferencing the public symlinks
- * orphans those siblings ("Cannot find module 'styled-jsx'"). So we FLATTEN:
- *   1. copy the app/workspace code, skipping every nested node_modules;
- *   2. hoist each real package from the `.pnpm` virtual store into ONE top-level
- *      node_modules/ (higher version wins on conflict) — transitive deps then
- *      resolve via the normal ancestor walk with no symlinks;
- *   3. hoist the workspace packages (traced to standalone/packages/*) into
- *      node_modules/<their real name> so `@doklo-beta/*` imports resolve.
- * Verified: boots server.js and serves /doks, /onboarding + static CSS.
- */
-function hoistStudioTree(standaloneSrc, dst) {
-  mkdirSync(dst, { recursive: true });
-  const nmDst = join(dst, 'node_modules');
-
-  // 1. app + workspace code (no node_modules)
-  for (const top of readdirSync(standaloneSrc)) {
-    if (top === 'node_modules') continue;
-    copyAppCode(join(standaloneSrc, top), join(dst, top));
-  }
-
-  // 2. flat-hoist the pnpm virtual store
-  const pnpmStore = join(standaloneSrc, 'node_modules', '.pnpm');
-  const winners = new Map(); // name -> { version, from }
-  if (existsSync(pnpmStore)) {
-    for (const id of readdirSync(pnpmStore)) {
-      if (id === 'node_modules') continue;
-      const inner = join(pnpmStore, id, 'node_modules');
-      if (!existsSync(inner)) continue;
-      for (const [name, from] of realPackageDirs(inner)) {
-        const v = pkgVersion(from);
-        const cur = winners.get(name);
-        if (!cur || gtVersion(v, cur.version)) winners.set(name, { version: v, from });
-      }
-    }
-  }
-  mkdirSync(nmDst, { recursive: true });
-  for (const [name, { from }] of winners) copyDeref(from, join(nmDst, name));
-
-  // 3. workspace packages by their real name (e.g. @doklo-beta/core)
-  const pkgsDir = join(standaloneSrc, 'packages');
-  let ws = 0;
-  if (existsSync(pkgsDir)) {
-    for (const d of readdirSync(pkgsDir)) {
-      const pj = join(pkgsDir, d, 'package.json');
-      if (!existsSync(pj)) continue;
-      const name = JSON.parse(readFileSync(pj, 'utf-8')).name;
-      if (!name) continue;
-      const dest = join(nmDst, name);
-      if (existsSync(dest)) continue;
-      mkdirSync(dirname(dest), { recursive: true });
-      copyAppCode(join(pkgsDir, d), dest);
-      ws += 1;
-    }
-  }
-  return { hoisted: winners.size, workspace: ws };
-}
-
 async function copyStudio() {
   const studioDir = join(REPO_ROOT, 'apps', 'studio');
   const standalone = join(studioDir, '.next', 'standalone');
@@ -361,7 +215,7 @@ async function copyStudio() {
     throw new Error(`Studio standalone entry not found under ${standalone}`);
   }
   const studioDst = join(RELEASE_DIR, 'studio');
-  const { hoisted, workspace } = hoistStudioTree(standalone, studioDst);
+  const { hoisted, workspace } = hoistStudioTree(standalone, studioDst, { log, warn });
 
   // Publishability guard: any surviving symlink would be dropped by npm pack.
   const stragglers = countSymlinks(studioDst);
@@ -377,7 +231,7 @@ async function copyStudio() {
     join(studioDst, 'apps', 'studio', '.next', 'static'),
     'release Studio static asset directory',
   );
-  log(`copied studio/ (symlink-free flat node_modules: ${hoisted} pkgs + ${workspace} workspace)`);
+  log(`copied studio/ (symlink-free dependencies with version overrides: ${hoisted} root pkgs + ${workspace} workspace)`);
 }
 
 /** Count symlinks anywhere under `dir` (recursive). */

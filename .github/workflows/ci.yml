@@ -127,3 +127,6 @@ jobs:
           test -f "$project/workspace.json"
           test -d "$project/.doklo/hub/doks"
           grep -Fq '"status":"success"' "$RUNNER_TEMP/init.jsonl"
+
+      - name: Smoke installed Studio and Live Docs
+        run: node apps/cli/scripts/release-studio-smoke.mjs "$(command -v doklo)" "$RUNNER_TEMP/smoke-app"
