@@ -16,6 +16,7 @@ export * from './ir-to-features.js';
 export * from './feature-id.js';
 export * from './consolidated-cache.js';
 export * from './dok-generator.js';
+export * from './content-review.js';
 export * from './lexicon-suggester.js';
 export * from './derive-service-meta.js';
 export * from './ia-sitemap.js';

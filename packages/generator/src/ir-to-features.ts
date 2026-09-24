@@ -11,6 +11,8 @@
 //      present): each page's BFS-reachable file set becomes the feature's
 //      files; files reachable from ≥SHARED_THRESHOLD features get hoisted
 //      to sharedInfrastructure (per-bucket by inferred role).
+//   3. With import_context, prompt evidence uses per-entry symbol slices,
+//      including used shared behavior; the full file graph still tracks drift.
 //
 // The import graph itself is built upstream by the adapter (e.g.,
 // adapter-nextjs/src/import-graph.ts) and serialized into IR; this module
@@ -25,6 +27,7 @@ import type {
   FeatureFileRole,
   FeatureGroup,
   SharedInfrastructure,
+  SourceContext,
 } from './legacy-types.js';
 import { uniqueFeatureIdsForRoutes } from './feature-id.js';
 
@@ -70,6 +73,7 @@ export function irToFeatures(ir: ProjectIR, opts: IrToFeaturesOptions): FeatureC
   const graphData =
     (ir.framework_specific?.['import_graph'] as Record<string, string[]> | undefined) ?? null;
   const edges = graphData ? deserializeEdges(graphData) : null;
+  const contexts = ir.framework_specific?.['import_context'] as Record<string, SourceContext[]> | undefined;
 
   // Build per-page reachable sets + global reference counts (only when graph
   // available). Without a graph, both are empty and we fall back to entry-only
@@ -94,7 +98,7 @@ export function irToFeatures(ir: ProjectIR, opts: IrToFeaturesOptions): FeatureC
   const featureGroups: FeatureGroup[] = [];
   for (const [groupId, groupPages] of grouped) {
     const features: Feature[] = groupPages.map((page) =>
-      buildFeature(page, featureIdByPage.get(page)!, apis, reachableByPage.get(page), sharedFiles),
+      buildFeature(page, featureIdByPage.get(page)!, apis, reachableByPage.get(page), sharedFiles, contexts?.[page.file]),
     );
     featureGroups.push({
       id: groupId,
@@ -108,19 +112,34 @@ export function irToFeatures(ir: ProjectIR, opts: IrToFeaturesOptions): FeatureC
   }
 
   const unitFiles = new Set<string>();
+  const connectedSourceFiles = new Set([...pages.map(page => page.file), ...[...reachableByPage.values()].flatMap(files => [...files])]);
+  const sourceClassification: NonNullable<FeatureConfig['sourceClassification']> = {
+    auxiliaryFiles: ir.files.filter(isAuxiliarySource),
+    unconnectedFiles: pages.length ? ir.files.filter(file => !isAuxiliarySource(file) && !connectedSourceFiles.has(file)) : [],
+    excludedUnits: [], candidateUnits: 0,
+  };
   if (ir.analysis_units?.length) {
-    const candidates: Feature[] = ir.analysis_units.map(unit => {
+    const candidates: Feature[] = [];
+    const reachableFiles = new Set([...reachableByPage.values()].flatMap(files => [...files]));
+    for (const unit of ir.analysis_units) {
       for (const file of unit.files) unitFiles.add(file);
-      return {
-        id: unit.id, label: unit.label, routePath: '', entryPoint: unit.files[0]!,
-        files: unit.files.map((path, index) => ({ path, role: index === 0 ? 'entry' as const : 'util' as const, depth: 0, isShared: false })),
-        // No dependency parser: conservatively track all discovered source.
-        logic_files: [...ir.files], apiRoutes: [], components: [], stores: [], enabled: true,
-      };
-    });
-    featureGroups.push({ id: '_source', label: 'Source analysis', routePrefix: '',
-      description: 'File-based candidates for analysis; no HTTP routes inferred.', features: candidates,
-      totalFileCount: unitFiles.size, enabled: true });
+      const behavior = unit.files.filter(file => !isAuxiliarySource(file));
+      if (behavior.length === 0) {
+        sourceClassification.excludedUnits.push({ id: unit.id, files: unit.files, reason: 'AUXILIARY_SOURCE_ONLY' });
+        continue;
+      }
+      const unconnected = pages.length > 0 && !behavior.some(file => reachableFiles.has(file));
+      candidates.push({
+        id: unit.id, label: unit.label, routePath: '', entryPoint: behavior[0]!,
+        files: unit.files.map((path) => ({ path, role: path === behavior[0] ? 'entry' as const : 'util' as const, depth: 0, isShared: false })),
+        logic_files: [...ir.files], apiRoutes: [], components: [], stores: [], enabled: !unconnected,
+        candidate_kind: unconnected ? 'unconnected-source' : 'source-behavior',
+      });
+    }
+    sourceClassification.candidateUnits = candidates.length;
+    if (candidates.length) featureGroups.push({ id: '_source', label: 'Source analysis', routePrefix: '',
+      description: 'File-based candidates; unconnected source needs review before customer documentation.', features: candidates,
+      totalFileCount: new Set(candidates.flatMap(candidate => candidate.files.map(file => file.path))).size, enabled: true });
   }
 
   // Shared infrastructure: bucket the shared-file set by role. Without a
@@ -163,6 +182,7 @@ export function irToFeatures(ir: ProjectIR, opts: IrToFeaturesOptions): FeatureC
     terminology: opts.terminology ?? {},
     generatedAt: new Date().toISOString(),
     totalFiles: ir.files.length,
+    sourceClassification,
     unmappedFiles: unmappedFiles.filter(file => !unitFiles.has(file)),
   };
 }
@@ -181,6 +201,7 @@ function buildFeature(
   apis: RouteIR[],
   reachable: Set<string> | undefined,
   sharedFiles: Set<string>,
+  sourceContext?: SourceContext[],
 ): Feature {
   const apiRoutes = apis
     .filter((a) => firstSegmentOfApi(a.path) === firstSegment(page.path))
@@ -192,19 +213,18 @@ function buildFeature(
   let stores: string[] = [];
 
   if (reachable) {
-    // Graph-aware: every reachable file becomes part of the feature, except
-    // those promoted to shared infrastructure.
+    // Symbol-aware context retains actually used shared behavior. Older scans
+    // retain the legacy whole-file attribution and shared-infrastructure split.
     files = [...reachable]
-      .filter((f) => f === page.file || !sharedFiles.has(f))
+      .filter((f) => sourceContext ? sourceContext.some(context => context.file === f) : f === page.file || !sharedFiles.has(f))
       .map((f) => ({
         path: f,
         role: roleForFile(f, f === page.file),
         depth: f === page.file ? 0 : 1,
         isShared: sharedFiles.has(f),
       }));
-    // Drift closure: the reachable set BEFORE shared infra is filtered out.
-    // `files` drops shared files for display; drift must keep them so a change
-    // to a shared dependency this feature reaches is still detectable.
+    // Drift keeps the conservative whole-file graph, independently of symbol
+    // evidence or shared-infrastructure display filtering.
     logicFiles = [...reachable];
     components = files.filter((f) => f.role === 'component').map((f) => f.path);
     stores = files.filter((f) => f.role === 'store').map((f) => f.path);
@@ -222,6 +242,7 @@ function buildFeature(
     entryPoint: page.file,
     files,
     logic_files: logicFiles,
+    ...(sourceContext ? { source_context: sourceContext } : {}),
     apiRoutes,
     components,
     stores,
@@ -317,4 +338,11 @@ function bfsReachable(
     }
   }
   return seen;
+}
+
+/** Technical evidence stays inventoried, but cannot establish a user capability alone. */
+function isAuxiliarySource(file: string): boolean {
+  return /\.(?:css|scss|sass|less|styl|svg|png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|webmanifest|md|mdx|txt|json|jsonc|ya?ml|toml|lock)$/i.test(file) ||
+    /(?:^|\/)(?:[^/]+\.config\.[cm]?[jt]s|[jt]sconfig[^/]*|\.dockerignore|Dockerfile|Makefile|Gemfile|go\.(?:mod|sum)|pom\.xml)$/i.test(file) ||
+    /(?:^|\/)(?:__tests__|tests?|__mocks__|fixtures)(?:\/|$)/.test(file) || /\.(?:test|spec|d)\.[cm]?[jt]sx?$/.test(file);
 }

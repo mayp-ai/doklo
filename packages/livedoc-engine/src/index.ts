@@ -153,3 +153,5 @@ export {
   buildPublicationArchive,
   PublicationArchiveError,
 } from './publication-archive.js';
+
+export { hasDraftPreviewMarker } from './manifest.js';

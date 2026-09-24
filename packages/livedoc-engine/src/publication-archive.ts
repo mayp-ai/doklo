@@ -8,6 +8,7 @@ import {
   publicationDigest,
   type PublicationV1,
 } from './publication.js';
+import { hasDraftPreviewMarker } from './manifest.js';
 import type { PublicationRenderEvidence } from './render.js';
 
 export class PublicationArchiveError extends Error {
@@ -56,6 +57,14 @@ export async function buildPublicationArchive(args: {
     ) {
       throw staleOutput(entryName);
     }
+    if (output.format === 'manifest') {
+      let manifest: unknown;
+      try { manifest = JSON.parse(bytes.toString('utf8')); }
+      catch { throw invalidEvidence('Publication manifest is not valid JSON.'); }
+      if (hasDraftPreviewMarker(manifest)) {
+        throw invalidEvidence('Draft preview cannot be used as official Publication evidence.');
+      }
+    }
     if (entries.has(entryName)) {
       throw invalidEvidence(
         `Publication evidence contains a duplicate archive entry: '${entryName}'.`,
@@ -92,7 +101,8 @@ export async function buildPublicationArchive(args: {
     throw invalidEvidence('Persisted publication evidence is not valid JSON.');
   }
   if (
-    !isRecord(persistedEvidence)
+    hasDraftPreviewMarker(persistedEvidence)
+    || !isRecord(persistedEvidence)
     || !isRecord(persistedEvidence.publication)
     || persistedEvidence.publication.name !== args.evidence.publication.name
     || persistedEvidence.publication.definition_sha256
@@ -129,7 +139,8 @@ function assertMatchingEvidence(
   evidence: PublicationRenderEvidence,
 ): void {
   if (
-    evidence.publication.name !== publication.name
+    hasDraftPreviewMarker(evidence)
+    || evidence.publication.name !== publication.name
     || evidence.template.name !== publication.template
     || evidence.publication.definition_sha256
       !== publicationDigest(publication)

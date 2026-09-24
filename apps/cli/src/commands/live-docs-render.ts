@@ -40,6 +40,7 @@ interface Opts {
   source?: string;
   var?: string[];
   dryRun?: boolean;
+  preview?: boolean;
   overwrite?: boolean;
   format?: PublicationFormat;
   allFormats?: boolean;
@@ -70,10 +71,11 @@ export function registerLiveDocsRenderCommand(program: Command, _ctx: CliContext
     .description('Render a Livedoc from the workspace Hub')
     .option('--locale <code>', 'output locale (e.g., ko, en)')
     .option('--primary-locale <code>', 'fallback chain head locale')
-    .option('--out-dir <path>', 'output directory', '.doklo/output')
+    .option('--out-dir <path>', 'output directory (default: .doklo/output; preview: .doklo/output/preview)')
     .option('--dok <id>', 'restrict to specific Dok id (repeatable)', collect, [])
     .option('--source <name>', 'workspace | user | builtin')
     .option('--var <key=value>', 'extra Handlebars context var (repeatable)', collect, [])
+    .option('--preview', 'review draft Doks with a persistent watermark (stable Markdown/HTML only)')
     .option('--dry-run', 'report selector matches + planned outputs without writing')
     .option('--overwrite', 'replace existing planned outputs')
     .option('--format <format>', 'render one declared template output format')
@@ -84,7 +86,7 @@ export function registerLiveDocsRenderCommand(program: Command, _ctx: CliContext
     .option('--root <path>', 'workspace root (defaults to cwd)')
     .action(async (template: string, opts: Opts) => {
       const workspaceRoot = resolve(opts.root ?? process.cwd());
-      const outDir = resolve(workspaceRoot, opts.outDir ?? `.doklo/output/${template}`);
+      const outDir = resolve(workspaceRoot, opts.outDir ?? (opts.preview ? '.doklo/output/preview' : '.doklo/output'));
       const locale = opts.locale ?? process.env['DOKLO_LOCALE'] ?? 'en';
       const machine = opts.json === true;
       const legacyNoHtml = opts.noHtml === true || opts.html === false;
@@ -109,6 +111,7 @@ export function registerLiveDocsRenderCommand(program: Command, _ctx: CliContext
           variables: parseVars(opts.var),
           ...(opts.overwrite ? { overwrite: true } : {}),
           ...(opts.dryRun ? { dryRun: true } : {}),
+          ...(opts.preview ? { preview: true } : {}),
           ...(opts.format ? { format: opts.format } : {}),
           ...(opts.allFormats ? { allFormats: true } : {}),
           ...(legacyNoHtml ? { noHtml: true } : {}),

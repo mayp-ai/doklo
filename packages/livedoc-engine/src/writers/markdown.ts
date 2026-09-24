@@ -11,8 +11,11 @@ function ensureExt(path: string, ext: string): string {
 }
 
 export const markdownWriter: Writer = async (ctx) => {
-  const path = await writePlannedArtifact(ctx.outputRoot, ctx.plannedOutput, ctx.content);
-  return { path, bytes: Buffer.byteLength(ctx.content), format: 'markdown' };
+  const content = ctx.preview
+    ? `> **Draft preview — Not reviewed or approved for publication.**${ctx.locale.startsWith('ko') ? ' 미검토 초안 — 게시 승인되지 않았습니다.' : ''}\n\n${ctx.content}`
+    : ctx.content;
+  const path = await writePlannedArtifact(ctx.outputRoot, ctx.plannedOutput, content);
+  return { path, bytes: Buffer.byteLength(content), format: 'markdown' };
 };
 
 export { ensureExt };

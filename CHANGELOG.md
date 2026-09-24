@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-24
+
+### Added
+- Bounded generation retries for malformed JSON and truncated responses, with
+  attempt/token reporting and selected-ID recovery through `--only`.
+- Stable Markdown/HTML draft previews through `live-docs render --preview`, with
+  visible draft notices and preserved Hub review status. Customer-copy checks
+  remain enabled; previews cannot become official saved Publication evidence.
+- Separate service-root product intent and private model content-review metadata,
+  with diagnostics for reported concerns. Model review does not approve a Dok.
+
+### Fixed
+- Preserve existing documents when explicitly requested regeneration fails, and
+  report partial generation failure through the command exit result.
+- Exclude auxiliary-only style, asset and configuration units from new feature
+  candidates while retaining source inventory and unconnected-source review.
+- Narrow Next.js cross-screen helper evidence to required declarations and
+  executing module initialization. Retain full dependencies for drift detection
+  and reject outdated source ranges or source changed during generation.
+- Reject the reported internal invitation-address storage wording in customer
+  Live Docs output.
+
+### Upgrade notes
+- Retry defaults allow one extra attempt; `--retries 0` disables retries and
+  `--retries 2` permits up to two. Retry usage is included in consent and token
+  limits and may incur additional model charges.
+- Existing caches need a new scan and consolidation for the improved source
+  boundaries. Consolidation may incur model costs. Existing Hub documents are
+  not automatically rewritten, deleted or approved.
+- Static reachability and model content concerns are review aids, not guarantees
+  of complete extraction or accurate documentation. The package remains a
+  developer preview.
+
 ## [0.2.1] - 2026-09-23
 
 ### Changed
@@ -130,6 +163,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `doklo live-docs capture` is experimental and currently unavailable. Its hidden direct command fails closed before browser or filesystem access until output publication is race-safe and an app → capture → stable document E2E is release-gated.
 - `doklo template` — list, inspect, validate, scaffold, add, and remove Live Doc templates across built-in, user, and workspace sources.
 
+[0.3.0]: https://github.com/mayp-ai/doklo/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/mayp-ai/doklo/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/mayp-ai/doklo/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mayp-ai/doklo/releases/tag/v0.1.0

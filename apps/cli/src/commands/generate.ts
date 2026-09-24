@@ -12,6 +12,7 @@ import type { Command } from 'commander';
 import { InvalidArgumentError } from 'commander';
 import { readFile, access, mkdir, readdir } from 'node:fs/promises';
 import { constants as FS } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join, relative } from 'node:path';
 import {
   assignDokIds,
@@ -27,6 +28,7 @@ import {
   detectPrioritySignals,
   mergePriority,
   generateDokForFeature,
+  isProductIntentFile,
   isLLMBackend,
   upsertOriginsByService,
   resolveContainedOutputPath,
@@ -34,6 +36,7 @@ import {
   renderDokFeatureBlock,
   type DokGenContext,
   type FeatureForGeneration,
+  type SourceContext,
   type GenerateDokResult,
   type GenerateDokOptions,
   type ConsolidatedFeatureConfig,
@@ -89,6 +92,7 @@ import { addLlmOptions, resolveLlmForRole } from '../lib/llm-options.js';
 import {
   consolidatedCachePath,
   formatUnverifiedIdReuse,
+  formatConsolidationSourceSummary,
   runConsolidate,
   type UnverifiedIdReuseNotice,
 } from './consolidate.js';
@@ -236,6 +240,7 @@ export class InvalidExistingDokError extends Error {
 }
 
 export type GenerateProgressEvent =
+  | { stage: 'dok-retry'; serviceId: string; dokId: string; attempt: number; maxAttempts: number; failureKind: string }
   | {
       stage: 'roles';
       status: 'updated' | 'unchanged' | 'skipped' | 'error';
@@ -305,6 +310,8 @@ export interface ProposalNote {
 
 export interface RunGenerateOptions {
   root: string;
+  /** Additional attempts for malformed/truncated output; must be reserved in the approved plan. */
+  retries?: number;
   /** Cancels the current provider call and leaves remaining work retryable. */
   signal?: AbortSignal;
   dryRun?: boolean;
@@ -414,13 +421,19 @@ export interface GenerateOneResult {
   serviceId: string;
   dokId: string;
   outputPath: string;
+  attempts?: number;
+  /** Model-reported concerns are suggestions for human review, not verified findings. */
+  reviewConcerns?: number;
 }
 
 export interface GenerateOneFailure {
   serviceId: string;
   dokId: string;
   reason: string;
+  attempts?: number;
   code?: string;
+  /** A failed forced regeneration left the previous Dok untouched. */
+  existingPreserved?: boolean;
   retryable?: boolean;
   file?: string;
   preserved?: string[];
@@ -453,6 +466,8 @@ export interface LayerResults {
 export interface RunGenerateResult {
   tokenCapFailure?: { code: 'LLM_RUN_TOKEN_CAP' | 'LLM_TOTAL_TOKEN_CAP'; message: string };
   tokenUsage?: GenerateTokenUsage;
+  /** Additional provider usage from recovery attempts (also included in tokenUsage). */
+  retryTokenUsage?: GenerateTokenUsage;
   results: GenerateOneResult[];
   failures: GenerateOneFailure[];
   /** dok_ids that already had a file on disk and were skipped (force=false). */
@@ -516,6 +531,7 @@ export async function runGenerate(
     now,
   } = { ...DEFAULT_DEPS, ...deps };
   const startedAt = now();
+  const retries = parseGenerationRetries(String(opts.retries ?? 0));
   const { workspace, paths } = await loadWorkspaceWithPaths(opts.root);
   const recordingSource = await assertRecordingSource(paths.root);
 
@@ -955,6 +971,7 @@ export async function runGenerate(
   }
 
   const tokenUsage = createGenerateTokenUsage();
+  const retryTokenUsage = createGenerateTokenUsage();
   let tokenCapFailure: { code: 'LLM_RUN_TOKEN_CAP' | 'LLM_TOTAL_TOKEN_CAP'; message: string } | undefined;
   const retainTokenCapFailure = (error: unknown): boolean => {
     if (!(error instanceof CommandContractError)) return false;
@@ -983,7 +1000,7 @@ export async function runGenerate(
   // ── Pass 2: actually generate each Dok with progress events. ──
   emit({ stage: 'plan', total: workList.length, skippedExisting });
 
-  for (let i = 0; i < workList.length; i++) {
+  generationLoop: for (let i = 0; i < workList.length; i++) {
     if (tokenCapFailure) {
       for (const pending of workList.slice(i)) interruptedDokIds.add(pending.dokId);
       break;
@@ -1031,59 +1048,79 @@ export async function runGenerate(
       featureLabel: p.feature.label,
     });
 
-    let authorizedCall: Awaited<ReturnType<typeof beginAuthorizedLlmCall>>;
-    try {
-      authorizedCall = await beginAuthorizedLlmCall(opts.authorizedRun, opts.root, {
-        phase: 'generate',
-        workItem: { phase: 'generate', serviceId: p.serviceId, id: p.dokId },
-        debugDir: hubPreflight.debugDir,
-        transmissions: preparedItem.transmissions,
-        prompt: preparedItem.prompt,
-      });
-    } catch (error) {
-      if (!retainTokenCapFailure(error)) throw error;
-      for (const pending of workList.slice(i)) interruptedDokIds.add(pending.dokId);
-      break;
-    }
-    const generateOpts: GenerateDokOptions = {
-      debugDir: hubPreflight.debugDir,
-      model: authorizedCall.model,
-      providerKind: authorizedCall.providerKind,
-      apiKey: authorizedCall.apiKey,
-      ...(authorizedCall.baseURL === undefined ? {} : { baseURL: authorizedCall.baseURL }),
-      ...(authorizedCall.fetch === undefined ? {} : { fetch: authorizedCall.fetch }),
-      // beginAuthorizedLlmCall verified that preparedItem.prompt — which is
-      // joinPromptParts(preparedItem.promptParts) by construction — matches
-      // the approved plan digest byte-for-byte, so sending the split parts
-      // sends exactly the authorized prompt.
-      preparedPrompt: preparedItem.promptParts,
-      ...(opts.signal === undefined ? {} : { signal: opts.signal }),
-    };
     const t0 = Date.now();
-    let llmResult: GenerateDokResult;
-    try {
-      llmResult = await generate(forGen, ctx, generateOpts);
-    } catch (error) {
-      await settleCall(authorizedCall, null);
+    let llmResult!: GenerateDokResult;
+    let attempts = 0;
+    for (let attempt = 0; attempt <= retries; attempt++) {
       if (opts.signal?.aborted) {
         interrupted = true;
         for (const pending of workList.slice(i)) interruptedDokIds.add(pending.dokId);
-        break;
+        break generationLoop;
       }
-      throw error;
+      let authorizedCall: Awaited<ReturnType<typeof beginAuthorizedLlmCall>>;
+      try {
+        authorizedCall = await beginAuthorizedLlmCall(opts.authorizedRun, opts.root, {
+          phase: 'generate',
+          workItem: { phase: 'generate', serviceId: p.serviceId, id: generationAttemptId(p.dokId, attempt) },
+          debugDir: hubPreflight.debugDir,
+          transmissions: preparedItem.transmissions,
+          prompt: preparedItem.prompt,
+        });
+      } catch (error) {
+        if (!retainTokenCapFailure(error)) throw error;
+        for (const pending of workList.slice(i)) interruptedDokIds.add(pending.dokId);
+        break generationLoop;
+      }
+      const generateOpts: GenerateDokOptions = {
+        debugDir: hubPreflight.debugDir,
+        model: authorizedCall.model,
+        providerKind: authorizedCall.providerKind,
+        apiKey: authorizedCall.apiKey,
+        ...(authorizedCall.baseURL === undefined ? {} : { baseURL: authorizedCall.baseURL }),
+        ...(authorizedCall.fetch === undefined ? {} : { fetch: authorizedCall.fetch }),
+        // beginAuthorizedLlmCall verified that preparedItem.prompt — which is
+        // joinPromptParts(preparedItem.promptParts) by construction — matches
+        // the approved plan digest byte-for-byte, so sending the split parts
+        // sends exactly the authorized prompt.
+        preparedPrompt: preparedItem.promptParts,
+        ...(opts.signal === undefined ? {} : { signal: opts.signal }),
+      };
+      attempts++;
+      try {
+        llmResult = await generate(forGen, ctx, generateOpts);
+      } catch (error) {
+        recordGenerateUsage(tokenUsage, preparedItem.prompt, null);
+        if (attempt > 0) recordGenerateUsage(retryTokenUsage, preparedItem.prompt, null);
+        await settleCall(authorizedCall, null);
+        if (opts.signal?.aborted) {
+          interrupted = true;
+          for (const pending of workList.slice(i)) interruptedDokIds.add(pending.dokId);
+          break generationLoop;
+        }
+        throw error;
+      }
+      recordGenerateUsage(tokenUsage, preparedItem.prompt, llmResult.usage);
+      if (attempt > 0) recordGenerateUsage(retryTokenUsage, preparedItem.prompt, llmResult.usage);
+      await settleCall(authorizedCall, llmResult.usage);
+
+      if (opts.signal?.aborted || llmResult.interrupted) {
+        interrupted = true;
+        for (const pending of workList.slice(i)) interruptedDokIds.add(pending.dokId);
+        break generationLoop;
+      }
+
+      const recoverable = !llmResult.success && (
+        llmResult.failureKind === 'truncated_response'
+        || (llmResult.failureKind === undefined && typeof llmResult.rawResponse === 'string' && llmResult.rawResponse.length > 0)
+      );
+      if (!recoverable || attempt === retries || tokenCapFailure) break;
+      emit({ stage: 'dok-retry', serviceId: p.serviceId, dokId: p.dokId,
+        attempt: attempt + 2, maxAttempts: retries + 1,
+        failureKind: llmResult.failureKind ?? 'malformed_response' });
     }
-    recordGenerateUsage(tokenUsage, preparedItem.prompt, llmResult.usage);
     const elapsedMs = Date.now() - t0;
 
-    if (opts.signal?.aborted || llmResult.interrupted) {
-      await settleCall(authorizedCall, llmResult.usage);
-      interrupted = true;
-      for (const pending of workList.slice(i)) interruptedDokIds.add(pending.dokId);
-      break;
-    }
-
     if (!llmResult.success || !llmResult.dok) {
-      await settleCall(authorizedCall, llmResult.usage);
       if (opts.signal?.aborted) {
         interrupted = true;
         for (const pending of workList.slice(i)) interruptedDokIds.add(pending.dokId);
@@ -1106,12 +1143,16 @@ export async function runGenerate(
               results,
               skippedExisting,
             )
-          : {};
+          : llmResult.failureKind === undefined && typeof llmResult.rawResponse === 'string' && llmResult.rawResponse.length > 0
+            ? retryableGenerationFailure('DOK_RESPONSE_MALFORMED', paths.root, paths.dokFile(p.dokId), results, skippedExisting)
+            : {};
       failures.push({
         serviceId: p.serviceId,
         dokId: p.dokId,
         reason,
         ...retryableFailure,
+        attempts,
+        ...(retryableFailure.retryable ? { nextCommand: `doklo generate --only ${p.dokId} --yes` } : {}),
       });
       emit({
         stage: 'dok-done',
@@ -1125,7 +1166,6 @@ export async function runGenerate(
       });
       continue;
     }
-    await settleCall(authorizedCall, llmResult.usage);
     if (opts.signal?.aborted) {
       interrupted = true;
       for (const pending of workList.slice(i)) interruptedDokIds.add(pending.dokId);
@@ -1146,7 +1186,12 @@ export async function runGenerate(
     // Human review state is not model-authoritative. Keep this boundary even
     // when a custom generator dependency bypasses the standard response parser.
     dok.status = 'draft';
-    const anchors = forGen.files.map((file) => ({ file }));
+    const anchors = forGen.source_context
+      ? forGen.source_context.filter(source => !isProductIntentFile(source.file)).flatMap(source =>
+          source.ranges.map(range => ({ file: source.file, start_line: range.start, end_line: range.end,
+            ...(source.symbols.length === 1 ? { symbol: source.symbols[0]! } : {}),
+          })))
+      : forGen.files.filter(file => !isProductIntentFile(file)).map((file) => ({ file }));
     dok._meta = { ...dok._meta, source_anchors: anchors, anchor_service_id: p.serviceId };
 
     // Drift input: hash the drift file set's current content into _meta.logic_hash
@@ -1168,6 +1213,28 @@ export async function runGenerate(
     const driftFiles = forGen.logic_files ?? forGen.files;
     const anchorRead = await readAnchorContents(driftFiles, projectRoot);
     const anchorContents = anchorRead.contents;
+    // Do not bless a response to older evidence with a newer drift baseline.
+    const currentContents = new Map(anchorContents.map(read => [read.file, read.content]));
+    const evidenceOutsideDrift = Object.keys(ctx.fileContext).filter(file => !driftFiles.includes(file));
+    if (evidenceOutsideDrift.length > 0) {
+      const evidenceRead = await readAnchorContents(evidenceOutsideDrift, projectRoot);
+      for (const read of evidenceRead.contents) currentContents.set(read.file, read.content);
+    }
+    const changedEvidence = Object.entries(ctx.fileContext).filter(([file, content]) => {
+      const current = currentContents.get(file);
+      const source = forGen.source_context?.find(item => item.file === file);
+      return current === undefined || (source
+        ? createHash('sha256').update(current).digest('hex') !== source.content_hash
+        : current !== content);
+    }).map(([file]) => file);
+    if (changedEvidence.length > 0) {
+      const reason = `Source changed during generation: ${changedEvidence.join(', ')}. Rescan and consolidate before retrying; no Dok was written.`;
+      failures.push({ serviceId: p.serviceId, dokId: p.dokId,
+        code: 'SOURCE_CHANGED_DURING_GENERATION', reason, attempts });
+      emit({ stage: 'dok-done', index, total, serviceId: p.serviceId,
+        dokId: p.dokId, success: false, elapsedMs, error: reason });
+      continue;
+    }
     const logicHash = computeLogicHash(anchorContents);
     if (logicHash) {
       dok._meta.logic_hash = logicHash;
@@ -1250,7 +1317,7 @@ export async function runGenerate(
       });
     } catch (error) {
       const reason = `Generated Dok "${p.dokId}" is invalid: ${errorMessage(error)}`;
-      failures.push({ serviceId: p.serviceId, dokId: p.dokId, reason });
+      failures.push({ serviceId: p.serviceId, dokId: p.dokId, reason, attempts });
       emit({
         stage: 'dok-done',
         index,
@@ -1288,6 +1355,7 @@ export async function runGenerate(
         serviceId: p.serviceId,
         dokId: p.dokId,
         reason,
+        attempts,
         ...retryableGenerationFailure(
           'PERMISSION_DENIED',
           paths.root,
@@ -1315,6 +1383,11 @@ export async function runGenerate(
       serviceId: p.serviceId,
       dokId: p.dokId,
       outputPath: paths.dokFile(p.dokId),
+      attempts,
+      ...(canonicalDok._meta.content_review && typeof canonicalDok._meta.content_review === 'object'
+        && 'concerns' in canonicalDok._meta.content_review
+        && Array.isArray(canonicalDok._meta.content_review.concerns)
+        ? { reviewConcerns: canonicalDok._meta.content_review.concerns.length } : {}),
     });
     emit({
       stage: 'dok-done',
@@ -1498,6 +1571,16 @@ export async function runGenerate(
     };
   }
 
+  for (const failure of failures) {
+    if (existingDokByPlannedId.has(failure.dokId)) {
+      failure.existingPreserved = true;
+      failure.preserved = [...new Set([...(failure.preserved ?? []),
+        relative(paths.root, paths.dokFile(failure.dokId)).replaceAll('\\', '/')])];
+    }
+    if (failure.retryable) {
+      failure.nextCommand = generationRecoveryCommand(failure.dokId, failure.existingPreserved === true);
+    }
+  }
   emit({
     stage: 'done',
     succeeded: results.length,
@@ -1517,6 +1600,7 @@ export async function runGenerate(
     transmissions: contributingTransmissions,
     generationLedger,
     tokenUsage,
+    retryTokenUsage,
     ...(tokenCapFailure === undefined ? {} : { tokenCapFailure }),
     ...(generationLedgerFailure === undefined ? {} : { generationLedgerFailure }),
     ...(interrupted ? { interrupted: true } : {}),
@@ -1712,7 +1796,10 @@ function buildFeatureForGeneration(
     }
   };
 
-  if (feature.source_files !== undefined) {
+  const sourceContext = feature.source_context?.filter(source => !isSensitiveLlmPath(source.file));
+  if (sourceContext !== undefined) {
+    for (const source of sourceContext) push(source.file);
+  } else if (feature.source_files !== undefined) {
     for (const f of feature.source_files) {
       if (!isSensitiveLlmPath(f)) push(f);
     }
@@ -1722,6 +1809,10 @@ function buildFeatureForGeneration(
       if (route.path === feature.primary_route && !isSensitiveLlmPath(route.file)) push(route.file);
     }
   }
+  // A brief may inform intended product scope, but is never executable proof.
+  // Only already-inventoried files enter the same consent/permission boundary.
+  const productFiles = (ir?.files ?? []).filter(file => isProductIntentFile(file) && !isSensitiveLlmPath(file));
+  for (const file of productFiles) push(file);
 
   // Drift closure: the full reachable set incl. shared infra (deduped), carried
   // separately from `files` (the display set, shared excluded) so drift can hash
@@ -1739,6 +1830,7 @@ function buildFeatureForGeneration(
     }
     logicFiles = deduped;
   }
+  if (productFiles.length > 0) logicFiles = [...new Set([...(logicFiles ?? files), ...productFiles])];
 
   return {
     canonical_id: feature.canonical_id,
@@ -1747,6 +1839,7 @@ function buildFeatureForGeneration(
     primary_route: feature.primary_route,
     members,
     files,
+    ...(sourceContext === undefined ? {} : { source_context: sourceContext }),
     ...(logicFiles === undefined ? {} : { logic_files: logicFiles }),
   };
 }
@@ -2133,7 +2226,7 @@ async function prepareGenerationPayload(input: {
   for (const item of input.workList) {
     const feature = buildFeatureForGeneration(item.feature, item.ir);
     const featureChars = renderDokFeatureBlock(feature).length;
-    const fileContext = await loadFileContext(item.serviceRoot, feature.files);
+    const fileContext = await loadFileContext(item.serviceRoot, feature.files, feature.source_context);
     const suggestedActorRole = suggestRoleFromRoutePath(
       feature.primary_route,
       knownRoles,
@@ -2224,6 +2317,7 @@ function deepFreeze<T>(value: T): T {
 async function loadFileContext(
   projectRoot: string,
   files: string[],
+  sourceContext?: readonly SourceContext[],
 ): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   let totalChars = 0;
@@ -2231,7 +2325,39 @@ async function loadFileContext(
     const absolute = await resolveContainedPath(projectRoot, f);
     // Do not stamp an unread or truncated file as evidence. Fail before the
     // approved provider call so the user can rescan or split the feature.
-    const content = await readFile(absolute, 'utf-8');
+    const fullContent = await readFile(absolute, 'utf-8');
+    const context = sourceContext?.find(source => source.file === f);
+    let content = fullContent;
+    if (context) {
+      if (createHash('sha256').update(fullContent).digest('hex') !== context.content_hash) {
+        throw new Error(`Source changed since scan: ${f}; rescan and consolidate before generation.`);
+      }
+      const lines = fullContent.split(/\r?\n/);
+      if (context.ranges.length === 0 || context.ranges.some(range =>
+        !Number.isInteger(range.start) || !Number.isInteger(range.end)
+        || range.start < 1 || range.end < range.start || range.end > lines.length)) {
+        throw new Error(`Source range no longer matches ${f}; rescan and consolidate before generation.`);
+      }
+      content = context.ranges.map(range => {
+        const selected = lines.slice(range.start - 1, range.end);
+        const start = range.startColumn ?? 1;
+        const end = range.endColumn ?? selected.at(-1)!.length + 1;
+        if (!Number.isInteger(start) || !Number.isInteger(end)
+          || start < 1 || start > selected[0]!.length + 1
+          || end < 1 || end > selected.at(-1)!.length + 1
+          || (selected.length === 1 && end <= start)) {
+          throw new Error(`Source column range no longer matches ${f}; rescan and consolidate before generation.`);
+        }
+        if (selected.length === 1) selected[0] = selected[0]!.slice(start - 1, end - 1);
+        else {
+          selected[0] = selected[0]!.slice(start - 1);
+          selected[selected.length - 1] = selected.at(-1)!.slice(0, end - 1);
+        }
+        return `// Evidence lines ${range.start}-${range.end}\n${selected.join('\n')}`;
+      }).join('\n\n');
+    } else if (sourceContext !== undefined && !isProductIntentFile(f)) {
+      throw new Error(`Source context does not cover ${f}; rescan and consolidate before generation.`);
+    }
     totalChars += content.length;
     if (totalChars > DOK_SOURCE_MAX_CHARS) {
       throw new Error(`Source context exceeds ${DOK_SOURCE_MAX_CHARS} characters at ${f}; split the service or feature before generation. No source was silently omitted.`);
@@ -2359,8 +2485,21 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function parseGenerationRetries(value: string): number {
+  if (!/^[0-2]$/.test(value)) throw new InvalidArgumentError('Expected --retries to be 0, 1, or 2.');
+  return Number(value);
+}
+
+function generationAttemptId(dokId: string, attempt: number): string {
+  return attempt === 0 ? dokId : `${dokId}:retry:${attempt}`;
+}
+
+function generationRecoveryCommand(dokId: string, replaceExisting: boolean): string {
+  return `doklo generate --only ${dokId}${replaceExisting ? ' --force' : ''} --yes`;
+}
+
 function retryableGenerationFailure(
-  code: 'PROVIDER_RATE_LIMITED' | 'PROVIDER_RESPONSE_TRUNCATED' | 'PERMISSION_DENIED',
+  code: 'PROVIDER_RATE_LIMITED' | 'PROVIDER_RESPONSE_TRUNCATED' | 'DOK_RESPONSE_MALFORMED' | 'PERMISSION_DENIED',
   root: string,
   outputPath: string,
   completed: readonly GenerateOneResult[],
@@ -2428,6 +2567,8 @@ export function registerGenerateCommand(
       .option('--dry-run', 'List would-be Doks without calling the LLM', false)
       .option('--service <id>', 'Limit to one service')
       .option('--force', 'Regenerate even Doks that already exist on disk', false)
+      .option('--only <dokIds>', 'Generate only these comma-separated Dok IDs; existing files are preserved unless --force is explicitly passed')
+      .option('--retries <count>', 'Additional attempts for malformed or truncated responses (0–2); extra tokens may be billed', parseGenerationRetries, 1)
       .option('--no-roles', 'Skip deterministic roles.json refresh')
       .option('--no-lexicon', 'Ignore approved/cached terminology hints (run lexicon-suggest separately)')
       .option('--no-ia', 'Skip deterministic service IA refresh')
@@ -2449,6 +2590,11 @@ export function registerGenerateCommand(
       const { default: chalk } = await import('chalk');
       const root = opts.root as string;
       const dryRun = opts.dryRun as boolean;
+      const retries = opts.retries as number;
+      const onlyDokIds = opts.only === undefined ? undefined : (opts.only as string).split(',').map((id) => id.trim()).filter(Boolean);
+      if (onlyDokIds && onlyDokIds.length === 0) {
+        throw new InvalidArgumentError('--only requires Dok IDs.');
+      }
       const progressJson = opts.progressJson as boolean;
       const machine = opts.json === true || progressJson;
       type ConsentPlanProgressEvent = {
@@ -2538,19 +2684,22 @@ export function registerGenerateCommand(
         const { paths } = await loadWorkspaceWithPaths(root);
         const consolidationPreviews = input.consolidationPreviews ?? [];
         const generationTransmissions = input.generation?.transmissions ?? [];
-        const generateMax = input.generation?.plan.length ?? 0;
-        const candidateFiles: LlmCandidateFile[] = [...generationTransmissions];
+        const generateMax = (input.generation?.plan.length ?? 0) * (retries + 1);
+        const candidateFiles: LlmCandidateFile[] = generationTransmissions.flatMap((file) =>
+          file.dokId === undefined ? [file] : Array.from({ length: retries + 1 }, (_, attempt) => ({
+            ...file, dokId: generationAttemptId(file.dokId!, attempt),
+          })));
         const workItems = [
           ...consolidationPreviews.map((preview) => ({
             phase: 'consolidate' as const,
             serviceId: preview.serviceId,
             id: preview.serviceId,
           })),
-          ...(input.generation?.plan ?? []).map((item) => ({
+          ...(input.generation?.plan ?? []).flatMap((item) => Array.from({ length: retries + 1 }, (_, attempt) => ({
             phase: 'generate' as const,
             serviceId: item.serviceId,
-            id: item.dokId,
-          })),
+            id: generationAttemptId(item.dokId, attempt),
+          }))),
         ];
         const safeDebugDir = await resolveContainedOutputPath(
           paths.root,
@@ -2567,16 +2716,16 @@ export function registerGenerateCommand(
             prompt: preview.prompt ?? '',
             maxOutputTokens: preview.estimatedOutputTokens,
           })),
-          ...(input.generation?.preparedGeneration?.items ?? []).map((item) => ({
+          ...(input.generation?.preparedGeneration?.items ?? []).flatMap((item) => Array.from({ length: retries + 1 }, (_, attempt) => ({
             phase: 'generate' as const,
             workItem: {
               phase: 'generate' as const,
               serviceId: item.serviceId,
-              id: item.dokId,
+              id: generationAttemptId(item.dokId, attempt),
             },
             prompt: item.prompt,
             maxOutputTokens: 8_192,
-          })),
+          }))),
         ];
         llmPlan = buildLlmRunPlan({
           llm: { ...llm, authSource: llm.authSource ?? inferAuthSource(llm) },
@@ -2714,6 +2863,12 @@ export function registerGenerateCommand(
           });
           const result = preview.results[0];
           if (result === undefined) throw new Error(`Consolidation preview produced no result for "${state.service.service_id}".`);
+          const sourceSummary = formatConsolidationSourceSummary(result);
+          if (sourceSummary) logHuman(sourceSummary);
+          if (progressJson && result.sourceClassification) process.stdout.write(JSON.stringify({
+            stage: 'source-classification', serviceId: result.serviceId,
+            ...result.sourceClassification,
+          }) + '\n');
           consolidationPreviews.set(state.service.service_id, result);
         }
         if (consolidationPreviews.size > 0) {
@@ -2793,6 +2948,7 @@ export function registerGenerateCommand(
         const preview = await executeGenerate({
           root,
           dryRun: true,
+          onlyDokIds,
           serviceId: opts.service as string | undefined,
           force: opts.force as boolean,
           noRoles: opts.roles === false,
@@ -2812,9 +2968,9 @@ export function registerGenerateCommand(
           const remainingTokens = Math.max(0, limits.maxTokensTotal - budget.chargedTokens);
           const batchCap = Math.min(limits.maxTokensPerRun, remainingTokens);
           const items = preview.preparedGeneration?.items ?? [];
-          const batch = selectGenerationBatch(items, batchCap);
+          const batch = selectGenerationBatch(items, Math.floor(batchCap / (retries + 1)));
           if (items.length > 0 && batch.keptDokIds.length === 0) {
-            const required = Math.min(...items.map(item => estimateConservativeLlmCallTokens(item.prompt, 8192)));
+            const required = (retries + 1) * Math.min(...items.map(item => estimateConservativeLlmCallTokens(item.prompt, 8192)));
             const totalLimited = remainingTokens < limits.maxTokensPerRun;
             throw new LlmTokenCapError(totalLimited ? 'LLM_TOTAL_TOKEN_CAP' : 'LLM_RUN_TOKEN_CAP',
               `No Dok fits: smallest reservation ${required} tokens; run limit ${limits.maxTokensPerRun}, workspace remaining ${remainingTokens}. Adjust ${totalLimited ? 'DOKLO_MAX_TOKENS_TOTAL' : 'DOKLO_MAX_TOKENS_PER_RUN'}; rerunning with the same limits will not help.`);
@@ -2897,6 +3053,8 @@ export function registerGenerateCommand(
       const runOptions: RunGenerateOptions = {
         root,
         dryRun,
+        retries,
+        onlyDokIds,
         serviceId: opts.service as string | undefined,
         ...(!dryRun && llmPlan !== undefined && authorizedRun !== undefined
           ? {
@@ -2951,6 +3109,8 @@ export function registerGenerateCommand(
                 console.log(
                   `  ${chalk.dim(idx)} ${chalk.bold(e.dokId)} ${chalk.dim(`— ${e.featureLabel}`)}`,
                 );
+              } else if (e.stage === 'dok-retry') {
+                console.log(`         Retrying ${e.dokId}: attempt ${e.attempt}/${e.maxAttempts} (${e.failureKind}; extra usage may be billed)`);
               } else if (e.stage === 'dok-done') {
                 const elapsed = `${(e.elapsedMs / 1000).toFixed(1)}s`;
                 if (e.success) {
@@ -3034,6 +3194,21 @@ export function registerGenerateCommand(
         } else logHuman('  ' + ctx.t('generate.usage_incomplete'));
       }
       if (batchDokIds) logHuman('  ' + ctx.t('generate.deferred_end'));
+      if (result.retryTokenUsage && result.retryTokenUsage.attemptedCalls > 0) {
+        const usage = result.retryTokenUsage;
+        const input = usage.actual.inputTokens + usage.actual.cacheReadTokens + usage.actual.cacheCreationTokens;
+        logHuman(`  Recovery: ${usage.attemptedCalls} extra call(s), ${input} measured input tokens, ${usage.actual.outputTokens} output tokens; ${usage.missingCalls} call(s) with unavailable usage. Additional cost depends on the provider's billing.`);
+      }
+      if (result.failures.length > 0) {
+        logHuman(`\n  Partial generation: ${result.failures.length} Dok(s) failed; completed Doks are preserved.`);
+        for (const failure of result.failures) {
+          logHuman(`    ${failure.dokId}: ${failure.reason} (${failure.attempts ?? 1} attempt(s))`);
+          if (failure.existingPreserved) {
+            logHuman('      Existing Dok preserved. The scoped --force command below intentionally replaces it only if generation succeeds.');
+          }
+          logHuman(`      Resume: ${failure.nextCommand ?? generationRecoveryCommand(failure.dokId, failure.existingPreserved === true)}`);
+        }
+      }
       if (result.tokenCapFailure) {
         throw new CommandContractError({
           schema_version: 1, command: 'generate', status: result.results.length > 0 ? 'partial' : 'cancelled',
@@ -3060,9 +3235,14 @@ function recordGenerateResult(
   unverifiedIdReuse: readonly UnverifiedIdReuseNotice[],
 ): void {
   const diagnostics: CommandDiagnostic[] = [
+    ...result.results.filter(item => (item.reviewConcerns ?? 0) > 0).map(item => ({
+      code: 'CONTENT_REVIEW_REQUIRED',
+      message: `${item.dokId}: ${item.reviewConcerns} model-reported concern(s); inspect _meta.content_review before approving this draft.`,
+      serviceId: item.serviceId,
+    })),
     ...result.failures.map((failure) => ({
       code: failure.code ?? 'DOK_GENERATION_FAILED',
-      message: `${failure.dokId}: ${failure.reason}`,
+      message: `${failure.dokId}: ${failure.reason}${failure.existingPreserved ? ' Existing Dok preserved; a scoped --force retry intentionally replaces it only after successful generation.' : ''}`,
       serviceId: failure.serviceId,
       ...(failure.retryable === true ? { retryable: true } : {}),
       ...(failure.file === undefined ? {} : { file: failure.file }),

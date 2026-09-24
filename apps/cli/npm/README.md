@@ -8,7 +8,7 @@ Doklo reads supported application code and creates feature-document drafts for p
 npm install -g @mayp/doklo
 ```
 
-Version 0.2.1 requires Node.js 20.9 or newer, with one project per workspace.
+Version 0.3.0 requires Node.js 20.9 or newer, with one project per workspace.
 
 ## Start in your project
 
@@ -28,6 +28,31 @@ For command options, run `doklo --help` or `doklo <command> --help`. Coding agen
 - **Generic source analysis:** Groups readable UTF-8 source files for model review without requiring a framework-specific parser or package.json. Next.js App Router adds specialized route and dependency extraction; other frameworks use generic source evidence.
 - **Source exclusions:** Known sensitive paths, Git-ignored files, dependencies, and build output are excluded before source reads. Binary files, non-UTF-8 files, and files over 1 MiB are also excluded.
 - **Change detection and edit protection:** `doklo sync --check` reports tracked source changes. Ordinary `doklo sync` preserves human-edited documents by skipping them.
+
+## Generation recovery and draft previews in 0.3.0
+
+Malformed JSON or truncated model responses are retried once by default. Set
+`--retries 0` to disable retries or `--retries 2` for up to two extra attempts.
+Retries count toward execution consent and token limits and may add provider
+costs. Partial failures return a failing exit status and identify failed Doks.
+
+```bash
+doklo generate --only CHAT
+doklo live-docs render help-page --dok CHAT --format html --preview
+```
+
+`--only` limits recovery to selected IDs. Existing documents are skipped unless
+you explicitly use `--force`; a failed regeneration preserves the original.
+Stable Markdown/HTML previews keep the Hub's draft status and show an
+unreviewed-draft notice. Customer-copy checks remain enabled, and preview output
+cannot be used as official saved Publication evidence.
+
+New scans and consolidation exclude auxiliary-only feature candidates and narrow
+Next.js cross-screen helper evidence. Existing caches require `doklo scan` and
+`doklo consolidate` to acquire these boundaries; consolidation may incur model
+costs. Existing Hub documents are not automatically rewritten or removed.
+Product briefs describe intent, not proof of implementation. Model-reported
+content concerns still require human review.
 
 ## Recover tracking for existing documents
 

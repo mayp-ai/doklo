@@ -364,8 +364,10 @@ describe('runSync', () => {
     expect(preview.transmissions.map((item) => item.file)).toEqual([
       '.doklo/cache/web.consolidated.json',
       'app/x0/page.tsx',
-      'src/auth.ts',
     ]);
+    // A side-effect import of an unused literal export has no behavior to send;
+    // its complete file remains in the conservative drift dependency set.
+    expect(preview.preparedGeneration?.items[0]?.feature.logic_files).toContain('src/auth.ts');
     expect(Object.isFrozen(preview.preparedGeneration)).toBe(true);
     expect(Object.isFrozen(preview.preparedGeneration?.items)).toBe(true);
   });

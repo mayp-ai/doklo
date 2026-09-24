@@ -125,6 +125,14 @@ export interface ConsolidateServiceResult {
   estimatedInputTokens: number;
   estimatedOutputTokens: number;
   preview: ConsolidationPreview;
+  sourceClassification?: ConsolidationSourceClassification;
+}
+
+export interface ConsolidationSourceClassification extends NonNullable<FeatureConfig['sourceClassification']> {
+  /** Enabled inputs to consolidation; these remain candidates, not confirmed product features. */
+  includedFeatureIds: string[];
+  /** Inputs requiring review, including unconnected source behavior. */
+  reviewFeatureIds: string[];
 }
 
 export interface ConsolidateSkip {
@@ -236,6 +244,7 @@ export async function runConsolidate(
         estimatedInputTokens: 0,
         estimatedOutputTokens: 0,
         preview,
+        sourceClassification: describeConsolidationSources(features),
       });
       continue;
     }
@@ -383,6 +392,7 @@ export async function runConsolidate(
       estimatedInputTokens: consolidateResult.estimatedInputTokens,
       estimatedOutputTokens: consolidateResult.estimatedOutputTokens,
       preview,
+      sourceClassification: describeConsolidationSources(features),
     });
   }
 
@@ -425,6 +435,34 @@ function privacyFilterFeatures(features: FeatureConfig): FeatureConfig {
     },
     unmappedFiles: features.unmappedFiles.filter((file) => !isSensitiveLlmPath(file)),
   };
+}
+
+function describeConsolidationSources(features: FeatureConfig): ConsolidationSourceClassification {
+  const classification = features.sourceClassification;
+  const visible = (files: readonly string[]): string[] => [...new Set(files.filter((file) => !isSensitiveLlmPath(file)))];
+  return {
+    candidateUnits: classification?.candidateUnits ?? 0,
+    auxiliaryFiles: visible(classification?.auxiliaryFiles ?? []),
+    unconnectedFiles: visible(classification?.unconnectedFiles ?? []),
+    excludedUnits: (classification?.excludedUnits ?? []).map((unit) => ({ ...unit, files: visible(unit.files) })),
+    includedFeatureIds: features.featureGroups.flatMap((group) => group.features
+      .filter((feature) => group.enabled && feature.enabled).map((feature) => feature.id)),
+    reviewFeatureIds: features.featureGroups.flatMap((group) => group.features
+      .filter((feature) => !group.enabled || !feature.enabled).map((feature) => feature.id)),
+  };
+}
+
+export function formatConsolidationSourceSummary(result: Pick<ConsolidateServiceResult, 'serviceId' | 'sourceClassification'>): string {
+  const summary = result.sourceClassification;
+  if (!summary) return '';
+  const sample = (items: readonly string[]): string => items.slice(0, 5).join(', ')
+    + (items.length > 5 ? ` (+${items.length - 5} more)` : '');
+  return [
+    `  ${result.serviceId} source plan: ${summary.includedFeatureIds.length} included candidates, ${summary.reviewFeatureIds.length} needing review, ${summary.excludedUnits.length} excluded auxiliary units; ${summary.auxiliaryFiles.length} auxiliary files.`,
+    ...(summary.includedFeatureIds.length ? [`    Included: ${sample(summary.includedFeatureIds)}`] : []),
+    ...(summary.reviewFeatureIds.length ? [`    Review before documentation: ${sample(summary.reviewFeatureIds)}`] : []),
+    ...(summary.excludedUnits.length ? [`    Excluded (auxiliary source only): ${sample(summary.excludedUnits.map((unit) => unit.id))}`] : []),
+  ].join('\n');
 }
 
 async function containedTransmissionFiles(
@@ -628,6 +666,16 @@ export function registerConsolidateCommand(
         dryRun: true,
         serviceId: opts.service as string | undefined,
       });
+
+      for (const service of preview.results) {
+        if (!service.sourceClassification) continue;
+        if (machine && !dryRun) {
+          process.stdout.write(JSON.stringify({ stage: 'source-classification', serviceId: service.serviceId,
+            sourceClassification: service.sourceClassification }) + '\n');
+        } else if (!machine) {
+          console.log(formatConsolidationSourceSummary(service));
+        }
+      }
 
       // Credential resolution follows the LLM-free contained preview.
       const resolved = dryRun

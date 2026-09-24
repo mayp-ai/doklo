@@ -283,3 +283,19 @@ describe('source provenance survives the full deterministic pipeline', () => {
     );
   });
 });
+
+it('rejects merging ranges based on different versions of the same source file', () => {
+  const a = feature('a', [file('shared.ts')]);
+  const b = feature('b', [file('shared.ts')]);
+  a.source_context = [{ file: 'shared.ts', content_hash: 'a'.repeat(64), ranges: [{ start: 1, end: 2 }], symbols: ['a'], kind: 'imported-symbol' }];
+  b.source_context = [{ file: 'shared.ts', content_hash: 'b'.repeat(64), ranges: [{ start: 3, end: 4 }], symbols: ['b'], kind: 'imported-symbol' }];
+  expect(() => attachSourceFiles(consolidatedConfig([decision('ab', ['a', 'b'], '/a')]), featureConfig([a, b])))
+    .toThrow(/SOURCE_CONTEXT_HASH_MISMATCH/);
+});
+
+it('discards old context when any freshly attached member has no context', () => {
+  const config = consolidatedConfig([decision('ab', ['a', 'b'], '/a')]);
+  config.groups[0]!.features[0]!.source_context = [{ file: 'old.ts', content_hash: 'a'.repeat(64), ranges: [{ start: 1, end: 2 }], symbols: [], kind: 'entry' }];
+  attachSourceFiles(config, featureConfig([feature('a', [file('a.ts')]), feature('b', [file('b.ts')])]));
+  expect(config.groups[0]!.features[0]!.source_context).toBeUndefined();
+});

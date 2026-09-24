@@ -1,3 +1,5 @@
+import { Command } from 'commander';
+import { createContext } from '../src/lib/context.js';
 import { describe, it, expect, vi } from 'vitest';
 import { mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -5,6 +7,7 @@ import { dirname, join } from 'node:path';
 import {
   formatUnverifiedIdReuse,
   runConsolidate,
+  registerConsolidateCommand,
   ScanCacheMissingError,
   type ConsolidateDeps,
 } from '../src/commands/consolidate.js';
@@ -822,4 +825,59 @@ describe('formatUnverifiedIdReuse', () => {
     expect(line).toMatch(/no recorded provenance/i);
     expect(line).toMatch(/overwrit/i);
   });
+});
+
+it('exposes included, review-only, and excluded source candidates before paid consolidation', async () => {
+  const root = await tmpInitialized();
+  await writeScanCache(root, 'web');
+  for (const file of ['style.css', 'worker/task.py']) {
+    await mkdir(dirname(join(root, file)), { recursive: true });
+    await writeFile(join(root, file), '/* fixture */');
+  }
+  const cacheFile = join(root, '.doklo/cache/web.scan.json');
+  const ir = JSON.parse(await readFile(cacheFile, 'utf8'));
+  ir.files.push('style.css', 'worker/task.py');
+  ir.analysis_units = [
+    { id: 'styles', label: 'Styles', files: ['style.css'] },
+    { id: 'worker', label: 'Worker', files: ['worker/task.py'] },
+  ];
+  await writeFile(cacheFile, JSON.stringify(ir));
+  const result = await runConsolidate({ root, dryRun: true }, {
+    consolidateFeatures: async () => { throw new Error('Unexpected paid operation'); },
+  });
+  expect(result.results[0]).toMatchObject({ sourceClassification: {
+    candidateUnits: 1,
+    auxiliaryFiles: ['style.css'],
+    unconnectedFiles: ['worker/task.py'],
+    excludedUnits: [{ id: 'styles', files: ['style.css'], reason: 'AUXILIARY_SOURCE_ONLY' }],
+    reviewFeatureIds: ['worker'],
+  } });
+  expect(result.results[0]?.sourceClassification?.includedFeatureIds).toHaveLength(2);
+});
+
+
+it.each([false, true])('shows source classification before paid authorization (machine=%s)', async (machine) => {
+  const root = await tmpInitialized();
+  await writeScanCache(root, 'web');
+  const output: string[] = [];
+  const log = vi.spyOn(console, 'log').mockImplementation((value) => { output.push(String(value)); });
+  const write = vi.spyOn(process.stdout, 'write').mockImplementation((value) => { output.push(String(value)); return true; });
+  const program = new Command();
+  registerConsolidateCommand(program, createContext('en'), {
+    resolveLlmForRole: async () => ({ model: 'anthropic/claude-sonnet-5', providerKind: 'anthropic', apiKey: 'test' }),
+    authorizeLlmRun: async () => {
+      if (machine) {
+        expect(output.map(line => JSON.parse(line.trim())).find(event => event.stage === 'source-classification'))
+          .toMatchObject({ serviceId: 'web', sourceClassification: { includedFeatureIds: ['auth-signin', 'admin-users'], excludedUnits: [] } });
+      } else {
+        expect(output.join('\n')).toContain('2 included candidates');
+        expect(output.join('\n')).toContain('0 excluded auxiliary units');
+      }
+      throw new Error('Stop at authorization');
+    },
+  });
+  try {
+    await expect(program.parseAsync(['consolidate', '--root', root, '--yes', ...(machine ? ['--json'] : [])], { from: 'user' }))
+      .rejects.toThrow('Stop at authorization');
+  } finally { log.mockRestore(); write.mockRestore(); }
 });

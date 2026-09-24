@@ -86,6 +86,7 @@ export async function extractIR(options: ExtractIROptions): Promise<ProjectIR> {
   // attribution; opt-out is for callers (tests, fast-paths) that don't
   // need it.
   const includeImportGraph = options.includeImportGraph ?? true;
+  let importContexts: Record<string, import('./import-context.js').ImportSourceContext[]> | undefined;
   let importGraphSerialized: Record<string, string[]> | undefined;
   let importGraphDiagnostics: ParserDiagnostic[] = [];
   let importGraphProcessedFiles: string[] = [];
@@ -101,6 +102,7 @@ export async function extractIR(options: ExtractIROptions): Promise<ProjectIR> {
         allowedSourceFiles: options.allowedSourceFiles,
       });
       importGraphSerialized = serializeImportGraph(graph);
+      importContexts = graph.contextByEntry;
       importGraphDiagnostics = graph.diagnostics ?? [];
       importGraphProcessedFiles = graph.processedFiles ?? [];
       importGraphWarnings = graph.warnings ?? [];
@@ -142,7 +144,7 @@ export async function extractIR(options: ExtractIROptions): Promise<ProjectIR> {
       package_json: next.packageJson,
       env_keys: next.envKeys,
       ast_errors: ast.errors,
-      ...(importGraphSerialized ? { import_graph: importGraphSerialized } : {}),
+      ...(importGraphSerialized ? { import_graph: importGraphSerialized, import_context: importContexts } : {}),
       ...(importGraphSerialized && importGraphDiagnostics.length === 0
         ? { import_graph_tracking_version: 2 } : {}),
       ...(importGraphDiagnostics.length > 0 ? { import_diagnostics: importGraphDiagnostics } : {}),

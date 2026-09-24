@@ -4,7 +4,7 @@ import { EngineError } from './errors.js';
 import { SOURCE_PATH_PATTERN_SOURCE } from './public-copy-patterns.js';
 
 export type StableLintViolation = {
-  code: 'INCOMPLETE_COPY' | 'INTERNAL_IDENTIFIER' | 'SOURCE_PATH' | 'FALSE_FRESHNESS' | 'STRUCTURAL_RAW_HTML';
+  code: 'INCOMPLETE_COPY' | 'INTERNAL_IDENTIFIER' | 'SOURCE_PATH' | 'FALSE_FRESHNESS' | 'STRUCTURAL_RAW_HTML' | 'IMPLEMENTATION_DETAIL';
   message: string;
   excerpt: string;
 };
@@ -26,6 +26,11 @@ type LintRule = {
 };
 
 const RULES: LintRule[] = [
+  {
+    code: 'IMPLEMENTATION_DETAIL',
+    message: 'Customer output describes internal invitation-address implementation details.',
+    pattern: /내부\s*초대용\s*(?:이메일\s*)?주소|\b(?:synthetic\s+e-?mail(?:\s+address)?|internal\s+(?:invitation|invite)\s+(?:e-?mail\s+)?address)\b/giu,
+  },
   {
     code: 'INCOMPLETE_COPY',
     message: 'Stable output contains unfinished or placeholder copy.',
