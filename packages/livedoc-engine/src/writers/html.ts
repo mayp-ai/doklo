@@ -191,10 +191,13 @@ export const htmlWriter: Writer = async (ctx) => {
     ctx.template.display_name?.[ctx.template.default_locale] ??
     ctx.template.name;
   const title = deriveTitle(safeBody, displayName);
+  const previewBanner = ctx.preview
+    ? `<aside data-doklo-preview="draft" role="note" style="display:block!important;visibility:visible!important;opacity:1!important;padding:1rem!important;border:3px solid #8a4b00!important;background:#fff4cf!important;color:#332000!important;font:700 16px/1.5 sans-serif!important">Draft preview — Not reviewed or approved for publication.${ctx.locale.startsWith('ko') ? ' 미검토 초안 — 게시 승인되지 않았습니다.' : ''}</aside>\n`
+    : '';
   const html = wrapInShell({
-    title,
+    title: ctx.preview ? `Draft preview — ${title}` : title,
     lang: ctx.locale,
-    body: safeBody,
+    body: previewBanner + safeBody,
     css,
     hasMermaid,
   });

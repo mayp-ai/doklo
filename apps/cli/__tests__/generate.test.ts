@@ -2439,7 +2439,7 @@ describe('observed generate fault recovery contracts', () => {
         file: '.doklo/hub/doks/USER.json',
         retryable: true,
         preserved: ['.doklo/hub/doks/AUTH.json'],
-        nextCommand: 'doklo generate --yes',
+        nextCommand: 'doklo generate --only USER --yes',
       }],
     });
     expect(generator).toHaveBeenCalledOnce();
@@ -2682,11 +2682,12 @@ describe('observed generate fault recovery contracts', () => {
         retryable: true,
         file: '.doklo/hub/doks/USER.json',
         preserved: ['.doklo/hub/doks/AUTH.json'],
-        nextCommand: 'doklo generate --yes',
+        nextCommand: 'doklo generate --only USER --yes',
       }],
     });
     expect(await readFile(existingPath)).toEqual(existingBefore);
-    expect(generator).toHaveBeenCalledOnce();
+    expect(generator).toHaveBeenCalledTimes(2);
+    expect(outcome.result?.data).toMatchObject({ failures: [{ attempts: 2 }], retryTokenUsage: { attemptedCalls: 1 } });
     await expect(readFile(
       join(root, '.doklo/hub/doks/USER.json'),
       'utf8',
@@ -2780,11 +2781,12 @@ describe('observed generate fault recovery contracts', () => {
           file: '.doklo/hub/doks/AUTH.json',
           retryable: true,
           preserved: [],
-          nextCommand: 'doklo generate --yes',
+          nextCommand: 'doklo generate --only AUTH --yes',
         }],
       });
       expect(JSON.stringify(outcome.result?.diagnostics)).not.toContain(root);
       expect(JSON.stringify(outcome.result?.diagnostics)).not.toContain('.tmp');
+      expect(outcome.result?.data).toMatchObject({ failures: [{ dokId: 'AUTH', attempts: 1 }] });
       expect(generator).toHaveBeenCalledOnce();
       await expect(readFile(
         join(root, '.doklo/hub/doks/AUTH.json'),
@@ -4468,6 +4470,7 @@ describe('runGenerate — deterministic Hub layers', () => {
       ]);
       expect(events.map((event) => `${event.stage}:${event.status ?? event.phase ?? ''}`)).toEqual([
         'scan:reused',
+        'source-classification:',
         'consent-plan:consolidation',
         'consolidate:running',
         'consolidate:completed',
@@ -4570,6 +4573,7 @@ describe('runGenerate — deterministic Hub layers', () => {
         resolveLlmForRole: async () => ({ model: 'anthropic/claude-sonnet-5', providerKind: 'anthropic', apiKey: 'test-key' }),
       });
       expect(events.map((event) => `${event.stage}:${event.status ?? event.phase ?? ''}`)).toEqual([
+        'source-classification:',
         'consent-plan:consolidation',
         'scan:running',
         'scan:completed',
@@ -5641,4 +5645,113 @@ it('keeps sensitive cached logic files out of generated tracking metadata', asyn
   await runGenerate({ root, noLexicon: true }, stubDeps);
   const dok = JSON.parse(await readFile(join(root, '.doklo/hub/doks/NOTICE.json'), 'utf8'));
   expect(dok._meta.logic_files).toEqual([{ file: 'src/notices.ts' }]);
+});
+
+describe('bounded generation recovery', () => {
+  it('recovers malformed JSON with an approved identical prompt and accounts for extra usage', async () => {
+    const root = await tmpInit();
+    await writeConsolidated(root, 'web', ['AUTH', 'USER']);
+    const existingPath = join(root, '.doklo/hub/doks/AUTH.json');
+    await writeFile(existingPath, JSON.stringify(makeDok('AUTH', 'Human edited')));
+    const before = await readFile(existingPath);
+    let attempt = 0;
+    const prompts: unknown[] = [];
+    const outcome = await runGenerateThroughCommander(root,
+      ['--retries', '1', '--no-roles', '--no-ia', '--no-code-mapping'], {
+        runGenerateDeps: { generateDokForFeature: async (_feature, context, options) => {
+          prompts.push(options?.preparedPrompt);
+          attempt++;
+          return attempt === 1
+            ? { success: false, dok: null, prompt: '', rawResponse: '{bad}', usage: { input_tokens: 11, output_tokens: 7 }, error: 'Failed to parse Dok JSON' }
+            : { success: true, dok: makeDok(context.dokId) as never, prompt: '', rawResponse: '{}', usage: { input_tokens: 13, output_tokens: 9 } };
+        } },
+      });
+    expect(outcome.result).toMatchObject({ status: 'success', data: {
+      results: [{ dokId: 'USER', attempts: 2 }],
+      retryTokenUsage: { attemptedCalls: 1, actual: { inputTokens: 13, outputTokens: 9 } },
+      tokenUsage: { attemptedCalls: 2, actual: { inputTokens: 24, outputTokens: 16 } },
+    } });
+    expect(prompts[1]).toEqual(prompts[0]);
+    expect(await readFile(existingPath)).toEqual(before);
+    expect(JSON.parse(await readFile(join(root, '.doklo/hub/doks/USER.json'), 'utf8')).status).toBe('draft');
+  });
+
+  it('stops repeated malformed responses and emits only-failed resume instructions', async () => {
+    const root = await tmpInit();
+    await writeConsolidated(root, 'web', ['AUTH', 'USER']);
+    const outcome = await runGenerateThroughCommander(root,
+      ['--only', 'USER', '--retries', '2', '--no-roles', '--no-ia', '--no-code-mapping'], {
+        runGenerateDeps: { generateDokForFeature: async () => ({
+          success: false, dok: null, prompt: '', rawResponse: '{bad}',
+          usage: { input_tokens: 11, output_tokens: 7 }, error: 'Failed to parse Dok JSON',
+        }) },
+      });
+    expect(outcome.result).toMatchObject({ status: 'partial', data: {
+      failures: [{ dokId: 'USER', attempts: 3, code: 'DOK_RESPONSE_MALFORMED', nextCommand: 'doklo generate --only USER --yes' }],
+      tokenUsage: { attemptedCalls: 3 }, retryTokenUsage: { attemptedCalls: 2 },
+    } });
+    expect(await readdir(join(root, '.doklo/hub/doks'))).toEqual([]);
+  });
+});
+
+it('stops before reserving a recovery attempt when cancelled by retry progress', async () => {
+  const root = await tmpInit();
+  await writeConsolidated(root, 'web', ['AUTH']);
+  const controller = new AbortController();
+  const result = await runGenerate({
+    root, retries: 1, noRoles: true, noIa: true, noCodeMapping: true,
+    signal: controller.signal,
+    onProgress: (event) => { if (event.stage === 'dok-retry') controller.abort(); },
+  }, { generateDokForFeature: async () => ({
+    success: false, dok: null, prompt: '', rawResponse: '{bad}', usage: null, error: 'Malformed',
+  }) });
+  expect(result).toMatchObject({ interrupted: true, tokenUsage: { attemptedCalls: 1, missingCalls: 1 } });
+  expect(await readdir(join(root, '.doklo/hub/doks'))).toEqual([]);
+});
+
+it('accounts for an aborted contacted retry as missing usage in both summaries', async () => {
+  const root = await tmpInit();
+  await writeConsolidated(root, 'web', ['AUTH']);
+  let attempt = 0;
+  await expect(runGenerateThroughCommander(root, ['--no-roles', '--no-ia', '--no-code-mapping'], {
+    runGenerateDeps: { generateDokForFeature: async () => {
+      attempt++;
+      if (attempt === 2) {
+        process.emit('SIGINT');
+        throw new Error('Provider aborted');
+      }
+      return { success: false, dok: null, prompt: '', rawResponse: '{bad}',
+        usage: { input_tokens: 11, output_tokens: 7 }, error: 'Malformed' };
+    } },
+  })).rejects.toMatchObject({ result: { data: {
+    interrupted: true,
+    tokenUsage: { attemptedCalls: 2, measuredCalls: 1, missingCalls: 1 },
+    retryTokenUsage: { attemptedCalls: 1, measuredCalls: 0, missingCalls: 1 },
+  } } });
+  const ledger = JSON.parse(await readFile(join(root, '.doklo/cache/llm-token-ledger.json'), 'utf8'));
+  expect(ledger.calls.map((call: { state: string }) => call.state)).toEqual(['settled', 'retained']);
+});
+
+it('offers explicitly scoped forced recovery and preserves other human-edited Doks', async () => {
+  const root = await tmpInit();
+  await writeConsolidated(root, 'web', ['AUTH', 'USER']);
+  for (const id of ['AUTH', 'USER']) await writeFile(join(root, `.doklo/hub/doks/${id}.json`), JSON.stringify(makeDok(id, `Human ${id}`)));
+  const authBefore = await readFile(join(root, '.doklo/hub/doks/AUTH.json'));
+  const userBefore = await readFile(join(root, '.doklo/hub/doks/USER.json'));
+  const options = ['--only', 'USER', '--force', '--no-roles', '--no-ia', '--no-code-mapping'];
+  const failed = await runGenerateThroughCommander(root, options, {
+    runGenerateDeps: { generateDokForFeature: async () => ({ success: false, dok: null, prompt: '', rawResponse: '{bad}', usage: null, error: 'Malformed' }) },
+  });
+  expect(failed.result).toMatchObject({ status: 'partial', data: { failures: [{
+    dokId: 'USER', existingPreserved: true, attempts: 2,
+    nextCommand: 'doklo generate --only USER --force --yes',
+    preserved: expect.arrayContaining(['.doklo/hub/doks/USER.json']),
+  }] } });
+  expect(await readFile(join(root, '.doklo/hub/doks/USER.json'))).toEqual(userBefore);
+  const recovered = await runGenerateThroughCommander(root, options, {
+    runGenerateDeps: { generateDokForFeature: async (_feature, context) => ({ success: true, dok: makeDok(context.dokId, 'Recovered') as never, prompt: '', rawResponse: '{}', usage: null }) },
+  });
+  expect(recovered.result).toMatchObject({ status: 'success', data: { results: [{ dokId: 'USER' }] } });
+  expect(await readFile(join(root, '.doklo/hub/doks/AUTH.json'))).toEqual(authBefore);
+  expect(JSON.parse(await readFile(join(root, '.doklo/hub/doks/USER.json'), 'utf8')).name).toBe('Recovered');
 });

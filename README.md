@@ -225,6 +225,8 @@ License: **Apache-2.0**. Licensed under the Apache License, Version 2.0. See [LI
 
 ### Product recording branch
 
+See [Generation recovery and draft review](docs/en/generation-review.md) for scoped retries, draft previews and source-evidence boundaries.
+
 Choose a branch during interactive `doklo init`, or pass `doklo init --recording-branch main`.
 For an existing workspace, use `doklo recording --branch main`; `doklo recording --json` shows the setting.
 The choice is stored in `workspace.json` and preserves existing Hub documents. Non-interactive init without

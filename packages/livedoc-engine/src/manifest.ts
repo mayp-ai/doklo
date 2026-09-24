@@ -25,6 +25,8 @@ export interface LivedocManifestWarning {
 }
 
 export interface LivedocManifest {
+  /** Present only for review-only artifacts; never official Publication evidence. */
+  render_mode?: 'draft-preview';
   engine_version: string;
   template: {
     name: string;
@@ -70,6 +72,7 @@ export interface LivedocManifest {
 }
 
 export interface BuildManifestArgs {
+  renderMode?: 'draft-preview';
   template: LivedocManifest['template'];
   locale: string;
   primaryLocale: string;
@@ -86,6 +89,7 @@ export interface BuildManifestArgs {
 
 export function buildManifest(args: BuildManifestArgs): LivedocManifest {
   return {
+    ...(args.renderMode ? { render_mode: args.renderMode } : {}),
     engine_version: ENGINE_VERSION,
     template: args.template,
     locale: args.locale,
@@ -124,4 +128,16 @@ export async function writeManifest(
     output,
     `${JSON.stringify(m, null, 2)}\n`,
   );
+}
+
+/** Preview labels are incompatible with official saved-publication evidence. */
+export function hasDraftPreviewMarker(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  if (record.render_mode === 'draft-preview') return true;
+  return Array.isArray(record.warnings) && record.warnings.some((warning: unknown) => (
+    typeof warning === 'string'
+      ? warning.startsWith('DRAFT_PREVIEW')
+      : Boolean(warning && typeof warning === 'object' && (warning as Record<string, unknown>).code === 'DRAFT_PREVIEW')
+  ));
 }

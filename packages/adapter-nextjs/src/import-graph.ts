@@ -1,3 +1,4 @@
+import { buildImportContexts, type ImportSourceContext } from './import-context.js';
 import { sourceFileSystem } from './source-filesystem.js';
 // Internal-import graph builder.
 //
@@ -37,6 +38,7 @@ export interface BuildImportGraphOptions {
 export interface ImportGraph {
   /** source file (relative to rootDir) → set of internal files it imports. */
   edges: Map<string, Set<string>>;
+  contextByEntry?: Record<string, ImportSourceContext[]>;
   diagnostics?: ParserDiagnostic[];
   processedFiles?: string[];
   warnings?: ImportGraphWarning[];
@@ -184,7 +186,8 @@ export function buildImportGraph(options: BuildImportGraphOptions): ImportGraph 
     walk(entry, 0);
   }
 
-  return { edges, diagnostics, processedFiles: [...visited].sort(), warnings };
+  return { edges, diagnostics, processedFiles: [...visited].sort(), warnings,
+    contextByEntry: buildImportContexts(project, rootDir, entryFiles, visited, maxDepth) };
 }
 
 function resolveRootPublicImport(

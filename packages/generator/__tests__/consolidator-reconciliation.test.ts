@@ -239,3 +239,25 @@ it('retains generic source for generation when metadata-only consolidation exclu
   expect(result.config?.groups[0]?.features[0]?.source_files).toEqual(['src/notices.py']);
   expect(result.config?.groups[0]?.excluded).toEqual([]);
 });
+
+it.each([true, false])('keeps unconnected source excluded even when the model keeps it or omits its group (%s)', async (includeGroup) => {
+  const source = features();
+  const f = source.featureGroups[0]!.features[0]!;
+  f.enabled = false; f.candidate_kind = 'unconnected-source'; f.routePath = '';
+  if (includeGroup) llmAnswers('AUTH-SIGNIN');
+  else callModelMock.mockResolvedValue({ success: true, content: '{"groups":[]}', usage: null, processingTime: 1, error: null });
+  const result = await consolidateFeatures(source);
+  expect(result.config?.groups[0]?.features).toEqual([]);
+  expect(result.config?.groups[0]?.excluded).toEqual([{ id: f.id, reason: 'UNCONNECTED_SOURCE_REQUIRES_REVIEW' }]);
+  expect(result.config?.stats).toMatchObject({ excluded: 1, consolidatedFeatures: 0 });
+});
+
+it('preserves symbol context through consolidation and strict cache validation', async () => {
+  const source = features();
+  source.featureGroups[0]!.features[0]!.source_context = [{ file: 'app/auth/signin/page.tsx', content_hash: 'a'.repeat(64), ranges: [{ start: 1, end: 8 }], symbols: [], kind: 'entry' }];
+  llmAnswers('AUTH-SIGNIN');
+  const result = await consolidateFeatures(source);
+  const { ConsolidatedFeatureConfigSchema } = await import('../src/legacy-types.js');
+  const restored = ConsolidatedFeatureConfigSchema.parse(JSON.parse(JSON.stringify(result.config)));
+  expect(restored.groups[0]?.features[0]?.source_context).toEqual(source.featureGroups[0]!.features[0]!.source_context);
+});

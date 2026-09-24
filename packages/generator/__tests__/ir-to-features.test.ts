@@ -397,3 +397,47 @@ it('describes non-web candidates and filenames to consolidation', async () => {
   expect(prompt.systemPrompt).toContain('file-based');
   expect(prompt.systemPrompt).not.toContain("analyzing a Next.js project");
 });
+
+it('retains auxiliary evidence without promoting style/config-only units to customer features', () => {
+  const fc = irToFeatures(ir({ files: ['page.tsx', 'style.css', 'manifest.webmanifest', 'next.config.ts', '.dockerignore'],
+    routes: [{ path: '/', file: 'page.tsx', kind: 'page', dynamic_params: [], layout_chain: [] }],
+    analysis_units: [{ id: 'styles', label: 'styles', files: ['style.css'] },
+      { id: 'config', label: 'config', files: ['manifest.webmanifest', 'next.config.ts', '.dockerignore'] }],
+  }), { projectName: 'test' });
+  expect(fc.featureGroups.flatMap(group => group.features).map(feature => feature.entryPoint)).toEqual(['page.tsx']);
+  expect(fc.sourceClassification).toMatchObject({ candidateUnits: 0, auxiliaryFiles: ['style.css', 'manifest.webmanifest', 'next.config.ts', '.dockerignore'],
+    excludedUnits: [{ id: 'styles', reason: 'AUXILIARY_SOURCE_ONLY' }, { id: 'config', reason: 'AUXILIARY_SOURCE_ONLY' }] });
+  expect(fc.totalFiles).toBe(5);
+});
+
+it('marks unconnected code for review while retaining generic service behavior', () => {
+  const fc = irToFeatures(ir({ files: ['page.tsx', 'worker/task.py'],
+    routes: [{ path: '/', file: 'page.tsx', kind: 'page', dynamic_params: [], layout_chain: [] }],
+    analysis_units: [{ id: 'worker', label: 'worker', files: ['worker/task.py'] }],
+  }), { projectName: 'test' });
+  const worker = fc.featureGroups.flatMap(group => group.features).find(feature => feature.id === 'worker');
+  expect(worker).toMatchObject({ enabled: false, candidate_kind: 'unconnected-source' });
+  expect(fc.sourceClassification?.unconnectedFiles).toEqual(['worker/task.py']);
+});
+
+it('carries symbol context separately from the conservative file drift closure', () => {
+  const fc = irToFeatures(ir({ files: ['child.tsx', 'chat.tsx', 'photos.ts'],
+    routes: [{ path: '/child', file: 'child.tsx', kind: 'page', dynamic_params: [], layout_chain: [] }],
+    framework_specific: { import_graph: { 'child.tsx': ['chat.tsx'], 'chat.tsx': ['photos.ts'] },
+      import_context: { 'child.tsx': [{ file: 'child.tsx', content_hash: 'a'.repeat(64), ranges: [{ start: 1, end: 2 }], symbols: [], kind: 'entry' },
+        { file: 'chat.tsx', content_hash: 'a'.repeat(64), ranges: [{ start: 4, end: 7 }], symbols: ['completedMonths'], kind: 'imported-symbol' }] } },
+  }), { projectName: 'test' });
+  const feature = fc.featureGroups[0]!.features[0]!;
+  expect(feature.source_context).toHaveLength(2);
+  expect(feature.files.map(file => file.path)).not.toContain('photos.ts');
+  expect(feature.logic_files).toContain('photos.ts');
+});
+
+it('reports discovered but unconnected behavior even when the specialist did not create a source unit', () => {
+  const fc = irToFeatures(ir({ files: ['page.tsx', 'unused/old.ts', 'styles.css'],
+    routes: [{ path: '/', file: 'page.tsx', kind: 'page', dynamic_params: [], layout_chain: [] }],
+    framework_specific: { import_graph: { 'page.tsx': [] } },
+  }), { projectName: 'test' });
+  expect(fc.sourceClassification?.unconnectedFiles).toEqual(['unused/old.ts']);
+  expect(fc.unmappedFiles).toEqual(['unused/old.ts', 'styles.css']);
+});

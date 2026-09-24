@@ -37,6 +37,7 @@ import type {
   ConsolidatedFeatureGroup,
   ConsolidatedFeature,
   ExcludedFeature,
+  SourceContext,
 } from './legacy-types.js';
 
 // 출력 파일명 — features.json과 같은 디렉토리에 저장
@@ -303,6 +304,8 @@ interface FeatureSummary {
     routePath: string;
     fileCount: number;
     keyFiles: string[];
+    candidateKind?: string;
+    enabled: boolean;
   }[];
 }
 
@@ -316,6 +319,8 @@ function summarizeFeatures(config: FeatureConfig): FeatureSummary[] {
       routePath: f.routePath,
       fileCount: f.files.length,
       keyFiles: pickKeyFiles(f),
+      candidateKind: f.candidate_kind,
+      enabled: f.enabled,
     })),
   }));
 }
@@ -458,6 +463,7 @@ Rules:
       sections.push(`- **${f.id}** — ${f.label}`);
       sections.push(`  - route: \`${f.routePath}\``);
       sections.push(`  - files: ${f.fileCount}`);
+      if (f.candidateKind) sections.push(`  - source classification: ${f.candidateKind}; enabled: ${f.enabled}`);
       sections.push(`  - key files: ${f.keyFiles.slice(0, 5).map((k) => `\`${k}\``).join(', ')}`);
     }
   }
@@ -684,6 +690,22 @@ function normalizeConsolidationOutput(
     }
   }
 
+  // Discovery policy is deterministic: filenames alone cannot prove an
+  // unconnected source is a reachable customer feature, even if the model keeps it.
+  const reviewRequired = new Set(source.featureGroups.flatMap(group => group.features)
+    .filter(feature => feature.candidate_kind === 'unconnected-source' && !feature.enabled).map(feature => feature.id));
+  for (const group of groups) {
+    for (const feature of group.features) feature.members = feature.members.filter(id => !reviewRequired.has(id));
+    group.features = group.features.filter(feature => feature.members.length > 0);
+    group.excluded = group.excluded.filter(feature => !reviewRequired.has(feature.id));
+    for (const feature of sourceGroups.get(group.group_id)?.features ?? []) {
+      if (reviewRequired.has(feature.id)) group.excluded.push({ id: feature.id, reason: 'UNCONNECTED_SOURCE_REQUIRES_REVIEW' });
+    }
+  }
+  consolidatedCount = groups.reduce((sum, group) => sum + group.features.length, 0);
+  excludeCount = groups.reduce((sum, group) => sum + group.excluded.length, 0);
+  mergeCount = groups.flatMap(group => group.features).filter(feature => feature.decision === 'merge').length;
+
   return {
     projectName: source.projectName,
     basedOnFeaturesAt: source.generatedAt,
@@ -729,6 +751,7 @@ export function attachSourceFiles(
   source: FeatureConfig,
 ): ConsolidatedFeatureConfig {
   const filesById = new Map<string, string[]>();
+  const contextById = new Map<string, SourceContext[]>();
   // Drift closure per source feature: its `logic_files` (full reachable set,
   // shared infra included) when present, else its display files — so caches
   // written before `logic_files` existed hash the same set as before (drift set
@@ -737,6 +760,7 @@ export function attachSourceFiles(
   for (const group of source.featureGroups) {
     for (const f of group.features) {
       filesById.set(f.id, f.files.map((ff) => ff.path));
+      if (f.source_context) contextById.set(f.id, f.source_context);
       logicById.set(f.id, f.logic_files ?? f.files.map((ff) => ff.path));
     }
   }
@@ -756,6 +780,41 @@ export function attachSourceFiles(
         }
       }
       feature.source_files = union;
+      if (feature.members.every(id => contextById.has(id))) {
+        const contextUnion = new Map<string, SourceContext>();
+        for (const memberId of feature.members) {
+          for (const context of contextById.get(memberId) ?? []) {
+            const existing = contextUnion.get(context.file);
+            if (!existing) contextUnion.set(context.file, { ...context, ranges: context.ranges.map(range => ({ ...range })), symbols: [...context.symbols] });
+            else {
+              if (existing.content_hash !== context.content_hash) throw new Error(`SOURCE_CONTEXT_HASH_MISMATCH: ${context.file}`);
+              existing.ranges.push(...context.ranges.map(range => ({ ...range })));
+              existing.symbols = [...new Set([...existing.symbols, ...context.symbols])].sort();
+              if (context.kind === 'entry' || existing.kind === 'entry') existing.kind = 'entry';
+              else if (context.kind === 'module') existing.kind = 'module';
+            }
+          }
+        }
+        feature.source_context = [...contextUnion.values()].map(context => {
+          const ranges: SourceContext['ranges'] = [];
+          for (const range of context.ranges.sort((a, b) => a.start - b.start || (a.startColumn ?? 1) - (b.startColumn ?? 1))) {
+            const last = ranges.at(-1);
+            const touches = last && (range.start < last.end ||
+              (range.start === last.end && (range.startColumn ?? 1) <= (last.endColumn ?? Infinity)) ||
+              (range.start === last.end + 1 && last.endColumn === undefined && range.startColumn === undefined));
+            if (last && touches) {
+              if (range.end > last.end || (range.end === last.end && (range.endColumn ?? Infinity) > (last.endColumn ?? Infinity))) {
+                last.end = range.end;
+                if (range.endColumn === undefined) delete last.endColumn;
+                else last.endColumn = range.endColumn;
+              }
+            } else ranges.push({ ...range });
+          }
+          return { ...context, ranges };
+        });
+      } else {
+        delete feature.source_context;
+      }
 
       // Parallel drift-closure union across the same members. Kept as its own
       // block so the display `source_files` attribution above stays unchanged.

@@ -62,6 +62,7 @@ import {
 import { getWriter, type WriterResult } from './writers/index.js';
 import {
   buildManifest,
+  hasDraftPreviewMarker,
   writeManifest,
   type LivedocManifest,
   type LivedocManifestWarning,
@@ -128,6 +129,8 @@ export interface RenderLivedocInput {
   allFormats?: boolean;
   overwrite?: boolean;
   dryRun?: boolean;
+  /** Review-only stable Markdown/HTML output; accepts drafts without approving the Hub. */
+  preview?: boolean;
   /** Anchor planned relative paths to a stable existing root. */
   outputRoot?: string;
   /** Reserve outputs written by a higher-level orchestrator. */
@@ -323,6 +326,18 @@ export async function renderLivedoc(input: RenderLivedocInput): Promise<RenderLi
     });
   }
   const selectedFormats = selectOutputFormats(input, manifest);
+  if (input.preview) {
+    if (manifest.stability !== 'stable' || selectedFormats.some((format) => !['markdown', 'html'].includes(format))) {
+      throw new EngineError({
+        code: 'OUTPUT_FORMAT_REJECTED',
+        message: 'Draft preview supports only stable Markdown and HTML templates.',
+      });
+    }
+    warnings.push({
+      code: 'DRAFT_PREVIEW',
+      message: 'Draft preview. Not reviewed or approved for publication. Hub review status is unchanged.',
+    });
+  }
   let variables: Record<string, string | boolean | number>;
   try {
     variables = coerceTemplateVariables(manifest, input.variables ?? {});
@@ -601,6 +616,7 @@ export async function renderLivedoc(input: RenderLivedocInput): Promise<RenderLi
         outputRoot: planContext.plan.output_root,
         plannedOutput: planned,
         content: output.content,
+        preview: input.preview,
         source: output.source,
         template: manifest,
         locale: input.locale,
@@ -1341,7 +1357,8 @@ async function validatePriorOfficialPublication(input: {
   const publication = recordValue(evidence.publication);
   const template = recordValue(evidence.template);
   if (
-    evidence.schema_version !== 1
+    hasDraftPreviewMarker(evidence)
+    || evidence.schema_version !== 1
     || evidence.command !== 'live-docs.publication.render'
     || publication?.name !== input.publication.name
     || template?.name !== input.templateName
@@ -1455,7 +1472,8 @@ async function validatePriorOfficialPublication(input: {
     );
   }
   if (
-    recordValue(manifest.publication)?.name !== input.publication.name
+    hasDraftPreviewMarker(manifest)
+    || recordValue(manifest.publication)?.name !== input.publication.name
     || recordValue(manifest.template)?.name !== input.templateName
   ) {
     throw codedError(
@@ -2212,7 +2230,7 @@ function selectTargets(
         message: `Selected Doks are missing from the Hub: ${missing.join(', ')}`,
       });
     }
-    assertStableDoksReviewed(manifest, selectedDoks);
+    assertStableDoksReviewed(manifest, selectedDoks, input.preview);
     if (manifest.scope === 'workspace') {
       return {
         targets: [{ doks: selectedDoks, key: '__workspace__' }],
@@ -2229,19 +2247,19 @@ function selectTargets(
       return { targets: [{ key: '__workspace__' }], selectorApplied: false };
     }
     const available = hub.doks.filter((dok) => dok.status !== 'archived');
-    const selected = available.filter((dok) => dok.status === 'active');
+    const selected = available.filter((dok) => dok.status === 'active' || (input.preview && dok.status === 'draft'));
     if (selected.length === 0 && available.length > 0) {
-      assertStableDoksReviewed(manifest, [available[0]!]);
+      assertStableDoksReviewed(manifest, [available[0]!], input.preview);
     }
     return { targets: [{ doks: selected, key: '__workspace__' }], selectorApplied: false };
   }
   if (manifest.scope === 'per_dok') {
     const available = hub.doks.filter((dok) => dok.status !== 'archived');
     const selected = manifest.stability === 'stable'
-      ? available.filter((dok) => dok.status === 'active')
+      ? available.filter((dok) => dok.status === 'active' || (input.preview && dok.status === 'draft'))
       : available;
     if (manifest.stability === 'stable' && selected.length === 0 && available.length > 0) {
-      assertStableDoksReviewed(manifest, [available[0]!]);
+      assertStableDoksReviewed(manifest, [available[0]!], input.preview);
     }
     return {
       targets: selected.map((dok) => ({ dok, key: dok.dok_id })),
@@ -2249,7 +2267,7 @@ function selectTargets(
     };
   }
   const matched = selectDoks(hub.doks, manifest.selector!);
-  assertStableDoksReviewed(manifest, matched);
+  assertStableDoksReviewed(manifest, matched, input.preview);
   if (matched.length === 0) {
     if (input.strict) {
       throw new EngineError({
@@ -2268,14 +2286,16 @@ function selectTargets(
   };
 }
 
-function assertStableDoksReviewed(manifest: TemplateManifest, doks: Dok[]): void {
+function assertStableDoksReviewed(manifest: TemplateManifest, doks: Dok[], preview = false): void {
   if (manifest.stability !== 'stable') return;
-  const unreviewed = doks.find((dok) => dok.status !== 'active');
+  const unreviewed = doks.find((dok) => dok.status !== 'active' && !(preview && dok.status === 'draft'));
   if (!unreviewed) return;
   throw new EngineError({
     code: 'UNREVIEWED_DOK',
     dokId: unreviewed.dok_id,
-    message: `Stable template '${manifest.name}' requires an active, human-reviewed Dok: ${unreviewed.dok_id} is ${unreviewed.status}.`,
+    message: preview
+      ? `Draft preview requires an active or draft Dok: ${unreviewed.dok_id} is ${unreviewed.status}.`
+      : `Stable template '${manifest.name}' requires an active, human-reviewed Dok: ${unreviewed.dok_id} is ${unreviewed.status}. Use --preview for draft review without approval.`,
   });
 }
 
@@ -2587,6 +2607,7 @@ function buildRenderManifest(args: {
   generatedAt: string;
 }): LivedocManifest {
   return buildManifest({
+    ...(args.input.preview ? { renderMode: 'draft-preview' as const } : {}),
     template: {
       name: args.manifest.name,
       version: args.manifest.version,

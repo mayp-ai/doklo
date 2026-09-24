@@ -29,6 +29,16 @@ export interface FeatureFile {
   isShared: boolean;
 }
 
+export interface SourceContext {
+  file: string;
+  /** SHA-256 of the complete UTF-8 source text used to derive these ranges. */
+  content_hash: string;
+  /** Inclusive, one-based original source lines. Optional UTF-16 columns are one-based; endColumn is exclusive. */
+  ranges: { start: number; end: number; startColumn?: number; endColumn?: number }[];
+  symbols: string[];
+  kind: 'entry' | 'imported-symbol' | 'module';
+}
+
 export interface Feature {
   /** e.g., "auth-signin", "catalog-detail" */
   id: string;
@@ -47,11 +57,13 @@ export interface Feature {
    * still caught. Optional for caches written before this field existed.
    */
   logic_files?: string[];
+  source_context?: SourceContext[];
   apiRoutes: string[];
   components: string[];
   stores: string[];
   /** Whether this feature is selected for Dok generation. */
   enabled: boolean;
+  candidate_kind?: 'source-behavior' | 'unconnected-source';
   /**
    * Semantic dok_id prefix assigned by consolidation. As of v5 this IS the
    * dok_id verbatim — there is no serial suffix (e.g., "PROG-MILE" is a
@@ -91,6 +103,12 @@ export interface FeatureConfig {
   totalFiles: number;
   /** Source files that didn't end up under any feature. */
   unmappedFiles: string[];
+  sourceClassification?: {
+    auxiliaryFiles: string[];
+    unconnectedFiles: string[];
+    excludedUnits: { id: string; files: string[]; reason: string }[];
+    candidateUnits: number;
+  };
 }
 
 // ───────── Consolidation types (LLM-aided grouping) ────────────────
@@ -136,6 +154,7 @@ export interface ConsolidatedFeature {
    * `generate` then falls back to hashing `files` (== the display set).
    */
   logic_files?: string[];
+  source_context?: SourceContext[];
   metadata?: {
     locales?: string[];
     variant_type?: 'i18n' | 'experiment' | 'ab_test' | 'role_split' | 'other';
@@ -180,6 +199,16 @@ const ConsolidatedFeatureMetadataSchema = z.strictObject({
   note: z.string().optional(),
 });
 
+const SourceContextSchema = z.strictObject({
+  file: z.string().min(1),
+  content_hash: z.string().regex(/^[a-f0-9]{64}$/),
+  ranges: z.array(z.strictObject({ start: z.number().int().positive(), end: z.number().int().positive(),
+    startColumn: z.number().int().positive().optional(), endColumn: z.number().int().positive().optional() })
+    .refine(range => range.end >= range.start && (range.end !== range.start || range.endColumn === undefined || range.endColumn > (range.startColumn ?? 1)), 'Invalid source range')),
+  symbols: z.array(z.string()),
+  kind: z.enum(['entry', 'imported-symbol', 'module']),
+});
+
 const ConsolidatedFeatureSchema = z.strictObject({
   canonical_id: z.string().min(1),
   label: z.string(),
@@ -192,6 +221,7 @@ const ConsolidatedFeatureSchema = z.strictObject({
   dok_id_prefix: DokIdSchema.optional(),
   source_files: z.array(z.string().min(1)).optional(),
   logic_files: z.array(z.string().min(1)).optional(),
+  source_context: z.array(SourceContextSchema).optional(),
   metadata: ConsolidatedFeatureMetadataSchema.optional(),
 });
 

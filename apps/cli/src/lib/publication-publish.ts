@@ -10,6 +10,7 @@ import {
   unlinkContained,
   writeFileAtomicContained,
 } from '@doklo-beta/core';
+import { hasDraftPreviewMarker } from '@doklo-beta/livedoc-engine';
 import type {
   PublicationRenderEvidence,
   PublicationV1,
@@ -66,7 +67,8 @@ export async function planPublish(args: {
     );
   }
   if (
-    args.evidence.publication.name !== args.publication.name
+    hasDraftPreviewMarker(args.evidence)
+    || args.evidence.publication.name !== args.publication.name
     || args.evidence.template.name !== args.publication.template
   ) {
     throw new PublishError(
@@ -92,6 +94,27 @@ export async function planPublish(args: {
   }
 
   const outputPrefix = `.doklo/output/${args.publication.output_dir}/`;
+  // The manifest is evidence too, even though it is not copied into the destination.
+  const manifests = args.evidence.outputs.filter((output) => output.format === 'manifest');
+  if (manifests.length !== 1) {
+    throw new PublishError('PUBLICATION_EVIDENCE_INVALID', 'Publication evidence must include exactly one manifest.');
+  }
+  const manifestClaim = manifests[0]!;
+  if (!manifestClaim.relative_path.startsWith(outputPrefix)) {
+    throw new PublishError('PUBLICATION_EVIDENCE_INVALID', 'Publication manifest is outside its output directory.');
+  }
+  let manifest: unknown;
+  try {
+    const path = await resolveContainedPath(args.workspaceRoot, manifestClaim.relative_path, { rejectSymlinkLeaf: true });
+    const bytes = await readFile(path);
+    if (bytes.byteLength !== manifestClaim.bytes || sha256(bytes) !== manifestClaim.sha256) throw staleOutput(manifestClaim.relative_path);
+    manifest = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    throw staleOutput(manifestClaim.relative_path);
+  }
+  if (hasDraftPreviewMarker(manifest)) {
+    throw new PublishError('PUBLICATION_EVIDENCE_INVALID', 'Draft preview cannot be used as official Publication evidence.');
+  }
   const files: PublishPlan['files'] = [];
   const sortedOutputs = [...args.evidence.outputs].sort((left, right) =>
     compareText(left.relative_path, right.relative_path),

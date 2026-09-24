@@ -12,6 +12,8 @@ export interface WriterContext {
   source: TemplateOutputSource;
   template: TemplateManifest;
   locale: string;
+  /** Engine-owned watermark, applied after customer-copy lint. */
+  preview?: boolean;
   /**
    * Absolute path to the template directory (or single-file template path).
    * HTML writer reads `<templateDir>/assets/style.css` if present.
