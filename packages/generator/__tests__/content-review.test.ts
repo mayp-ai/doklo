@@ -18,6 +18,62 @@ const ctx = {
 };
 
 describe('product intent and generated review evidence', () => {
+  it('sends the selected plain policy without a competing formal instruction', () => {
+    const prompt = buildDokPromptParts(feature, { ...ctx, koreanCustomerTone: 'plain' });
+    expect(prompt.systemPrompt).toContain('Korean customer tone: plain');
+    expect(prompt.systemPrompt).not.toContain('End every sentence in the formal polite register');
+  });
+
+  it.each([
+    ['formal', '메시지를 보낸다. 요청을 취소한다.', ['description']],
+    ['plain', '메시지를 보냅니다. 요청을 취소합니다.', ['description']],
+    ['plain', '메시지를 보낸다. 요청을 취소한다.', []],
+    ['formal', '“취소한다.”라는 문구를 확인합니다. "보낸다"를 선택합니다.', []],
+    ['plain', '“취소합니다.”라는 문구를 확인한다.', []],
+  ] as const)('records deterministic %s conflicts without rewriting %s', async (tone, description, fields) => {
+    callModelMock.mockResolvedValueOnce({ success: true, processingTime: 0, error: null, usage: null,
+      content: JSON.stringify({ dok_id: 'CHAT', name: '취소한다', description,
+        _meta: { writing_policy: { locale: 'ko', tone: 'plain' }, writing_review: { concerns: [] } },
+      }),
+    });
+    const result = await generateDokForFeature(feature, { ...ctx, koreanCustomerTone: tone });
+    expect(result.dok?.description).toBe(description);
+    expect(result.dok?.name).toBe('취소한다');
+    expect(result.dok?._meta.writing_policy).toEqual({ locale: 'ko', tone });
+    const review = result.dok?._meta.writing_review as { concerns: Array<{ field: string; code: string }> };
+    expect([...new Set(review.concerns.map(concern => concern.field))]).toEqual(fields);
+    for (const concern of review.concerns) expect(concern.code).toBe('KOREAN_TONE_CONFLICT');
+    expect(result.dok?.status).toBe('draft');
+  });
+
+  it('defaults Korean generation to formal and records action-level concerns', async () => {
+    callModelMock.mockResolvedValueOnce({ success: true, processingTime: 0, error: null, usage: null,
+      content: JSON.stringify({ dok_id: 'CHAT', name: '대화', description: '질문을 작성합니다.',
+        user_actions: { steps: [{ order: 1, actor: { kind: 'system' }, intent: '메시지를 보낸다.', outcome: '답변을 확인합니다.' }] },
+      }),
+    });
+    const result = await generateDokForFeature(feature, ctx);
+    expect(result.dok?._meta.writing_policy).toEqual({ locale: 'ko', tone: 'formal' });
+    expect(result.dok?._meta.writing_review).toMatchObject({ assessed_by: 'deterministic', concerns: [
+      { code: 'KOREAN_TONE_CONFLICT', field: 'user_actions.steps[0].intent', expected_tone: 'formal', actual_tone: 'plain' },
+    ] });
+  });
+
+  it('never carries a model-provided policy acknowledgment into a new generation', async () => {
+    callModelMock.mockResolvedValueOnce({ success: true, processingTime: 0, error: null, usage: null,
+      content: JSON.stringify({ dok_id: 'CHAT', name: '대화', description: '메시지를 보낸다.', _meta: {
+        writing_policy: { locale: 'ko', tone: 'plain' }, writing_review: { concerns: [], policy_acknowledgment: {
+          locale: 'ko', tone: 'formal', acknowledged_at: '2026-09-25T03:00:00.000Z',
+        } },
+      } }),
+    });
+    const result = await generateDokForFeature(feature, ctx);
+    expect(result.success).toBe(true);
+    expect(result.dok?._meta.writing_policy).toEqual({ locale: 'ko', tone: 'formal' });
+    expect(result.dok?._meta.writing_review).not.toHaveProperty('policy_acknowledgment');
+    expect(result.dok?._meta.writing_review?.concerns).toContainEqual(expect.objectContaining({ code: 'KOREAN_TONE_CONFLICT', field: 'description' }));
+  });
+
   it('separates product intent from executable evidence in the actual provider input', async () => {
     callModelMock.mockResolvedValueOnce({ success: false, content: null, usage: null,
       error: { type: 'ai_sdk_error', message: 'provider unavailable' }, processingTime: 0 });

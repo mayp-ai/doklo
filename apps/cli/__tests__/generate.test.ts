@@ -48,9 +48,12 @@ import {
 import type { ConsolidatedFeatureConfig } from '@doklo-beta/generator';
 import { resolveContainedOutputPath, ROUTE_HIERARCHY_PRODUCER } from '@doklo-beta/generator';
 import { createContext } from '../src/lib/context.js';
+import * as generationGate from '../src/lib/generate-gate.js';
+import { runConsolidate } from '../src/commands/consolidate.js';
 import {
   emitCommandResult,
   takeCommandResult,
+  CommandContractError,
   toCommandContractError,
   type CommandResult,
 } from '../src/lib/command-result.js';
@@ -629,6 +632,139 @@ function emptyDerivedRouteHierarchy(serviceId: string) {
   });
 }
 
+describe('generation planning readiness', () => {
+  it('offers a valid backend correction before reading a workspace', async () => {
+    const program = new Command().exitOverride().configureOutput({ writeErr: () => {} });
+    registerGenerateCommand(program, createContext('en'));
+    await expect(program.parseAsync(['generate', '--llm-backend', 'anthropic'], { from: 'user' }))
+      .rejects.toThrow(/doklo generate --llm-backend anthropic-api/);
+  });
+
+  it.each([{ serviceId: undefined, onlyDokIds: undefined }, { serviceId: 'web', onlyDokIds: undefined },
+    { serviceId: 'web', onlyDokIds: ['AUTH'] }])('keeps a cached plan without scan evidence unexecutable (%j)', async ({ serviceId, onlyDokIds }) => {
+    const root = await tmpInit();
+    await writeConsolidated(root, 'web', ['AUTH']);
+    await rm(join(root, '.doklo/cache/web.scan.json'));
+    const result = await runGenerateDirect({ root, dryRun: true, serviceId, onlyDokIds });
+    expect(result.planning).toMatchObject({ complete: false, services: [{
+      serviceId: 'web', status: 'needs-scan', dokCount: null,
+      nextStep: { command: 'doklo scan --service web', paid: false },
+    }] });
+    expect(result.plan).toEqual([]);
+    expect(result.preparedGeneration?.items).toEqual([]);
+    expect(await readdir(join(root, '.doklo/cache'))).toEqual(['web.consolidated.json']);
+  });
+
+  it('reports an unconsolidated service as unknown, with free source candidates and its next paid step', async () => {
+    const root = await tmpInit();
+    const before = await readdir(join(root, '.doklo/cache'));
+    const result = await runGenerateDirect({ root, dryRun: true, serviceId: 'web' });
+    expect(result.plan).toEqual([]);
+    expect(result.planning).toMatchObject({
+      complete: false,
+      services: [{ serviceId: 'web', status: 'needs-consolidation', dokCount: null,
+        nextStep: { command: 'doklo consolidate --service web', paid: true },
+        candidates: { preview: { sourceFeatureCount: 1, transmittedFiles: ['app/page.tsx'] } } }],
+    });
+    expect(await readdir(join(root, '.doklo/cache'))).toEqual(before);
+    expect(await readdir(join(root, '.doklo/hub/doks'))).toEqual([]);
+  });
+
+  it('previews sources before the first scan without creating caches', async () => {
+    const root = await tmpInit();
+    await rm(join(root, '.doklo/cache/web.scan.json'));
+    const result = await runGenerateDirect({ root, dryRun: true });
+    expect(result.planning).toMatchObject({ complete: false, services: [{
+      status: 'needs-scan', dokCount: null,
+      nextStep: { command: 'doklo scan --service web', paid: false },
+      nextPaidStep: 'doklo consolidate --service web',
+      candidates: { preview: { sourceFeatureCount: 1 } },
+    }] });
+    expect(await readdir(join(root, '.doklo/cache'))).toEqual([]);
+  });
+
+  it('distinguishes an actual empty plan from a mixed-service incomplete plan', async () => {
+    const root = await tmpInit();
+    await writeConsolidated(root, 'web', []);
+    const empty = await runGenerateDirect({ root, dryRun: true });
+    expect(empty.planning).toMatchObject({ complete: true, services: [{ status: 'ready', dokCount: 0 }] });
+    await writeConsolidated(root, 'web', ['AUTH']);
+    await addNextService(root, 'admin');
+    const mixed = await runGenerateDirect({ root, dryRun: true });
+    expect(mixed.plan.map(item => item.dokId)).toEqual(['AUTH']);
+    expect(mixed.planning).toMatchObject({ complete: false, services: [
+      { serviceId: 'web', status: 'ready', dokCount: 1 },
+      { serviceId: 'admin', status: 'needs-scan', dokCount: null },
+    ] });
+  });
+});
+
+describe('paid consolidation usage across generation exits', () => {
+  it.each([
+    ['consent', true], ['consent', false], ['cap', true], ['cap', false],
+    ['preflight', true], ['preflight', false], ['cancel', false], ['studio', false],
+  ] as const)('retains and emits usage after %s (machine=%s)', async (exit, machine) => {
+    const root = await tmpInit();
+    const program = new Command();
+    const output: string[] = [];
+    const tty = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+    Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: true });
+    const oldCap = process.env.DOKLO_MAX_TOKENS_PER_RUN;
+    const log = vi.spyOn(console, 'log').mockImplementation((value) => { output.push(String(value)); });
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation((value) => { output.push(String(value)); return true; });
+    const gate = vi.spyOn(generationGate, 'runGateInteraction').mockResolvedValue(exit === 'studio' ? 'studio' : 'cancel');
+    let generated = false;
+    registerGenerateCommand(program, createContext('en'), {
+      resolveLlmForRole: async () => ({ model: 'anthropic/claude-sonnet-5', providerKind: 'anthropic', apiKey: 'test-key' }),
+      runConsolidate: async (opts) => {
+        const result = await runConsolidate(opts, { consolidateFeatures: async () => ({
+          success: true, config: makeConsolidatedConfig(['AUTH']), prompt: '',
+          estimatedInputTokens: 1, estimatedOutputTokens: null,
+          usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30 },
+        }) });
+        if (!opts.dryRun && exit === 'cap') process.env.DOKLO_MAX_TOKENS_PER_RUN = '1';
+        if (!opts.dryRun && exit === 'preflight') await writeFile(join(root, '.doklo/hub/roles.json'), '{invalid');
+        return result;
+      },
+      authorizeLlmRun: async (workspace, plan, llm) => authorizeLlmRun(workspace, plan, llm,
+        exit === 'consent' && plan.calls.generateMax > 0
+          ? { yes: false, isTTY: true, confirm: async () => false }
+          : { yes: true, isTTY: false }),
+      runGenerateDeps: { generateDokForFeature: async () => { generated = true; throw new Error('Unexpected generation'); } },
+    });
+    try {
+      let failure: unknown;
+      try {
+        await program.parseAsync(['generate', '--root', root, '--no-lexicon', '--no-roles', '--no-ia', '--no-code-mapping',
+          ...(machine ? ['--json', '--yes'] : [])], { from: 'user' });
+      } catch (error) { failure = error; }
+      expect(failure).toBeInstanceOf(CommandContractError);
+      const result = (failure as CommandContractError).result;
+      expect(result.data).toMatchObject({ consolidationAttempts: [{
+        phase: 'consolidate', serviceId: 'web', model: 'anthropic/claude-sonnet-5', success: true,
+        estimated: { outputTokens: null, maxOutputTokens: 32768 },
+        usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30 },
+      }] });
+      expect(generated).toBe(false);
+      if (machine) {
+        emitCommandResult(result, { machine: true,
+          stdout: { write: (value: string | Uint8Array) => { output.push(String(value)); return true; } },
+          stderr: { write: () => true } });
+        const last = JSON.parse(output.at(-1)!);
+        expect(last.result.data.consolidationAttempts).toHaveLength(1);
+      } else {
+        expect(output.filter(line => line.includes('measured input 40, output 20'))).toHaveLength(1);
+      }
+    } finally {
+      log.mockRestore(); stdout.mockRestore(); gate.mockRestore();
+      if (tty) Object.defineProperty(process.stdin, 'isTTY', tty);
+      else delete (process.stdin as { isTTY?: boolean }).isTTY;
+      if (oldCap === undefined) delete process.env.DOKLO_MAX_TOKENS_PER_RUN;
+      else process.env.DOKLO_MAX_TOKENS_PER_RUN = oldCap;
+    }
+  });
+});
+
 describe('runGenerate', () => {
   it('throws a descriptive cache error for an explicitly selected service', async () => {
     const root = await tmpInit();
@@ -1126,6 +1262,33 @@ describe('runGenerate', () => {
       expect.anything(),
       expect.objectContaining({ preparedPrompt: expectedPromptParts }),
     );
+  });
+
+  it('binds the selected Korean policy to the approved prompt and accounts for its workspace contribution', async () => {
+    const root = await tmpInit();
+    await writeConsolidated(root, 'web', ['AUTH']);
+    const workspacePath = join(root, 'workspace.json');
+    const workspace = JSON.parse(await readFile(workspacePath, 'utf8'));
+    await writeFile(workspacePath, JSON.stringify({ ...workspace, default_locale: 'ko', korean_customer_tone: 'plain' }));
+    const options = { root, noLexicon: true, noRoles: true, noIa: true, noCodeMapping: true };
+    const consent = await paidConsent(options);
+    const item = consent.preparedGeneration!.items[0]!;
+    expect(item.ctx.koreanCustomerTone).toBe('plain');
+    expect(item.promptParts.systemPrompt).toContain('Korean customer tone: plain');
+    expect(item.transmissions).toContainEqual(expect.objectContaining({ file: 'workspace.json', actualChars: expect.any(Number) }));
+    expect(item.transmissions.find(source => source.file === 'workspace.json')!.actualChars).toBeGreaterThan(0);
+    expect(consent.plan!.transmissions).toContainEqual(expect.objectContaining({ file: 'workspace.json' }));
+
+    // Editing configuration does not silently replace the already-authorized prompt.
+    await writeFile(workspacePath, JSON.stringify({ ...workspace, default_locale: 'ko', korean_customer_tone: 'formal' }));
+    const provider = vi.fn(async (_feature, context, providerOptions) => {
+      expect(context.koreanCustomerTone).toBe('plain');
+      expect(providerOptions.preparedPrompt).toEqual(item.promptParts);
+      return { success: true, dok: makeDok(context.dokId), prompt: item.prompt, rawResponse: '', usage: null };
+    });
+    await runGenerateDirect({ ...options, ...consent }, { generateDokForFeature: provider });
+    expect(provider).toHaveBeenCalledOnce();
+    expect(JSON.parse(await readFile(join(root, '.doklo/hub/doks/AUTH.json'), 'utf8'))._meta.writing_policy).toEqual({ locale: 'ko', tone: 'plain' });
   });
 
   it('manifests the exact rendered consolidated feature and existing roles contributions', async () => {
@@ -2940,7 +3103,7 @@ describe('runGenerate — B1: logic_files cover shared infra beyond display anch
 });
 
 describe('lexicon pass', () => {
-  // `generate` only reuses pre-approved Hub/cache terminology. Fresh paid
+  // `generate` only reuses confirmed Hub terminology. Fresh paid
   // suggestions are a separate `lexicon-suggest` command.
   const fakeSuggest = (texts: string[]) =>
     vi.fn(async () => ({
@@ -2967,7 +3130,7 @@ describe('lexicon pass', () => {
     expect((seen[0] as { lexiconTerms?: string[] }).lexiconTerms).toBeUndefined();
   });
 
-  it('reuses an existing suggestions cache without a second LLM call', async () => {
+  it('does not promote unconfirmed suggestions into canonical generation terminology', async () => {
     const root = await tmpInit();
     await writeConsolidated(root, 'web', ['MILE']);
     await writeFile(
@@ -2979,10 +3142,10 @@ describe('lexicon pass', () => {
     const suggest = fakeSuggest(['unused']);
     await runGenerate({ root }, { generateDokForFeature: captureGen(seen), runLexiconSuggest: suggest });
     expect(suggest).not.toHaveBeenCalled();
-    expect((seen[0] as { lexiconTerms?: string[] }).lexiconTerms).toEqual(['멘토링']);
+    expect((seen[0] as { lexiconTerms?: string[] }).lexiconTerms).toBeUndefined();
   });
 
-  it('discloses approved lexicon and cached terminology as capped generation sources', async () => {
+  it('discloses only confirmed canonical lexicon as a generation source', async () => {
     const root = await tmpInit();
     await writeConsolidated(root, 'web', ['MILE']);
     await writeFile(join(root, '.doklo/hub/lexicon.json'), JSON.stringify({
@@ -3004,13 +3167,12 @@ describe('lexicon pass', () => {
       expect.objectContaining({
         phase: 'generate', file: '.doklo/hub/lexicon.json', maxChars: 12_000,
       }),
-      expect.objectContaining({
-        phase: 'generate', file: '.doklo/cache/lexicon-suggestions.json', maxChars: 12_000,
-      }),
     ]));
+    expect(preview.transmissions.some(source => source.file === '.doklo/cache/lexicon-suggestions.json')).toBe(false);
+    expect(preview.preparedGeneration!.items[0]!.ctx.lexiconTerms).toEqual(['Milestone']);
   });
 
-  it('caps cached terminology per source before injecting it into Dok prompts', async () => {
+  it('excludes large unconfirmed caches from prompts and source accounting', async () => {
     const root = await tmpInit();
     await writeConsolidated(root, 'web', ['MILE']);
     await writeFile(join(root, '.doklo/cache/lexicon-suggestions.json'), JSON.stringify({
@@ -3030,8 +3192,8 @@ describe('lexicon pass', () => {
     const renderedTerms = preparedTerms.map((term) => `  - ${term}`).join('\n');
     const suggestionSource = preparedItem.transmissions.find((source) =>
       source.file === '.doklo/cache/lexicon-suggestions.json');
-    expect(suggestionSource?.actualChars).toBe(renderedTerms.length);
-    expect(suggestionSource?.actualChars).toBeLessThanOrEqual(12_000);
+    expect(suggestionSource).toBeUndefined();
+    expect(renderedTerms).toBe('');
 
     await runGenerate(
       { root },
@@ -4002,11 +4164,11 @@ describe('runGenerate — deterministic Hub layers', () => {
     );
   });
 
-  it('rejects an explicit service whose scan cache is missing', async () => {
+  it('rejects real execution for an explicit service whose scan cache is missing', async () => {
     const root = await tmpInit();
     await writeConsolidated(root, 'web', ['AUTH']);
     await rm(join(root, '.doklo/cache/web.scan.json'));
-    await expect(runGenerate({ root, serviceId: 'web', dryRun: true })).rejects.toThrowError(
+    await expect(runGenerateDirect({ root, serviceId: 'web' })).rejects.toThrowError(
       GenerateScanCacheMissingError,
     );
   });

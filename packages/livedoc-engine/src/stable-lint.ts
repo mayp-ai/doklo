@@ -25,6 +25,10 @@ type LintRule = {
   pattern: RegExp;
 };
 
+// Public file-format names are customer vocabulary. Keep exact matching: an
+// implementation symbol such as WebPEncoder must still be checked below.
+const PUBLIC_FILE_FORMATS = ['JPEG', 'PNG', 'WebP', 'HEIC', 'HEIF'] as const;
+
 const RULES: LintRule[] = [
   {
     code: 'IMPLEMENTATION_DETAIL',
@@ -38,7 +42,7 @@ const RULES: LintRule[] = [
   },
   {
     code: 'INTERNAL_IDENTIFIER',
-    message: 'Stable output exposes an internal identifier or developer-only term.',
+    message: 'Stable output exposes an internal identifier or developer-only term. Rewrite implementation terms for readers; for a public name, add an exact match to stable_public_terms in workspace.json. This only exempts identifier patterns, not selected Dok IDs or other copy checks.',
     pattern: /\b(?:user_actions(?:\.steps)?|business_rules|acceptance_criteria|source_anchors|topology\.edges|editingBanner|sourceAnchors?|dokId|termRef|userActions|businessRules|acceptanceCriteria|TermRef|Handlebars|DOM|null|Doks?|ROLE-[A-Z0-9_-]+|[Aa]uto[- ]suggested(?:\s+from\s+(?:a\s+)?(?:code|repository|workspace)?\s*scan)?|[Gg]enerated\s+from\s+(?:a\s+)?(?:code|repository|workspace)\s+scan|(?:high|medium|low)\s+confidence|[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|(?:use|has|is)[A-Z][A-Za-z0-9]*|[a-z][A-Za-z0-9]*(?:Id|Email))\b|_meta\b/gu,
   },
   {
@@ -128,7 +132,7 @@ export function lintStableArtifact(input: {
   ];
   const violations: StableLintViolation[] = [];
   const seen = new Set<string>();
-  const allowTerms = new Set(input.allowTerms ?? []);
+  const allowTerms = new Set<string>([...PUBLIC_FILE_FORMATS, ...(input.allowTerms ?? [])]);
 
   for (const rule of RULES) {
     for (const source of sources) {

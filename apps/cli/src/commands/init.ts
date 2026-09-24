@@ -6,20 +6,20 @@
 
 import { listRecordingBranches, validateRecordingBranch } from '../lib/recording-branch.js';
 import { AgentSkillError, manageAgentSkill, type AgentSkillResult, type AgentTarget } from '../lib/agent-skill.js';
-import type { Command } from 'commander';
-import { access } from 'node:fs/promises';
+import { Option, type Command } from 'commander';
+import { access, stat } from 'node:fs/promises';
 import { constants as FS } from 'node:fs';
-import type { Framework, Service, ServiceType } from '@doklo-beta/core';
-import { detectFramework } from '../lib/framework.js';
+import { relative, resolve, sep } from 'node:path';
+import type { Framework, KoreanCustomerTone, Service, ServiceType } from '@doklo-beta/core';
 import { bootstrapWorkspace, WorkspaceAlreadyInitializedError } from '../lib/bootstrap.js';
 import { workspacePaths, type WorkspacePaths } from '../lib/paths.js';
 import type { CliContext } from '../lib/context.js';
 import { PROVIDER_ENV, loadConfig, saveConfig, setRoleModel } from '../lib/config.js';
 import { buildProviderChoices, buildModelChoices, toModelOption } from './model.js';
 import { modelGuidance } from '../lib/model-guidance.js';
-import { loadModelsDb, getCost } from '@doklo-beta/generator';
+import { loadModelsDb, getCost, resolveContainedPath } from '@doklo-beta/generator';
 import { authenticateProvider } from '../lib/authenticate.js';
-import { runScan } from './scan.js';
+import { formatScanAnalysis, runScan, type ScanAnalysis } from './scan.js';
 import type { runServe } from './serve.js';
 import type { runInitHandoff } from '../lib/init-handoff.js';
 import {
@@ -45,6 +45,9 @@ export interface RunInitOptions {
   defaultLocale: string;
   supportedLocales: string[];
   serviceId: string;
+  /** Existing service directory, relative to the workspace root. Defaults to '.'. */
+  codeRoot?: string;
+  koreanCustomerTone?: KoreanCustomerTone;
   /** Optional override; otherwise auto-detected from package.json. */
   framework?: Framework;
   recordingBranch?: string;
@@ -52,6 +55,8 @@ export interface RunInitOptions {
 
 export interface RunInitResult {
   framework: Framework;
+  codeRoot: string;
+  serviceRoot: string;
   paths: WorkspacePaths;
   agentSkills: Array<AgentSkillResult | { target: AgentTarget; status: 'failed'; code: string }>;
 }
@@ -81,15 +86,38 @@ const FRAMEWORK_TYPE: Record<Framework, ServiceType> = {
   unknown: 'frontend',
 };
 
+export class InvalidCodeRootError extends Error {
+  readonly code = 'INVALID_CODE_ROOT' as const;
+
+  constructor(codeRoot: string, cause?: unknown) {
+    super(`Invalid code root ${JSON.stringify(codeRoot)}. Use an existing directory relative to the workspace root, without '..', absolute paths, or symlinks. Example: doklo init --root . --code-root web --yes`, { cause });
+    this.name = 'InvalidCodeRootError';
+  }
+}
+
+async function resolveInitCodeRoot(root: string, requested: string): Promise<{ codeRoot: string; serviceRoot: string }> {
+  try {
+    if (!requested.trim()) throw new Error('Code root is empty.');
+    const serviceRoot = await resolveContainedPath(root, requested);
+    if (!(await stat(serviceRoot)).isDirectory()) throw new Error('Code root is not a directory.');
+    const codeRoot = relative(resolve(root), resolve(root, requested)).split(sep).join('/') || '.';
+    return { codeRoot, serviceRoot };
+  } catch (cause) {
+    throw new InvalidCodeRootError(requested, cause);
+  }
+}
+
 export async function runInit(opts: RunInitOptions): Promise<RunInitResult> {
-  const support = await assertSupportedRuntimeProject(opts.root);
+  // Validate before bootstrap creates the Hub, workspace, or agent files.
+  const { codeRoot, serviceRoot } = await resolveInitCodeRoot(opts.root, opts.codeRoot ?? '.');
+  const support = await assertSupportedRuntimeProject(serviceRoot);
   const framework = opts.framework ?? support.framework;
 
   const service: Service = {
     service_id: opts.serviceId,
     type: FRAMEWORK_TYPE[framework],
     framework,
-    code_root: '.',
+    code_root: codeRoot,
   };
 
   if (opts.recordingBranch !== undefined) await validateRecordingBranch(opts.root, opts.recordingBranch);
@@ -99,6 +127,7 @@ export async function runInit(opts: RunInitOptions): Promise<RunInitResult> {
     workspaceId: opts.workspaceId,
     name: opts.name,
     defaultLocale: opts.defaultLocale,
+    koreanCustomerTone: opts.koreanCustomerTone,
     supportedLocales: opts.supportedLocales,
     services: [service],
     recordingBranch: opts.recordingBranch,
@@ -114,7 +143,24 @@ export async function runInit(opts: RunInitOptions): Promise<RunInitResult> {
       agentSkills.push({ target, status: 'failed', code: error instanceof AgentSkillError ? error.code : 'write_failed' });
     }
   }
-  return { framework, paths: workspacePaths(opts.root), agentSkills };
+  return { framework, codeRoot, serviceRoot, paths: workspacePaths(opts.root), agentSkills };
+}
+
+function onboardingGuidance(locale: string): string {
+  return locale === 'ko'
+    ? '제품 용어: doklo lexicon-suggest --dry-run으로 검토합니다(모델 호출 없음). 선택 사항인 lexicon-suggest 실행은 유료 모델을 호출할 수 있습니다. 제안을 사람이 검토한 뒤 Studio Lexicon에서 확정하고, doklo generate --only <Dok ID> --force로 선택 재생성합니다(유료). 생성된 draft를 사람이 검토·승인한 뒤 doklo live-docs render로 렌더합니다. 한국어 말투는 --korean-tone formal(기본 합쇼체: ~합니다) 또는 plain(해라체: ~한다)으로 선택합니다. 기존 workspace.json의 korean_customer_tone으로도 설정합니다. 생성은 선택 정책과 필드별 충돌을 기록하며, 정식 help-page 렌더는 명확한 어미 충돌이나 생성 이후 정책 변경을 차단합니다. --preview로 표시된 검토용 미리보기를 확인한 뒤 문구를 수정하거나 선택 재생성하세요. 인용·이름은 말투 검사에서 제외되며 일반 문자열의 어미·동의어는 자동 변경하지 않습니다. 확정 용어는 owned/constant 표시 텍스트와 TermRef로 적용하며 i18n 바인딩은 현재 직접 해석하지 않습니다.'
+    : 'Product terms: inspect doklo lexicon-suggest --dry-run (no model call). Optional lexicon-suggest execution can call a paid model. Review suggestions, confirm them in Studio Lexicon, then selectively regenerate with doklo generate --only <Dok ID> --force (paid). Review and approve the generated drafts before doklo live-docs render. Select --korean-tone formal (default, 합쇼체: ~합니다) or plain (해라체: ~한다); existing workspaces use korean_customer_tone in workspace.json. Generation records the selected policy and field-level conflicts. Official help-page rendering blocks clear ending conflicts and policy changes since generation; --preview produces a marked review artifact. Review and edit or selectively regenerate. Quotes and labels are excluded; prose endings and synonyms are never rewritten automatically. Approved owned/constant display text and TermRefs apply canonical terms; i18n bindings are not currently resolved directly.';
+}
+
+function onboardingNextStep(locale: string, tone: KoreanCustomerTone = 'formal'): string {
+  return locale === 'ko'
+    ? `용어 제안 → 사람 검토·확정 → 선택 재생성 → draft 검토·승인 → 렌더: doklo init --help에서 확인하세요. 제안·재생성은 유료일 수 있으며 한국어 말투는 ${tone === 'formal' ? '합쇼체' : '해라체'}입니다.`
+    : `Terms: propose → human review and confirmation → selective regeneration → draft review and approval → render. See doklo init --help. Suggestion and generation calls may be paid; Korean customer tone: ${tone}.`;
+}
+
+function printInitScope(result: RunInitResult): void {
+  console.log(`  Workspace root: ${result.paths.root}`);
+  console.log(`  Service code root: ${result.codeRoot} → ${result.serviceRoot} (framework metadata: ${result.framework})`);
 }
 
 function printAgentSkills(result: RunInitResult, ctx: CliContext): void {
@@ -134,7 +180,7 @@ function printAgentSkills(result: RunInitResult, ctx: CliContext): void {
 export async function postInitScan(
   root: string,
   deps: { runScan?: typeof runScan } = {},
-): Promise<{ services: number; routes: number; components: number } | null> {
+): Promise<{ services: number; routes: number; components: number; analysis?: ScanAnalysis[] } | null> {
   const scan = deps.runScan ?? runScan;
   try {
     const res = await scan({ root });
@@ -144,7 +190,8 @@ export async function postInitScan(
       routes += r.counts.routes;
       components += r.counts.components;
     }
-    return { services: res.results.length, routes, components };
+    const analysis = res.results.flatMap(result => result.analysis ? [result.analysis] : []);
+    return { services: res.results.length, routes, components, ...(analysis.length > 0 ? { analysis } : {}) };
   } catch {
     return null;
   }
@@ -158,11 +205,11 @@ async function maybePrintScanSummary(
   scanOpt: boolean,
   ctx: CliContext,
   machine = false,
-): Promise<void> {
-  if (scanOpt === false) return;
+): ReturnType<typeof postInitScan> {
+  if (scanOpt === false) return null;
   const { default: chalk } = await import('chalk');
   const summary = await postInitScan(root);
-  if (machine) return;
+  if (machine) return summary;
   if (summary) {
     console.log(
       '  ' +
@@ -174,9 +221,13 @@ async function maybePrintScanSummary(
           components: summary.components,
         }),
     );
+    for (const analysis of summary.analysis ?? []) {
+      for (const line of formatScanAnalysis(analysis)) console.log(`  ${line}`);
+    }
   } else {
     console.error('  ' + chalk.yellow('!') + ' ' + ctx.t('init.scan_failed'));
   }
+  return summary;
 }
 
 // ───────── Interactive wrapper (commander) ──────────────────────────
@@ -195,7 +246,8 @@ export function registerInitCommand(
   program
     .command('init')
     .description('Initialize a new doklo workspace in the current directory')
-    .option('-r, --root <dir>', 'Project root', process.cwd())
+    .option('-r, --root <dir>', 'Workspace root (workspace.json and .doklo are written here)', process.cwd())
+    .option('--code-root <dir>', 'Existing service directory relative to --root (default: .; no parent paths or symlinks)')
     .option('-y, --yes', 'Accept all defaults (non-interactive)', false)
     .option('--json', 'Emit JSONL only', false)
     .option('--recording-branch <branch>', 'Branch used for product records (explicit; no automatic checkout)')
@@ -203,12 +255,14 @@ export function registerInitCommand(
     .option('--workspace-id <id>', 'Workspace id (kebab-case)')
     .option('--service-id <id>', 'Service id', 'web')
     .option('--default-locale <locale>', 'Default locale for business text (en|ko)')
+    .addOption(new Option('--korean-tone <tone>', 'Korean customer prose: formal (~합니다, default) or plain (~한다)').choices(['formal', 'plain']))
     .option(
       '--supported-locales <list>',
       'Comma-separated list of UI locales (e.g., en,ko)',
     )
     .option('--model <ref>', 'Model to set as default (provider/model-id)')
     .option('--no-scan', 'Skip the automatic code scan after init', true)
+    .addHelpText('after', '\nSource scope: --root is the workspace; --code-root selects the service (e.g. doklo init --root . --code-root web --yes). Next.js App Router has a specialist; other projects, including FastAPI source, use generic text-file analysis without guaranteed framework semantics. Scan reports the actual strategy, file count, and exclusions. Add other services explicitly to workspace.json.\n\n' + onboardingGuidance(ctx.locale))
     .action(async (opts) => {
       const { intro, outro, cancel, isCancel, text, select, autocomplete, log } =
         await import('@clack/prompts');
@@ -225,16 +279,30 @@ export function registerInitCommand(
         throw new WorkspaceAlreadyInitializedError(workspaceFile);
       }
 
-      const detected = await detectFramework(root);
-      // A monorepo root carries no `next` dependency, so detection fails here
-      // while the app sits one directory down. Name the apps instead of
-      // leaving the user at "framework unknown".
-      await assertSupportedRuntimeProject(root);
       requireExplicitApproval({
         command: 'doklo init',
         yes: opts.yes === true,
         isTTY: !machine && process.stdin.isTTY === true,
       });
+
+      let requestedCodeRoot = opts.codeRoot as string | undefined;
+      if (!opts.yes) {
+        intro(ctx.t('init.welcome'));
+        if (requestedCodeRoot === undefined) {
+          const pickedRoot = await text({
+            message: ctx.locale === 'ko' ? '서비스 코드 경로 (workspace 기준 상대 경로)' : 'Service code root (relative to workspace)',
+            initialValue: '.',
+            validate: value => value?.trim() ? undefined : 'Code root cannot be empty.',
+          });
+          if (isCancel(pickedRoot)) {
+            cancel(ctx.t('common.cancelled'));
+            throw commandCancelled('init');
+          }
+          requestedCodeRoot = String(pickedRoot);
+        }
+      }
+      const selectedRoot = await resolveInitCodeRoot(root, requestedCodeRoot ?? '.');
+      const detected = (await assertSupportedRuntimeProject(selectedRoot.serviceRoot)).framework;
 
       const defaults = {
         name: opts.name ?? guessName(root),
@@ -257,8 +325,10 @@ export function registerInitCommand(
           workspaceId: defaults.workspaceId,
           name: defaults.name,
           defaultLocale: defaults.defaultLocale,
+          koreanCustomerTone: opts.koreanTone,
           supportedLocales: defaults.supportedLocales.split(',').map((s: string) => s.trim()).filter(Boolean),
           serviceId: defaults.serviceId,
+          codeRoot: selectedRoot.codeRoot,
           framework: detected,
           recordingBranch: opts.recordingBranch,
         });
@@ -267,18 +337,20 @@ export function registerInitCommand(
           await saveConfig(setRoleModel(await loadConfig(), 'default', modelDefaultRef));
         }
 
-        await maybePrintScanSummary(root, opts.scan as boolean, ctx, machine);
+        if (!machine) printInitScope(result);
+        const scan = await maybePrintScanSummary(root, opts.scan as boolean, ctx, machine);
 
         if (!machine) {
           printAgentSkills(result, ctx);
           outro(ctx.t('init.complete', { path: result.paths.workspaceFile }));
           log.info(ctx.t('init.next_step_cli'));
+          log.info(onboardingNextStep(defaults.defaultLocale, opts.koreanTone));
         }
         recordCommandResult(program, {
           schema_version: 1,
           command: 'init',
           status: 'success',
-          data: result,
+          data: { ...result, scan },
           diagnostics: [],
         });
         return;
@@ -298,8 +370,6 @@ export function registerInitCommand(
       const autoProvider = detectedProviders.find((p) =>
         providerChoices.some((c) => c.value === p),
       );
-
-      intro(ctx.t('init.welcome'));
 
       log.info(ctx.t('init.framework_detected', { framework: detected }));
 
@@ -476,8 +546,10 @@ export function registerInitCommand(
         workspaceId: workspaceId as string,
         name: name as string,
         defaultLocale: defaultLocale as string,
+        koreanCustomerTone: opts.koreanTone,
         supportedLocales,
         serviceId: serviceId as string,
+        codeRoot: selectedRoot.codeRoot,
         framework: detected,
         recordingBranch,
       });
@@ -488,18 +560,20 @@ export function registerInitCommand(
         await saveConfig(setRoleModel(await loadConfig(), 'default', pickedModel));
       }
 
-      await maybePrintScanSummary(root, opts.scan as boolean, ctx, machine);
+      if (!machine) printInitScope(result);
+      const scan = await maybePrintScanSummary(root, opts.scan as boolean, ctx, machine);
 
       if (!machine) {
         printAgentSkills(result, ctx);
         outro(ctx.t('init.complete', { path: result.paths.workspaceFile }));
         log.info(ctx.t('init.next_step_cli'));
+        log.info(onboardingNextStep(String(defaultLocale), opts.koreanTone));
       }
       recordCommandResult(program, {
         schema_version: 1,
         command: 'init',
         status: 'success',
-        data: result,
+        data: { ...result, scan },
         diagnostics: [],
       });
     });

@@ -61,6 +61,15 @@ export interface LlmRunPlan {
     judgeMax: number;
     totalMax: number;
   }>;
+  readonly tokenEstimate: {
+    readonly inputTokens: number;
+    readonly outputTokens: null;
+    readonly maxOutputTokens: number;
+    readonly inputMethod: 'utf8-bytes/4';
+    readonly outputMethod: 'unknown';
+    readonly cache: 'unknown-no-discount';
+    readonly scope: 'all-prepared-calls-including-retries';
+  };
   readonly reservedTokensMax: number;
   readonly maxTokensPerRun: number;
   readonly maxTokensTotal: number;
@@ -84,7 +93,8 @@ export interface ConsolidationPreview {
   readonly sourceFeatureCount: number;
   readonly transmittedFiles: readonly string[];
   readonly estimatedInputTokens: number;
-  readonly estimatedOutputTokens: number;
+  readonly estimatedOutputTokens: number | null;
+  readonly maxOutputTokens?: number;
   /** Exact immutable provider prompt prepared during the read-only preview. */
   readonly prompt?: string;
 }
@@ -226,7 +236,7 @@ export function buildLlmRunPlan(input: LlmPlanInput): LlmRunPlan {
             id: preview.serviceId,
           },
           prompt: preview.prompt,
-          maxOutputTokens: preview.estimatedOutputTokens,
+          maxOutputTokens: preview.maxOutputTokens ?? preview.estimatedOutputTokens ?? 32_768,
         }]);
   const prepared = normalizePreparedCalls(rawPreparedCalls);
   const preparedCounts = countPreparedCalls(prepared.descriptors);
@@ -314,6 +324,15 @@ export function buildLlmRunPlan(input: LlmPlanInput): LlmRunPlan {
     authSource: input.llm.authSource,
     calls: withTotal,
     reservedTokensMax,
+    tokenEstimate: {
+      inputTokens: prepared.descriptors.reduce((sum, call) => sum + Math.ceil(call.promptBytes / 4), 0),
+      outputTokens: null,
+      maxOutputTokens: prepared.descriptors.reduce((sum, call) => sum + call.maxOutputTokens, 0),
+      inputMethod: 'utf8-bytes/4' as const,
+      outputMethod: 'unknown' as const,
+      cache: 'unknown-no-discount' as const,
+      scope: 'all-prepared-calls-including-retries' as const,
+    },
     maxTokensPerRun: limits.maxTokensPerRun,
     maxTokensTotal: limits.maxTokensTotal,
     transmissions,
@@ -743,6 +762,9 @@ export function formatLlmRunPlan(plan: LlmRunPlan, budget?: LlmBudgetSnapshot): 
     ...(budget ? [`  workspace usage: ${budget.chargedTokens.toLocaleString('en-US')} tokens accounted (includes unresolved reservations); remaining ${Math.max(0, plan.maxTokensTotal - budget.chargedTokens).toLocaleString('en-US')}`] : []),
     ...(budget?.legacyLedgerPresent ? ['  Token accounting starts with this token ledger; older accounting is preserved and is not converted into historical token usage.'] : []),
     '  Adjust: DOKLO_MAX_TOKENS_PER_RUN=<tokens> DOKLO_MAX_TOKENS_TOTAL=<tokens> doklo generate',
+    '  Cache hits and cache creation are unknown until the provider responds; no cache savings are assumed. Input uses bytes / 4, which varies by language and model. Output includes any provider-reported reasoning tokens.',
+    '  Calls and allowances include the displayed authorized retries; unattempted retries are not measured usage. Generation heuristics cover generation only, excluding consolidation and other phases.',
+    '  Reduce scope before approval with --service <id>; after consolidation, use generate --only <DOK-ID,...>. Cancel now to inspect or change the source scope.',
     '  Reservations are conservative estimates, not provider hard limits. Cap breaches stop subsequent calls; unknown usage retains its reservation.',
     `  transmissions: ${plan.transmissions.length} contained file reference(s)`,
     ...transmissionLines,

@@ -1033,6 +1033,9 @@ describe('stable rendering boundary', () => {
     try {
       const workspaceRoot = join(root, 'workspace');
       await cp(renderWorkspace, workspaceRoot, { recursive: true });
+      const workspacePath = join(workspaceRoot, 'workspace.json');
+      const workspace = JSON.parse(await readFile(workspacePath, 'utf8'));
+      await writeFile(workspacePath, JSON.stringify({ ...workspace, korean_customer_tone: 'plain' }));
       const dokPath = join(workspaceRoot, '.doklo', 'hub', 'doks', 'AUTH.json');
       const dok = JSON.parse(await readFile(dokPath, 'utf8')) as Record<string, unknown>;
       dok['acceptance_criteria'] = {
@@ -1201,6 +1204,16 @@ describe('stable rendering boundary', () => {
       code: 'OMITTED_DEVELOPER_COPY',
     },
     {
+      description: '사용자는 로그인하고\nReact 컴포넌트가 요청을 처리합니다.',
+      expected: undefined,
+      code: 'OMITTED_DEVELOPER_COPY',
+    },
+    {
+      description: '가입 절차를 시작하고\nAPI를 호출합니다.',
+      expected: undefined,
+      code: 'OMITTED_DEVELOPER_COPY',
+    },
+    {
       description: 'React 컴포넌트가 요청을 처리하고 사용자는 로그인합니다.',
       expected: '사용자는 로그인합니다.',
       code: 'NORMALIZED_DEVELOPER_COPY',
@@ -1230,6 +1243,8 @@ describe('stable rendering boundary', () => {
       if (fixture.expected) expect(output).toContain(fixture.expected);
       else expect(output).not.toContain(fixture.description);
       expect(output).not.toContain('사용자는 로그인.');
+      expect(output).not.toContain('사용자는 로그인하고');
+      expect(output).not.toContain('가입 절차를 시작하고');
       expect(output).not.toMatch(/React\s*컴포넌트|요청을 처리/iu);
       expect(result.manifest.warnings).toContainEqual(expect.objectContaining({
         code: fixture.code,

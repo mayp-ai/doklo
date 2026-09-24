@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { RolesFileSchema } from '@doklo-beta/core';
+import { actorLabel, RolesFileSchema } from '@doklo-beta/core';
 import {
   InvalidRolesFileError,
   mergeRolesFile,
@@ -121,6 +121,44 @@ describe('mergeRolesFile', () => {
     expect(merged.added).toEqual([]);
     expect(merged.kept).toEqual(['ROLE-ADMIN']);
     expect(merged.changed).toBe(false);
+  });
+});
+
+describe('workspace role display locale', () => {
+  it.each([
+    ['en', 'User', 'Administrator'],
+    ['ko', '사용자', '관리자'],
+  ])('seeds %s display names without changing role references', async (locale, userName, adminName) => {
+    const root = await tmpInit();
+    const workspacePath = join(root, 'workspace.json');
+    const workspace = JSON.parse(await readFile(workspacePath, 'utf8'));
+    await writeFile(workspacePath, JSON.stringify({ ...workspace, default_locale: locale }));
+    await writeAdminScan(root);
+
+    const result = await runRolesRefresh({ root, apply: true });
+    const roles = RolesFileSchema.parse(JSON.parse(await readFile(join(root, '.doklo/hub/roles.json'), 'utf8')));
+    expect(roles.roles.map(role => [role.role_id, role.name])).toEqual([
+      ['ROLE-ADMIN', adminName], ['ROLE-USER', userName],
+    ]);
+    expect(result.candidates.find(role => role.role_id === 'ROLE-USER')?.name).toBe(userName);
+    expect(actorLabel({ kind: 'role', role_ref: 'ROLE-USER' }, {
+      locale, primaryLocale: locale, lexicon: { terms: [], version: 1 }, roles,
+    }).text).toBe(userName);
+  });
+
+  it('preserves a curated Korean role name, relationships, and evidence when refreshing', async () => {
+    const root = await tmpInit();
+    const workspacePath = join(root, 'workspace.json');
+    const workspace = JSON.parse(await readFile(workspacePath, 'utf8'));
+    await writeFile(workspacePath, JSON.stringify({ ...workspace, default_locale: 'ko' }));
+    await writeAdminScan(root);
+    const curated = { role_id: 'ROLE-ADMIN', name: '운영 담당자', kind: 'access', extends: ['ROLE-USER'], scope: 'global', description: '직접 검토한 이름' };
+    await writeFile(join(root, '.doklo/hub/roles.json'), JSON.stringify({ roles: [curated], version: 1 }));
+    await runRolesRefresh({ root, apply: true });
+    const roles = JSON.parse(await readFile(join(root, '.doklo/hub/roles.json'), 'utf8')).roles;
+    expect(roles.find((role: { role_id: string }) => role.role_id === 'ROLE-ADMIN')).toMatchObject(curated);
+    expect(roles.find((role: { role_id: string }) => role.role_id === 'ROLE-USER').name).toBe('사용자');
+    expect(roles.map((role: { role_id: string }) => role.role_id).sort()).toEqual(['ROLE-ADMIN', 'ROLE-USER']);
   });
 });
 

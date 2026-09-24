@@ -82,6 +82,22 @@ describe('LLM runtime-trust preflight', () => {
     });
   });
 
+  it('reports estimation assumptions for exactly the prepared phases without changing reservations', () => {
+    const plan = buildLlmRunPlan({ ...input, calls: undefined, workItems: [], previews: [],
+      preparedCalls: [
+        { phase: 'consolidate', workItem: { phase: 'consolidate', serviceId: 'web', id: 'web' },
+          prompt: '한글🙂', maxOutputTokens: 32768 },
+        { phase: 'generate', workItem: { phase: 'generate', serviceId: 'web', id: 'AUTH:retry:1' },
+          prompt: '한글🙂', maxOutputTokens: 8192 },
+      ],
+    });
+    expect(plan.tokenEstimate).toEqual({ inputTokens: 6, outputTokens: null, maxOutputTokens: 40960,
+      inputMethod: 'utf8-bytes/4', outputMethod: 'unknown', cache: 'unknown-no-discount',
+      scope: 'all-prepared-calls-including-retries',
+    });
+    expect(plan.reservedTokensMax).toBe(40980);
+  });
+
   it('is immutable in behavior and changes the digest when approved fields change', () => {
     const plan = buildLlmRunPlan(input);
     expect(Object.isFrozen(plan)).toBe(true);

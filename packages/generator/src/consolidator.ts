@@ -119,10 +119,20 @@ export interface ConsolidateResult {
   prompt: string;
   /** 입력/출력 토큰 추정치 */
   estimatedInputTokens: number;
-  estimatedOutputTokens: number;
+  estimatedOutputTokens: number | null;
+  /** Provider output allowance, not a prediction. */
+  maxOutputTokens?: number;
   /** Provider-reported usage for post-response cost accounting. */
   usage?: LLMUsage | null;
   error?: string;
+}
+
+/** Preserve metered responses even when deterministic validation rejects them. */
+export class ConsolidationProcessingError extends Error {
+  constructor(cause: unknown, readonly usage: LLMUsage | null) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = 'ConsolidationProcessingError';
+  }
 }
 
 /**
@@ -146,8 +156,9 @@ export async function consolidateFeatures(
     ?? buildConsolidationPromptParts(features, opts.existingIdentities);
   const prompt = joinPromptParts(promptParts);
 
-  const estimatedInputTokens = Buffer.byteLength(prompt, 'utf8');
-  const estimatedOutputTokens = 32_768;
+  const estimatedInputTokens = Math.ceil(Buffer.byteLength(prompt, 'utf8') / 4);
+  const estimatedOutputTokens = null;
+  const maxOutputTokens = 32_768;
 
   emit({
     stage: 'prompt-built',
@@ -166,6 +177,7 @@ export async function consolidateFeatures(
       prompt,
       estimatedInputTokens,
       estimatedOutputTokens,
+      maxOutputTokens,
       usage: null,
     };
   }
@@ -210,6 +222,7 @@ export async function consolidateFeatures(
       prompt,
       estimatedInputTokens,
       estimatedOutputTokens,
+      maxOutputTokens,
       usage: llmResult.usage,
       error: llmResult.error?.message || 'LLM call failed',
     };
@@ -230,66 +243,72 @@ export async function consolidateFeatures(
       prompt,
       estimatedInputTokens,
       estimatedOutputTokens,
+      maxOutputTokens,
       usage: llmResult.usage,
       error,
     };
   }
 
-  // 4. Validate + normalize. Seeding the ids already taken elsewhere in the
-  //    workspace makes a cross-service duplicate fail here, not at write time.
-  const normalized = normalizeConsolidationOutput(
-    llmGroups,
-    features,
-    opts.model,
-    opts.usedPrefixes,
-  );
+  try {
+    // 4. Validate + normalize. Seeding the ids already taken elsewhere in the
+    //    workspace makes a cross-service duplicate fail here, not at write time.
+    const normalized = normalizeConsolidationOutput(
+      llmGroups,
+      features,
+      opts.model,
+      opts.usedPrefixes,
+    );
 
-  // 4.4 Reconcile ids — a feature that matches an existing Dok keeps that Dok's
-  //     id instead of the model's proposal, so a re-run cannot rename the file
-  //     out from under the documentation that already points at it.
-  const { config, pinned } = pinExistingDokIds(
-    normalized,
-    opts.existingIdentities ?? [],
-    opts.serviceId ?? '',
-  );
+    // 4.4 Reconcile ids — a feature that matches an existing Dok keeps that Dok's
+    //     id instead of the model's proposal, so a re-run cannot rename the file
+    //     out from under the documentation that already points at it.
+    const { config, pinned } = pinExistingDokIds(
+      normalized,
+      opts.existingIdentities ?? [],
+      opts.serviceId ?? '',
+    );
 
-  // 4.45 An existing id may still have landed on a feature the ladder could not
-  //     match — the prompt advertises those ids. Unproven reuse is a conflict
-  //     the user has to settle, never something to resolve by guessing. The one
-  //     case that passes — a Dok with no provenance to check against — is
-  //     announced rather than swallowed, so a file changing hands is visible.
-  const unverifiedReuse = assertNoUnpinnedIdCapture(
-    config,
-    opts.existingIdentities ?? [],
-    opts.serviceId ?? '',
-    pinned,
-  );
-  for (const reuse of unverifiedReuse) {
+    // 4.45 An existing id may still have landed on a feature the ladder could not
+    //     match — the prompt advertises those ids. Unproven reuse is a conflict
+    //     the user has to settle, never something to resolve by guessing. The one
+    //     case that passes — a Dok with no provenance to check against — is
+    //     announced rather than swallowed, so a file changing hands is visible.
+    const unverifiedReuse = assertNoUnpinnedIdCapture(
+      config,
+      opts.existingIdentities ?? [],
+      opts.serviceId ?? '',
+      pinned,
+    );
+    for (const reuse of unverifiedReuse) {
+      emit({
+        stage: 'unverified-id-reuse',
+        dokId: reuse.dok_id,
+        canonicalId: reuse.canonical_id,
+      });
+    }
+
+    // 4.5 결정적 출처 운반 — 각 consolidated feature에 member 파일 합집합 첨부.
+    //     LLM 결정(members)은 파일 정보를 버리므로, 코드에서 다시 이어붙인다.
+    attachSourceFiles(config, features);
+
     emit({
-      stage: 'unverified-id-reuse',
-      dokId: reuse.dok_id,
-      canonicalId: reuse.canonical_id,
+      stage: 'normalized',
+      consolidatedFeatures: config.stats.consolidatedFeatures,
+      excludedCount: config.stats.excluded,
     });
+
+    return {
+      success: true,
+      config,
+      prompt,
+      estimatedInputTokens,
+      estimatedOutputTokens,
+      maxOutputTokens,
+      usage: llmResult.usage,
+    };
+  } catch (error) {
+    throw new ConsolidationProcessingError(error, llmResult.usage ?? null);
   }
-
-  // 4.5 결정적 출처 운반 — 각 consolidated feature에 member 파일 합집합 첨부.
-  //     LLM 결정(members)은 파일 정보를 버리므로, 코드에서 다시 이어붙인다.
-  attachSourceFiles(config, features);
-
-  emit({
-    stage: 'normalized',
-    consolidatedFeatures: config.stats.consolidatedFeatures,
-    excludedCount: config.stats.excluded,
-  });
-
-  return {
-    success: true,
-    config,
-    prompt,
-    estimatedInputTokens,
-    estimatedOutputTokens,
-    usage: llmResult.usage,
-  };
 }
 
 /**

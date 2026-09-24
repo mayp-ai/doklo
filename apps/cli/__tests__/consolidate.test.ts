@@ -12,6 +12,7 @@ import {
   type ConsolidateDeps,
 } from '../src/commands/consolidate.js';
 import {
+  readLlmTokenBudget,
   registerLlmRun,
   reserveRegisteredLlmCall,
 } from '../src/lib/llm-cost-cap.js';
@@ -248,8 +249,62 @@ describe('runConsolidate', () => {
       ],
       prompt: expect.any(String),
       estimatedInputTokens: expect.any(Number),
-      estimatedOutputTokens: 32_768,
+      estimatedOutputTokens: null,
+      maxOutputTokens: 32_768,
     });
+  });
+
+  it('reports input estimates and unknown output separately from the reserved allowance', async () => {
+    const root = await tmpInitialized();
+    await writeScanCache(root, 'web');
+    const { results } = await runConsolidate({ root, dryRun: true });
+    const service = results[0]!;
+    expect(service.estimatedInputTokens).toBeGreaterThan(0);
+    expect(service.estimatedInputTokens).toBeLessThan(service.preview.prompt!.length);
+    expect(service.estimatedOutputTokens).toBeNull();
+    expect(service.maxOutputTokens).toBe(32_768);
+    const consent = await paidConsent(root);
+    expect(consent.plan.preparedCalls[0]!.maxOutputTokens).toBe(32_768);
+    expect(consent.plan.reservedTokensMax).toBeGreaterThan(32_768);
+  });
+
+  it('settles failed responses with measured usage and retains the failed attempt in the result', async () => {
+    const root = await tmpInitialized();
+    await writeScanCache(root, 'web');
+    const authorized = await paidConsent(root);
+    const failure = await runConsolidate({ root, ...authorized }, {
+      consolidateFeatures: async () => ({ success: false, config: null, prompt: 'ignored',
+        estimatedInputTokens: 1, estimatedOutputTokens: null,
+        usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30 },
+        error: 'Invalid JSON' }),
+    }).catch(error => error);
+    expect(failure.result).toMatchObject({ status: 'failed', data: {
+      attempts: [{ serviceId: 'web', phase: 'consolidate', model: 'anthropic/claude-sonnet-5',
+        success: false, usage: { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 30 },
+        estimated: { outputTokens: null, maxOutputTokens: 32_768 } }],
+    } });
+    expect((await readLlmTokenBudget(root)).chargedTokens).toBe(60);
+  });
+
+  it('retains measured usage when the response cannot be written as a valid cache', async () => {
+    const root = await tmpInitialized();
+    await writeScanCache(root, 'web');
+    const failure = await runConsolidate({ root, ...await paidConsent(root) }, {
+      consolidateFeatures: async () => ({ success: true, config: {} as never, prompt: '',
+        estimatedInputTokens: 1, estimatedOutputTokens: null,
+        usage: { input_tokens: 3, output_tokens: 4 } }),
+    }).catch(error => error);
+    expect(failure.result).toMatchObject({ status: 'failed', data: { attempts: [{
+      success: false, usage: { input_tokens: 3, output_tokens: 4 },
+    }] } });
+    expect((await readLlmTokenBudget(root)).chargedTokens).toBe(7);
+  });
+
+  it('offers a valid backend correction before reading a workspace', async () => {
+    const program = new Command().exitOverride().configureOutput({ writeErr: () => {} });
+    registerConsolidateCommand(program, createContext('en'));
+    await expect(program.parseAsync(['consolidate', '--llm-backend', 'anthropic'], { from: 'user' }))
+      .rejects.toThrow(/doklo consolidate --llm-backend anthropic-api/);
   });
 
   it('rejects a direct paid call without matching plan consent before the worker runs', async () => {

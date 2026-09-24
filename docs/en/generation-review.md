@@ -1,5 +1,7 @@
 # Generation recovery and draft review
 
+For source-root selection, preflight estimates, canonical terminology, HTML fragments and output placement, see [Plan a run and embed help](first-run-and-embedding.md).
+
 This guide describes the current source. Check your installed release's `doklo generate --help` and `doklo live-docs render --help` for available options.
 
 ## Recover failed documents

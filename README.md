@@ -207,6 +207,8 @@ The Hub is written to `.doklo/hub/`; tracked workspace state also includes root 
 
 ## Documentation
 
+- [Plan a run and embed help in your app](./docs/en/first-run-and-embedding.md): service roots, token scope, Korean terminology, public format names, HTML fragments and output boundaries.
+
 - English: [docs/en/](./docs/en/)
 - 한국어: [docs/ko/](./docs/ko/) · [README.ko.md](./README.ko.md)
 - [Changelog](./CHANGELOG.md) · [License](./LICENSE) (Apache-2.0)

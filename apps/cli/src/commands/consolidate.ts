@@ -14,6 +14,7 @@ import { constants as FS } from 'node:fs';
 import { join, relative } from 'node:path';
 import {
   consolidateFeatures,
+  ConsolidationProcessingError,
   buildConsolidationPromptForFeatures,
   buildConsolidationPromptParts,
   joinPromptParts,
@@ -37,13 +38,12 @@ import {
  * default backend. */
 function parseLlmBackend(value: string): LLMBackend {
   if (isLLMBackend(value)) return value;
-  throw new InvalidArgumentError('Expected "claude-code" or "anthropic-api".');
+  throw new InvalidArgumentError('Expected "claude-code" (local CLI) or "anthropic-api" (direct API). Try: doklo consolidate --llm-backend anthropic-api');
 }
 import { DokSchema, ProjectIRSchema, type ProjectIR } from '@doklo-beta/core';
 import { loadWorkspaceWithPaths } from '../lib/workspace.js';
 import type { WorkspacePaths } from '../lib/paths.js';
 import { addLlmOptions, resolveLlmForRole } from '../lib/llm-options.js';
-import { formatTokenEstimate } from '../lib/cost-format.js';
 import { scanCachePath, validateProjectIrPaths } from './scan.js';
 import type { CliContext } from '../lib/context.js';
 import { writeTextFileAtomic } from '../lib/atomic-file.js';
@@ -91,14 +91,18 @@ export class ScanCacheMissingError extends Error {
   }
 }
 
-export class InvalidConsolidationOutputError extends Error {
+export class InvalidConsolidationOutputError extends CommandContractError<RunConsolidateResult> {
   readonly serviceId: string;
   readonly cachePath: string;
 
-  constructor(serviceId: string, cachePath: string, cause: unknown) {
-    super(`Consolidation produced an invalid cache for service "${serviceId}": ${cachePath}`, {
-      cause,
+  constructor(serviceId: string, cachePath: string, cause: unknown, data?: RunConsolidateResult) {
+    super({
+      schema_version: 1, command: 'consolidate', status: data?.results.length ? 'partial' : 'failed',
+      data: data ?? null,
+      diagnostics: [{ code: 'CONSOLIDATION_OUTPUT_INVALID', serviceId,
+        message: `Consolidation produced an invalid cache for service "${serviceId}": ${cachePath}` }],
     });
+    this.cause = cause;
     this.name = 'InvalidConsolidationOutputError';
     this.serviceId = serviceId;
     this.cachePath = cachePath;
@@ -107,7 +111,7 @@ export class InvalidConsolidationOutputError extends Error {
 
 export interface RunConsolidateOptions {
   root: string;
-  /** When true, skip the LLM call and just report the feature count. */
+  /** When true, report source candidates and prompt estimates without an LLM call. */
   dryRun?: boolean;
   /** Limit to one service (matches workspace.services[].service_id). */
   serviceId?: string;
@@ -123,7 +127,9 @@ export interface ConsolidateServiceResult {
   /** Null when dry-run; absolute path otherwise. */
   outputPath: string | null;
   estimatedInputTokens: number;
-  estimatedOutputTokens: number;
+  estimatedOutputTokens: number | null;
+  maxOutputTokens?: number;
+  usage?: LLMUsage | null;
   preview: ConsolidationPreview;
   sourceClassification?: ConsolidationSourceClassification;
 }
@@ -153,7 +159,19 @@ export interface UnverifiedIdReuseNotice {
   canonicalId: string;
 }
 
+export interface ConsolidationAttempt {
+  phase: 'consolidate';
+  serviceId: string;
+  model: string;
+  success: boolean;
+  estimated: { inputTokens: number; outputTokens: null; maxOutputTokens: number };
+  usage: LLMUsage | null;
+  error?: string;
+}
+
 export interface RunConsolidateResult {
+  /** Attempted calls only, including failed/unknown responses; excludes generation. */
+  attempts?: ConsolidationAttempt[];
   results: ConsolidateServiceResult[];
   skipped: ConsolidateSkip[];
   /** Existing Doks a feature took over without verifiable provenance. */
@@ -173,6 +191,7 @@ export async function runConsolidate(
     : workspace.services;
 
   const results: ConsolidateServiceResult[] = [];
+  const attempts: ConsolidationAttempt[] = [];
   const skipped: ConsolidateSkip[] = [];
   const unverifiedIdReuse: UnverifiedIdReuseNotice[] = [];
   const prepared: Array<{
@@ -217,8 +236,9 @@ export async function runConsolidate(
     const transmittedFiles = await containedTransmissionFiles(serviceRoot, features);
     const serviceIdentities = identitiesForService(existingIdentities, svc.service_id);
     const prompt = buildConsolidationPromptForFeatures(features, serviceIdentities);
-    const estimatedInputTokens = Buffer.byteLength(prompt, 'utf8');
-    const estimatedOutputTokens = 32_768;
+    const estimatedInputTokens = Math.ceil(Buffer.byteLength(prompt, 'utf8') / 4);
+    const estimatedOutputTokens = null;
+    const maxOutputTokens = 32_768;
     const preview: ConsolidationPreview = {
       serviceId: svc.service_id,
       sourceFeatureCount: features.featureGroups.reduce(
@@ -228,6 +248,7 @@ export async function runConsolidate(
       transmittedFiles,
       estimatedInputTokens,
       estimatedOutputTokens,
+      maxOutputTokens,
       prompt,
     };
     const outputPath = consolidatedCachePath(paths.cacheDir, svc.service_id);
@@ -241,8 +262,10 @@ export async function runConsolidate(
         serviceId: svc.service_id,
         featureGroupCount: features.featureGroups.length,
         outputPath: null,
-        estimatedInputTokens: 0,
-        estimatedOutputTokens: 0,
+        estimatedInputTokens,
+        estimatedOutputTokens,
+        maxOutputTokens,
+        usage: null,
         preview,
         sourceClassification: describeConsolidationSources(features),
       });
@@ -289,117 +312,156 @@ export async function runConsolidate(
     ),
   );
 
-  for (const item of prepared) {
-    const { serviceId, features, outputPath, safeOutputPath, preview } = item;
-    // Seed for this call: the accumulated set plus every hub Dok this service
-    // may not reuse. Held in a per-service copy — reserving another service's
-    // ids permanently would stop that service from keeping its own.
-    const reusableIds = new Set(item.existingIdentities.map((identity) => identity.dok_id));
-    const seededPrefixes = new Set(usedPrefixes);
-    for (const identity of existingIdentities) {
-      if (!reusableIds.has(identity.dok_id)) seededPrefixes.add(identity.dok_id);
-    }
+  try {
+    for (const item of prepared) {
+      const { serviceId, features, outputPath, safeOutputPath, preview } = item;
+      // Seed for this call: the accumulated set plus every hub Dok this service
+      // may not reuse. Held in a per-service copy — reserving another service's
+      // ids permanently would stop that service from keeping its own.
+      const reusableIds = new Set(item.existingIdentities.map((identity) => identity.dok_id));
+      const seededPrefixes = new Set(usedPrefixes);
+      for (const identity of existingIdentities) {
+        if (!reusableIds.has(identity.dok_id)) seededPrefixes.add(identity.dok_id);
+      }
 
-    // The trust gate digests the canonical joined string; the split parts are
-    // what the provider actually receives (system = cacheable static prefix).
-    // Existing identities are per-workspace data, so they ride in the user part.
-    const promptParts = buildConsolidationPromptParts(features, item.existingIdentities);
-    const authorizedCall = await beginAuthorizedLlmCall(opts.authorizedRun, opts.root, {
-      phase: 'consolidate',
-      workItem: { phase: 'consolidate', serviceId, id: serviceId },
-      debugDir: safeDebugDir,
-      prompt: joinPromptParts(promptParts),
-      transmissions: preview.transmittedFiles.map((file) => ({
-        phase: 'consolidate' as const,
-        serviceId,
-        file,
-        actualChars: 0,
-      })),
-    });
-    const consolidateOpts: Partial<ConsolidateOptions> = {
-      debugDir: safeDebugDir,
-      verbose: false,
-      model: authorizedCall.model,
-      providerKind: authorizedCall.providerKind,
-      apiKey: authorizedCall.apiKey,
-      ...(authorizedCall.baseURL === undefined ? {} : { baseURL: authorizedCall.baseURL }),
-      ...(authorizedCall.fetch === undefined ? {} : { fetch: authorizedCall.fetch }),
-      preparedPrompt: promptParts,
-      serviceId,
-      existingIdentities: item.existingIdentities,
-      usedPrefixes: [...seededPrefixes],
-      // Only the advisory matters here: a Dok changing hands is something the
-      // user has to see, and nothing else in the run will mention it.
-      onProgress: (event) => {
-        if (event.stage !== 'unverified-id-reuse') return;
-        unverifiedIdReuse.push({
+      // The trust gate digests the canonical joined string; the split parts are
+      // what the provider actually receives (system = cacheable static prefix).
+      // Existing identities are per-workspace data, so they ride in the user part.
+      const promptParts = buildConsolidationPromptParts(features, item.existingIdentities);
+      const authorizedCall = await beginAuthorizedLlmCall(opts.authorizedRun, opts.root, {
+        phase: 'consolidate',
+        workItem: { phase: 'consolidate', serviceId, id: serviceId },
+        debugDir: safeDebugDir,
+        prompt: joinPromptParts(promptParts),
+        transmissions: preview.transmittedFiles.map((file) => ({
+          phase: 'consolidate' as const,
           serviceId,
-          dokId: event.dokId,
-          canonicalId: event.canonicalId,
-        });
-      },
-    };
-    let consolidateResult: ConsolidateResult;
-    try {
-      consolidateResult = await consolidate(features, consolidateOpts);
-    } catch (error) {
-      await completeAuthorizedLlmCall(opts.authorizedRun, opts.root, authorizedCall, null);
-      throw error;
-    }
-
-    if (!consolidateResult.success || !consolidateResult.config) {
-      await completeAuthorizedLlmCall(opts.authorizedRun, opts.root, authorizedCall, null);
-      throw new Error(
-        `Consolidation failed for service "${serviceId}": ${consolidateResult.error ?? 'unknown error'}`,
-      );
-    }
-    await completeAuthorizedLlmCall(
-      opts.authorizedRun,
-      opts.root,
-      authorizedCall,
-      (consolidateResult as ConsolidateResult & { usage?: LLMUsage | null }).usage,
-    );
-
-    const parsedConfig = ConsolidatedFeatureConfigSchema.safeParse(consolidateResult.config);
-    if (!parsedConfig.success) {
-      throw new InvalidConsolidationOutputError(
+          file,
+          actualChars: 0,
+        })),
+      });
+      const consolidateOpts: Partial<ConsolidateOptions> = {
+        debugDir: safeDebugDir,
+        verbose: false,
+        model: authorizedCall.model,
+        providerKind: authorizedCall.providerKind,
+        apiKey: authorizedCall.apiKey,
+        ...(authorizedCall.baseURL === undefined ? {} : { baseURL: authorizedCall.baseURL }),
+        ...(authorizedCall.fetch === undefined ? {} : { fetch: authorizedCall.fetch }),
+        preparedPrompt: promptParts,
         serviceId,
+        existingIdentities: item.existingIdentities,
+        usedPrefixes: [...seededPrefixes],
+        // Only the advisory matters here: a Dok changing hands is something the
+        // user has to see, and nothing else in the run will mention it.
+        onProgress: (event) => {
+          if (event.stage !== 'unverified-id-reuse') return;
+          unverifiedIdReuse.push({
+            serviceId,
+            dokId: event.dokId,
+            canonicalId: event.canonicalId,
+          });
+        },
+      };
+      const attempt: ConsolidationAttempt = {
+        phase: 'consolidate', serviceId, model: authorizedCall.model, success: false,
+        estimated: { inputTokens: preview.estimatedInputTokens, outputTokens: null, maxOutputTokens: 32_768 },
+        usage: null,
+      };
+      attempts.push(attempt);
+      const failedRun = (error: unknown): CommandContractError => {
+        attempt.error = error instanceof Error ? error.message : String(error);
+        const diagnostics = error instanceof CommandContractError
+          ? error.result.diagnostics
+          : [{ code: 'CONSOLIDATION_FAILED', serviceId, message: attempt.error }];
+        return new CommandContractError({
+          schema_version: 1, command: 'consolidate', status: results.length > 0 ? 'partial' : 'failed',
+          data: { results, skipped, unverifiedIdReuse, attempts }, diagnostics,
+        });
+      };
+      let consolidateResult: ConsolidateResult;
+      try {
+        consolidateResult = await consolidate(features, consolidateOpts);
+      } catch (error) {
+        attempt.usage = error instanceof ConsolidationProcessingError ? error.usage : null;
+        try {
+          await completeAuthorizedLlmCall(opts.authorizedRun, opts.root, authorizedCall, attempt.usage);
+        } catch (settlementError) {
+          throw failedRun(settlementError);
+        }
+        throw failedRun(error);
+      }
+      attempt.usage = consolidateResult.usage ?? null;
+      try {
+        await completeAuthorizedLlmCall(opts.authorizedRun, opts.root, authorizedCall, attempt.usage);
+      } catch (error) {
+        throw failedRun(error);
+      }
+      if (!consolidateResult.success || !consolidateResult.config) {
+        throw failedRun(new Error(
+          `Consolidation failed for service "${serviceId}": ${consolidateResult.error ?? 'unknown error'}`,
+        ));
+      }
+
+      const parsedConfig = ConsolidatedFeatureConfigSchema.safeParse(consolidateResult.config);
+      if (!parsedConfig.success) {
+        attempt.error = `Invalid consolidation cache: ${outputPath}`;
+        throw new InvalidConsolidationOutputError(
+          serviceId, outputPath, parsedConfig.error, { results, skipped, unverifiedIdReuse, attempts },
+        );
+      }
+      const config = parsedConfig.data;
+
+      try {
+        await writeTextFileAtomic(safeOutputPath, JSON.stringify(config, null, 2) + '\n');
+        await recordCacheSource(paths.root, 'consolidate', serviceId, outputPath, recordingSource);
+      } catch (error) {
+        throw failedRun(error);
+      }
+
+      // Reserve what this service now owns for the services still to come: the
+      // ids it just assigned, plus the ids of its existing Doks that no feature
+      // claimed. The latter files stay on disk (generate warns about them), so
+      // another service must not mint the same id and overwrite one.
+      const assignedPrefixes = collectDokIdPrefixes(config);
+      for (const prefix of assignedPrefixes) usedPrefixes.add(prefix);
+      for (const identity of item.existingIdentities) {
+        if (!assignedPrefixes.has(identity.dok_id)) usedPrefixes.add(identity.dok_id);
+      }
+
+      attempt.success = true;
+      results.push({
+        serviceId,
+        featureGroupCount: config.groups.length,
         outputPath,
-        parsedConfig.error,
-      );
+        estimatedInputTokens: preview.estimatedInputTokens,
+        estimatedOutputTokens: null,
+        maxOutputTokens: 32_768,
+        usage: attempt.usage,
+        preview,
+        sourceClassification: describeConsolidationSources(features),
+      });
     }
-    const config = parsedConfig.data;
-
-    await writeTextFileAtomic(
-      safeOutputPath,
-      JSON.stringify(config, null, 2) + '\n',
-    );
-
-    // Reserve what this service now owns for the services still to come: the
-    // ids it just assigned, plus the ids of its existing Doks that no feature
-    // claimed. The latter files stay on disk (generate warns about them), so
-    // another service must not mint the same id and overwrite one.
-    const assignedPrefixes = collectDokIdPrefixes(config);
-    for (const prefix of assignedPrefixes) usedPrefixes.add(prefix);
-    for (const identity of item.existingIdentities) {
-      if (!assignedPrefixes.has(identity.dok_id)) usedPrefixes.add(identity.dok_id);
-    }
-
-    results.push({
-      serviceId,
-      featureGroupCount: config.groups.length,
-      outputPath,
-      estimatedInputTokens: consolidateResult.estimatedInputTokens,
-      estimatedOutputTokens: consolidateResult.estimatedOutputTokens,
-      preview,
-      sourceClassification: describeConsolidationSources(features),
+  } catch (error) {
+    if (attempts.length === 0) throw error;
+    if (error instanceof CommandContractError && error.result.command === 'consolidate') throw error;
+    throw new CommandContractError({
+      schema_version: 1, command: 'consolidate', status: results.length > 0 ? 'partial' : 'failed',
+      data: { results, skipped, unverifiedIdReuse, attempts },
+      diagnostics: error instanceof CommandContractError ? error.result.diagnostics
+        : [{ code: 'CONSOLIDATION_FAILED', message: error instanceof Error ? error.message : String(error) }],
     });
   }
+  return { results, skipped, unverifiedIdReuse, attempts };
+}
 
-  if (!opts.dryRun) {
-    for (const result of results) if (result.outputPath !== null) await recordCacheSource(paths.root, 'consolidate', result.serviceId, result.outputPath, recordingSource);
-  }
-  return { results, skipped, unverifiedIdReuse };
+export function formatConsolidationAttempt(attempt: ConsolidationAttempt): string {
+  const usage = attempt.usage;
+  const input = usage ? usage.input_tokens + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) : null;
+  return `  consolidate ${attempt.serviceId} (${attempt.model}): ${attempt.success ? 'completed' : 'failed'}; `
+    + `attempt input estimate ~${attempt.estimated.inputTokens}, output unknown; `
+    + (usage ? `measured input ${input}, output ${usage.output_tokens}, cache read ${usage.cache_read_input_tokens ?? 0}, cache creation ${usage.cache_creation_input_tokens ?? 0}`
+      : 'usage unavailable; reservation retained');
 }
 
 /**
@@ -639,7 +701,7 @@ export function registerConsolidateCommand(
         'LLM consolidation via runtime-trust (anthropic/claude-sonnet-5 or openai/gpt-5.6-terra)',
       )
       .option('-r, --root <dir>', 'Workspace root', process.cwd())
-      .option('--dry-run', 'Skip the LLM call; only report would-be feature count', false)
+      .option('--dry-run', 'Preview source candidates and consolidation estimates without an LLM call', false)
       .option('--service <id>', 'Limit to one service')
       .option('-y, --yes', 'Approve the displayed immutable plan', false)
       .option('--json', 'Emit JSONL only', false)
@@ -676,6 +738,8 @@ export function registerConsolidateCommand(
           console.log(formatConsolidationSourceSummary(service));
         }
       }
+
+      if (!machine) console.log('  Candidate groups are not a Dok count. Narrow the paid call with --service <id>, or stop and adjust source scope before approval. Output size and cache usage remain unknown.');
 
       // Credential resolution follows the LLM-free contained preview.
       const resolved = dryRun
@@ -723,21 +787,31 @@ export function registerConsolidateCommand(
             isTTY: !machine && process.stdin.isTTY === true,
           },
         );
-        result = await executeConsolidate({
-          root: opts.root as string,
-          serviceId: opts.service as string | undefined,
-          authorizedRun,
-        });
+        try {
+          result = await executeConsolidate({
+            root: opts.root as string,
+            serviceId: opts.service as string | undefined,
+            authorizedRun,
+          });
+        } catch (error) {
+          if (!machine && error instanceof CommandContractError) {
+            for (const attempt of (error.result.data as RunConsolidateResult | null)?.attempts ?? []) {
+              console.log(formatConsolidationAttempt(attempt));
+            }
+          }
+          throw error;
+        }
       }
 
       if (!machine) {
         for (const r of result.results) {
           const target = r.outputPath ?? '(dry-run)';
-          const tokenInfo = formatTokenEstimate(r.estimatedInputTokens, r.estimatedOutputTokens);
+          const tokenInfo = ` · consolidation input ~${r.estimatedInputTokens} tokens (bytes / 4); output unknown, allowance ${r.maxOutputTokens ?? 32_768}`;
           console.log(
             `  ${chalk.cyan('•')} ${r.serviceId}: ${r.featureGroupCount} group(s)${tokenInfo} → ${target}`,
           );
         }
+        for (const attempt of result.attempts ?? []) console.log(formatConsolidationAttempt(attempt));
         for (const notice of result.unverifiedIdReuse) {
           console.log(`  ${chalk.yellow('⚠')} ${formatUnverifiedIdReuse(notice)}`);
         }

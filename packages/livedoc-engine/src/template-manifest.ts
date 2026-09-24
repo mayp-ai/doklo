@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateHelpPagePresentation } from './help-page-presentation.js';
 import { DokIdSchema, DokStatusSchema, ServiceIdSchema } from '@doklo-beta/core';
 
 /**
@@ -334,6 +335,9 @@ export function coerceTemplateVariables(
       }
       values[name] = number;
     }
+  }
+  if (manifest.name === 'help-page' && manifest.stability === 'stable') {
+    validateHelpPagePresentation(values);
   }
   return values;
 }

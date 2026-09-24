@@ -10,6 +10,7 @@ import {
   RolesFileSchema,
   LexiconFileSchema,
   type Service,
+  type KoreanCustomerTone,
 } from '@doklo-beta/core';
 import { workspacePaths } from './paths.js';
 
@@ -20,6 +21,7 @@ export interface BootstrapOptions {
   defaultLocale: string;
   supportedLocales: string[];
   services: Service[];
+  koreanCustomerTone?: KoreanCustomerTone;
   recordingBranch?: string;
 }
 
@@ -44,6 +46,7 @@ export async function bootstrapWorkspace(opts: BootstrapOptions): Promise<void> 
     services: opts.services,
     ...(opts.recordingBranch ? { recording_branch: opts.recordingBranch } : {}),
     default_locale: opts.defaultLocale,
+    ...(opts.koreanCustomerTone ? { korean_customer_tone: opts.koreanCustomerTone } : {}),
     supported_locales: opts.supportedLocales,
     created_at: now,
     updated_at: now,

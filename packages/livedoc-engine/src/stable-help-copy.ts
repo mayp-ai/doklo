@@ -235,6 +235,7 @@ function normalizePublicCopy(source: string, mode: 'label' | 'prose'): {
     replace(/\bAPI(?:에서|가|를|은|는|로|으로)?\b/gu, '');
   }
 
+  if (mode === 'label') text = text.replace(/[\r\n]+/gu, ' ');
   text = cleanCopy(text);
   if (hasDeveloperCopy(text)) {
     const safe = retainSafeClauses(text);
@@ -254,6 +255,24 @@ function hasDeveloperCopy(value: string): boolean {
 }
 
 function retainSafeClauses(value: string): string {
+  // Preserve sentence boundaries for subsequent writing-policy review, including
+  // unpunctuated Korean sentences. A wrapped, incomplete clause must stay with
+  // its continuation so removing developer copy cannot leave a broken prefix.
+  const sentences: string[] = [];
+  let pending = '';
+  for (const line of value.split('\n')) {
+    if (!line.trim()) continue;
+    pending = pending ? `${pending} ${line.trim()}` : line.trim();
+    if (/[.!?。！？]$/u.test(pending) || isCompleteKoreanClause(pending)) {
+      sentences.push(pending);
+      pending = '';
+    }
+  }
+  if (pending) sentences.push(pending);
+  return sentences.map(retainSafeLineClauses).filter(Boolean).join('\n');
+}
+
+function retainSafeLineClauses(value: string): string {
   const sentences = value.match(/.+?(?:[!?。！？]|\.(?=\s|$)|$)/gu) ?? [value];
   const retained: string[] = [];
   for (const sentence of sentences) {
@@ -299,7 +318,8 @@ function isCompleteKoreanClause(value: string): boolean {
 
 function cleanCopy(value: string): string {
   const cleaned = value
-    .replace(/\s+/gu, ' ')
+    .replace(/\r\n?/gu, '\n')
+    .replace(/[^\S\n]+/gu, ' ')
     .replace(/\s+([,.;!?。！？])/gu, '$1')
     .replace(/^(?:,|;|and\b|but\b|그리고\b)\s*/iu, '')
     .replace(/\s+(?:and|but|그리고)$/iu, '')

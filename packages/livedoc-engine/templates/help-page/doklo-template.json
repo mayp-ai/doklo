@@ -33,6 +33,23 @@
     "ko": "검토된 기능 맥락; 행동, 규칙, 확인 기준, 스크린샷은 제공되는 경우에만 포함"
   },
   "variables": {
+    "html_fragment": {
+      "type": "boolean",
+      "required": false,
+      "description": "Emit a sanitized article without the document shell, stylesheets, or scripts. Existing help-* classes remain available for host styling. HTML only.",
+      "default": false
+    },
+    "heading_level": {
+      "type": "number",
+      "required": false,
+      "description": "Article title heading level (integer 1–5); section headings use the next level. HTML only.",
+      "default": 1
+    },
+    "id_prefix": {
+      "type": "string",
+      "required": false,
+      "description": "Optional additional HTML anchor namespace for repeated copies of an article. Start with a letter and use only letters, digits, underscores, or hyphens (at most 64 characters)."
+    },
     "hide_screenshots": {
       "type": "boolean",
       "required": false,

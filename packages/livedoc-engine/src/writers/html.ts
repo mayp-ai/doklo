@@ -157,16 +157,41 @@ ${mermaidScript}
 }
 
 /**
- * Derive the document <title> from the first <h1> in the rendered body
+ * Derive the document <title> from the first heading in the rendered body
  * (per-Dok pages get "이메일 로그인 — 도움말" instead of a bare "도움말"),
- * falling back to the template display name when no h1 exists.
+ * falling back to the template display name when no heading exists.
  */
 function deriveTitle(body: string, displayName: string): string {
-  const m = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(body);
-  if (!m?.[1]) return displayName;
-  const text = m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  const m = /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/i.exec(body);
+  if (!m?.[2]) return displayName;
+  const text = m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
   if (!text) return displayName;
   return text === displayName ? text : `${text} — ${displayName}`;
+}
+
+function sanitizeFragment(rawHtml: string): string {
+  const body = DOMPurify.sanitize(rawHtml, {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ['style', 'link'],
+    RETURN_DOM: true,
+  });
+  // Prose is untrusted even in a reviewed Dok. Inline CSS could cover the
+  // host app, so preserve only the four bounded screenshot coordinates.
+  // The engine-owned preview banner is appended after this sanitization.
+  for (const element of body.querySelectorAll('[style]')) {
+    const geometry = /^left:(\d+(?:\.\d+)?(?:e[+-]?\d+)?)%;top:(\d+(?:\.\d+)?(?:e[+-]?\d+)?)%;width:(\d+(?:\.\d+)?(?:e[+-]?\d+)?)%;height:(\d+(?:\.\d+)?(?:e[+-]?\d+)?)%$/i
+      .exec(element.getAttribute('style') ?? '');
+    const coordinates = geometry?.slice(1).map(Number);
+    if (
+      !element.matches('span.help-shot-wrap > span.help-shot-box')
+      || !coordinates?.every((value) => Number.isFinite(value) && value >= 0 && value <= 100)
+      || coordinates[0]! + coordinates[2]! > 100
+      || coordinates[1]! + coordinates[3]! > 100
+    ) {
+      element.removeAttribute('style');
+    }
+  }
+  return body.innerHTML;
 }
 
 export const htmlWriter: Writer = async (ctx) => {
@@ -175,7 +200,7 @@ export const htmlWriter: Writer = async (ctx) => {
     : renderMarkdown(ctx.content);
   // dompurify strips <script>, so we sanitize the body (Mermaid CDN script
   // is added by the shell *after* sanitization, never from user content).
-  const safeBody = DOMPurify.sanitize(rawHtml, {
+  const safeBody = ctx.html?.fragment ? sanitizeFragment(rawHtml) : DOMPurify.sanitize(rawHtml, {
     USE_PROFILES: { html: true },
     ADD_TAGS: ['div'],
     // style: templates position screenshot annotation boxes via inline
@@ -183,9 +208,6 @@ export const htmlWriter: Writer = async (ctx) => {
     // per-image geometry through a static stylesheet.
     ADD_ATTR: ['class', 'style'],
   });
-  const extendsDefault =
-    (ctx.template as { extends_default_css?: boolean }).extends_default_css !== false;
-  const css = await buildStylesheet(ctx.templateDir, ctx.workspaceRoot, extendsDefault);
   const displayName =
     ctx.template.display_name?.[ctx.locale] ??
     ctx.template.display_name?.[ctx.template.default_locale] ??
@@ -194,11 +216,13 @@ export const htmlWriter: Writer = async (ctx) => {
   const previewBanner = ctx.preview
     ? `<aside data-doklo-preview="draft" role="note" style="display:block!important;visibility:visible!important;opacity:1!important;padding:1rem!important;border:3px solid #8a4b00!important;background:#fff4cf!important;color:#332000!important;font:700 16px/1.5 sans-serif!important">Draft preview — Not reviewed or approved for publication.${ctx.locale.startsWith('ko') ? ' 미검토 초안 — 게시 승인되지 않았습니다.' : ''}</aside>\n`
     : '';
-  const html = wrapInShell({
+  // Fragments retain sanitization and the engine-owned preview banner, but
+  // never read or embed template/branding CSS or shell-added CDN scripts.
+  const html = ctx.html?.fragment ? `${previewBanner}${safeBody}\n` : wrapInShell({
     title: ctx.preview ? `Draft preview — ${title}` : title,
     lang: ctx.locale,
     body: previewBanner + safeBody,
-    css,
+    css: await buildStylesheet(ctx.templateDir, ctx.workspaceRoot, ctx.template.extends_default_css !== false),
     hasMermaid,
   });
   const path = await writePlannedArtifact(ctx.outputRoot, ctx.plannedOutput, html);
