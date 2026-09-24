@@ -207,6 +207,8 @@ Hub는 `.doklo/hub/`에 기록되며 추적할 workspace state에는 루트 `wor
 
 ## 문서
 
+- [실행 범위 확인과 앱 도움말 통합](./docs/ko/first-run-and-embedding.md): 서비스 경로, 토큰 추정 범위, 한국어 용어, 공개 포맷명, HTML fragment, 출력 경계.
+
 - 한국어: [docs/ko/](./docs/ko/)
 - English: [docs/en/](./docs/en/) · [README.md](./README.md)
 - [Changelog](./CHANGELOG.md) · [License](./LICENSE) (Apache-2.0)

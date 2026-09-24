@@ -90,6 +90,8 @@ import {
 import { loadWorkspaceAudienceDictionary } from './audience-dictionary.js';
 import { buildChangelog } from './changelog.js';
 import { prepareStableHelpCopy } from './stable-help-copy.js';
+import { checkKoreanHelpWriting } from './korean-writing-policy.js';
+import { helpPagePresentation } from './help-page-presentation.js';
 import {
   publicationDigest,
   type PublicationFormat,
@@ -489,6 +491,11 @@ export async function renderLivedoc(input: RenderLivedocInput): Promise<RenderLi
         dokId: target.dok?.dok_id,
       });
     }
+    if (stableHelp && target.dok && input.locale === 'ko') {
+      warnings.push(...checkKoreanHelpWriting({
+        dok: target.dok, copy: stableHelp.copy, tone: hub.workspace.korean_customer_tone, preview: input.preview === true,
+      }));
+    }
     for (const change of stableHelp?.changes ?? []) {
       warnings.push({
         code: change.category === 'normalized'
@@ -525,7 +532,10 @@ export async function renderLivedoc(input: RenderLivedocInput): Promise<RenderLi
       step_annotations: screenshotContext.stepAnnotations,
       step_annotations_by_platform: screenshotContext.stepAnnotationsByPlatform,
       platforms: Object.keys(screenshotContext.stepScreenshotsByPlatform).sort(compareText),
-      ...(stableHelp ? { help: stableHelp.copy } : {}),
+      ...(stableHelp ? {
+        help: stableHelp.copy,
+        help_html: helpPagePresentation(target.dok!.dok_id, input.locale, variables),
+      } : {}),
     };
 
     for (const format of selectedFormats) {
@@ -620,6 +630,9 @@ export async function renderLivedoc(input: RenderLivedocInput): Promise<RenderLi
         source: output.source,
         template: manifest,
         locale: input.locale,
+        ...(manifest.name === 'help-page' && manifest.stability === 'stable'
+          ? { html: { fragment: variables['html_fragment'] === true } }
+          : {}),
         ...(output.templateDir ? { templateDir: output.templateDir } : {}),
         workspaceRoot: input.workspaceRoot,
       });

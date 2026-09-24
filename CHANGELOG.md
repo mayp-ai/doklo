@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-09-25
+
+### Added
+- Contained `init --code-root` selection for monorepos, with scan strategy,
+  included source paths and analysis limits reported for each service.
+- Sanitized help-page HTML fragments with configurable heading levels and
+  namespaced IDs for embedding multiple articles in an application.
+- A shared Korean customer writing policy for generation and official help-page
+  rendering, with explicit review of policy changes and sentence-ending conflicts.
+
+### Fixed
+- Distinguish missing consolidation plans from real zero-item generation plans.
+  Show source candidates before paid work, separate estimates from output limits,
+  and retain reported consolidation usage after later cancellation or failure.
+- Recognize public image-format names without relaxing internal Dok ID checks.
+- Localize new standard role names while preserving existing curated names, and
+  use only confirmed terminology as canonical generation instructions.
+- Explain workspace output boundaries and supported Publication/export paths.
+
+### Upgrade notes
+- Existing documents, curated role names and literal prose are not automatically
+  rewritten or approved. Review terminology and writing policy before selectively
+  regenerating drafts; consolidation and generation may incur model costs.
+- Official Korean help-page output can stop on a clear writing-policy conflict.
+  Correct and review the source prose or use marked draft previews for inspection.
+  The conservative check does not certify grammar or documentation accuracy.
+- HTML fragments preserve draft notices and require host-page styling. Output
+  containment, sanitization and Publication review safeguards remain enabled.
+
 ## [0.3.0] - 2026-09-24
 
 ### Added

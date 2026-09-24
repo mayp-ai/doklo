@@ -9,6 +9,7 @@ import {
 } from './ids.js';
 import { CodeAnchorSchema, SourceAnchorSchema } from './code-anchor.js';
 import { DokPrioritySchema } from './priority.js';
+import { DokWritingPolicySchema, WritingToneConcernSchema } from './writing-policy.js';
 
 // Translatable text — inline string or Lexicon-referenced term
 export const TranslatableSchema = z.union([z.string().min(1), TermRefSchema]);
@@ -170,6 +171,16 @@ export const DokOriginSchema = z.object({
 
 // Operational meta — separated from the business definition.
 export const DokMetaSchema = z.object({
+  writing_policy: DokWritingPolicySchema.optional(),
+  writing_review: z.object({
+    assessed_by: z.literal('deterministic').default('deterministic'),
+    concerns: z.array(WritingToneConcernSchema),
+    // Explicit manual review of the current policy, separate from generation provenance.
+    // New generation discards this acknowledgment along with prior review metadata.
+    policy_acknowledgment: DokWritingPolicySchema.extend({
+      acknowledged_at: z.string().datetime(),
+    }).optional(),
+  }).optional(),
   // Fingerprint of the deterministic source-input paths and bytes used for
   // drift detection. Human prose/status edits do not calculate or lock it.
   logic_hash: z.string().optional(),

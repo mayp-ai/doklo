@@ -98,10 +98,35 @@ export interface ScanServiceResult {
   framework: Framework;
   outputPath: string;
   counts: { routes: number; components: number; stores: number };
+  analysis?: ScanAnalysis;
   warnings?: ScanWarning[];
   trackingRepair?: { repairedDokIds: string[]; unmatchedDokIds: string[] };
   /** Non-enumerable for normal output; available to the in-process preview flow. */
   ir?: ProjectIR;
+}
+
+export interface ScanAnalysis {
+  workspaceRoot: string;
+  codeRoot: string;
+  serviceRoot: string;
+  strategy: 'nextjs-app-router' | 'nextjs-app-router+generic-files' | 'generic-files-v1' | 'unclassified';
+  files: number;
+  /** Exact included paths, relative to serviceRoot; available in JSON scope output. */
+  includedFiles: string[];
+  /** Ledger exclusions only; Git-ignored/policy-excluded paths are not inventoried. */
+  excludedFiles: Array<{ file: string; reason: string }>;
+  exclusions: string[];
+  limitations: string[];
+}
+
+export function formatScanAnalysis(analysis: ScanAnalysis): string[] {
+  return [
+    `Analysis: ${analysis.strategy}; ${analysis.files} source files. Workspace: ${analysis.workspaceRoot}; code root: ${analysis.codeRoot} → ${analysis.serviceRoot}`,
+    ...analysis.exclusions.map(rule => `Exclusions: ${rule}`),
+    `Recorded excluded files: ${analysis.excludedFiles.length} (not a count of all ignored files).`,
+    ...analysis.excludedFiles.map(entry => `  ${entry.file}: ${entry.reason}`),
+    ...analysis.limitations.map(limit => `Scope: ${limit}`),
+  ];
 }
 
 export interface ScanWarning {
@@ -223,6 +248,30 @@ export async function runScan(
         routes: ir.routes.length,
         components: ir.components.length,
         stores: ir.stores.length,
+      },
+      analysis: {
+        workspaceRoot: paths.root,
+        codeRoot: svc.code_root,
+        serviceRoot: item.serviceRoot,
+        strategy: ir.framework_specific?.['analysis_strategy'] === 'generic-files-v1'
+          ? 'generic-files-v1'
+          : ir.framework === 'nextjs'
+            ? (ir.analysis_units?.length ? 'nextjs-app-router+generic-files' : 'nextjs-app-router')
+            : 'unclassified',
+        files: ir.files.length,
+        includedFiles: [...ir.files],
+        excludedFiles: readValidatedFileLedger(ir)!
+          .filter(entry => entry.status === 'excluded')
+          .map(({ file, reason }) => ({ file, reason })),
+        exclusions: [
+          'Only the selected code root is scanned; paths outside it are not analyzed.',
+          'Git-ignored paths, sensitive paths, dependency/build directories, workspace metadata, binary/non-UTF-8 files, and files over 1 MiB are excluded by discovery policy.',
+        ],
+        limitations: ir.framework_specific?.['analysis_strategy'] === 'generic-files-v1'
+          ? ['Generic text-file analysis does not establish framework-specific route, permission, or behavior semantics. Generated documentation requires source review.']
+          : ir.framework === 'nextjs'
+            ? ['Specialist output describes supported Next.js App Router structure; additional source files may use generic analysis.']
+            : ['The parser did not report a recognized analysis strategy; review its source coverage before generation.'],
       },
       ...(warnings.length > 0 ? { warnings } : {}),
       ...(repair ? { trackingRepair: { repairedDokIds: repair.repairedDokIds, unmatchedDokIds: repair.unmatchedDokIds } } : {}),
@@ -399,6 +448,7 @@ export function registerScanCommand(program: Command, ctx: CliContext): void {
     .option('--service <id>', 'Limit to one service')
     .option('--repair-tracking', 'Repair local tracking mappings and mark existing Doks for review', false)
     .option('--json', 'Emit JSONL only', false)
+    .addHelpText('after', '\nServices are read from workspace.json; each code_root is relative to the workspace root. Next.js App Router uses a specialist when available; other source trees use generic text-file analysis. Output reports actual strategy, included file count and recorded exclusions. Ignored/policy-excluded files are not fully inventoried or counted. Use --json for the exact includedFiles paths and structured scope details.')
     .action(async (opts) => {
       const { default: chalk } = await import('chalk');
       const root = opts.root as string;
@@ -417,6 +467,7 @@ export function registerScanCommand(program: Command, ctx: CliContext): void {
               `${c.routes} routes, ${c.components} components, ${c.stores} stores ` +
               `→ ${r.outputPath}`,
           );
+          if (r.analysis) for (const line of formatScanAnalysis(r.analysis)) console.log(`    ${line}`);
         }
         if (result.results.length > 0) {
           console.log('\n  ' + chalk.cyan('→ ') + chalk.dim(ctx.t('scan.next_step')) + '\n');

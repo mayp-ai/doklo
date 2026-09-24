@@ -8,6 +8,9 @@
 
 import {
   DokSchema,
+  koreanWritingPolicyPrompt,
+  recordDokWritingPolicy,
+  type KoreanCustomerTone,
   type Dok,
   type DokPriorityField,
   type RoleId,
@@ -58,6 +61,7 @@ export interface FeatureForGeneration {
 
 export interface DokGenContext {
   defaultLocale: string;
+  koreanCustomerTone?: KoreanCustomerTone;
   knownRoles: RoleId[];
   /** Map of relative path → file content (already read by the CLI). */
   fileContext: Record<string, string>;
@@ -70,8 +74,8 @@ export interface DokGenContext {
    */
   suggestedActorRole?: RoleId;
   /**
-   * Canonical domain terms (approved Lexicon entries + pending
-   * suggestions). When set, the prompt instructs the model to use these
+   * Canonical domain terms (confirmed Lexicon entries only).
+   * When set, the prompt instructs the model to use these
    * exact wordings — terminology consistency is enforced at write time,
    * not patched afterwards.
    */
@@ -200,6 +204,7 @@ export async function generateDokForFeature(
   }
 
   recordContentReview(parsed.dok, Object.keys(ctx.fileContext));
+  recordDokWritingPolicy(parsed.dok, ctx.defaultLocale, ctx.koreanCustomerTone);
   return {
     success: true,
     dok: parsed.dok,
@@ -348,8 +353,7 @@ ASCII.${ctx.defaultLocale === 'ko' ? `
 
 # Korean style (customer-facing help copy)
 
-- End every sentence in the formal polite register (합쇼체: ~합니다, ~됩니다,
-  ~할 수 있습니다). Never use the plain register (~한다, ~된다, ~이다).
+${koreanWritingPolicyPrompt(ctx.koreanCustomerTone)}
 - Describe what the actor does and what appears on screen. Do not write
   intention formulas such as "~하고자 한다" or "~하려고 한다".
 - Do not put a comma after a connective ending (write "누르면 목록이 열립니다",

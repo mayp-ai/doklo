@@ -279,6 +279,28 @@ describe('stable artifact public-copy lint', () => {
 });
 
 describe('stable lint public-term allowlist', () => {
+  it('allows public photo formats together in Korean customer instructions', () => {
+    expect(run('<p>첨부 가능한 사진은 JPEG, PNG, WebP, HEIC, HEIF 형식입니다.</p>')).toEqual([]);
+  });
+
+  it('does not allow implementation names that contain a public format', () => {
+    expect(run('<p>WebPEncoder와 photoId를 사용합니다.</p>')).toContainEqual(
+      expect.objectContaining({ code: 'INTERNAL_IDENTIFIER' }),
+    );
+  });
+
+  it('still blocks a public format when it is a selected internal Dok ID', () => {
+    expect(run('<p>WebP</p>', stableManifest(), { knownDokIds: ['WebP'] })).toContainEqual(
+      expect.objectContaining({ code: 'INTERNAL_IDENTIFIER' }),
+    );
+  });
+
+  it('keeps non-identifier copy safeguards on public formats', () => {
+    const violations = run('<p>WebP 파일은 자동으로 갱신됩니다.</p>');
+    expect(violations).toContainEqual(expect.objectContaining({ code: 'FALSE_FRESHNESS' }));
+    expect(violations.some((item) => item.code === 'INTERNAL_IDENTIFIER')).toBe(false);
+  });
+
   it('lets listed proper nouns through while still flagging code symbols', () => {
     expect(typeof lint).toBe('function');
     if (!lint) return;

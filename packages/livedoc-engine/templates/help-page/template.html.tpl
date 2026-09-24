@@ -1,14 +1,15 @@
+<article id="{{help_html.article_id}}" class="doklo-help" lang="{{help_html.lang}}" aria-labelledby="{{help_html.title_id}}" tabindex="-1">
 <header class="help-hero">
   <p class="help-crumb">{{#if variables.index_url}}<a href="{{variables.index_url}}">{{#if help.workspace_name}}{{help.workspace_name}} {{/if}}{{t "eyebrow_suffix"}}</a> › {{help.title}}{{else}}{{#if help.workspace_name}}{{help.workspace_name}} {{/if}}{{t "eyebrow_suffix"}}{{/if}}</p>
-  <h1 class="help-title">{{help.title}}</h1>
+  <{{help_html.title_tag}} id="{{help_html.title_id}}" class="help-title" tabindex="-1">{{help.title}}</{{help_html.title_tag}}>
   {{#if help.description}}
   <p class="help-lede">{{help.description}}</p>
   {{/if}}
 </header>
 
 {{#if help.steps.length}}
-<section id="how" class="help-section help-section--how">
-<h2 class="help-section-title">{{t "section_how"}}</h2>
+<section id="{{help_html.how_id}}" class="help-section help-section--how" aria-labelledby="{{help_html.how_title_id}}" tabindex="-1">
+<{{help_html.section_tag}} id="{{help_html.how_title_id}}" class="help-section-title" tabindex="-1">{{t "section_how"}}</{{help_html.section_tag}}>
 <ol class="help-steps">
 {{#each help.steps}}
 {{#if (eq this.actor.kind "system")}}
@@ -68,8 +69,8 @@
 {{/if}}
 
 {{#if help.rules.length}}
-<section id="tips" class="help-section help-section--tips">
-<h2 class="help-section-title">{{t "section_tips"}}</h2>
+<section id="{{help_html.tips_id}}" class="help-section help-section--tips" aria-labelledby="{{help_html.tips_title_id}}" tabindex="-1">
+<{{help_html.section_tag}} id="{{help_html.tips_title_id}}" class="help-section-title" tabindex="-1">{{t "section_tips"}}</{{help_html.section_tag}}>
 <ul class="help-tips">
 {{#each help.rules}}
 <li class="help-tip help-tip--{{this.type}}"><span class="help-tip-type">{{> rule-type-label rule=this}}</span><span class="help-tip-text">{{this.description}}</span></li>
@@ -79,8 +80,8 @@
 {{/if}}
 
 {{#if help.criteria.length}}
-<section id="done" class="help-section help-section--done">
-<h2 class="help-section-title">{{t "section_done"}}</h2>
+<section id="{{help_html.done_id}}" class="help-section help-section--done" aria-labelledby="{{help_html.done_title_id}}" tabindex="-1">
+<{{help_html.section_tag}} id="{{help_html.done_title_id}}" class="help-section-title" tabindex="-1">{{t "section_done"}}</{{help_html.section_tag}}>
 <ul class="help-checks">
 {{#each help.criteria}}
 <li class="help-check"><span class="help-check-text">{{this.statement}}</span>{{#if this.related_rules.length}}<span class="help-check-rules"><span class="help-check-rules-label">{{t "check_related_rule"}}</span>{{#each (rules_for this.related_rules ../help.rules)}}<span class="help-check-rule help-check-rule--{{this.type}}">{{> rule-type-label rule=this}}</span>{{/each}}</span>{{/if}}</li>
@@ -95,3 +96,4 @@
 <p class="help-feedback-body">{{t "feedback_body"}} <a class="help-feedback-cta" href="{{variables.support_url}}">{{t "feedback_cta"}}</a></p>
 </footer>
 {{/if}}
+</article>

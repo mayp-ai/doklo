@@ -1,5 +1,7 @@
 # 생성 복구와 초안 검토
 
+소스 경로 선택, 사전 토큰 추정, 정본 용어, HTML fragment와 출력 위치는 [실행 범위 확인과 앱 도움말 통합](first-run-and-embedding.md)을 참고하세요.
+
 이 가이드는 현재 소스의 동작을 설명합니다. 설치한 릴리스의 `doklo generate --help`와 `doklo live-docs render --help`에서 옵션 제공 여부를 확인하세요.
 
 ## 실패한 문서만 복구하기

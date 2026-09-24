@@ -84,7 +84,7 @@
   "mcp.no_workspace": "workspace.json을 찾지 못했습니다 — 먼저 `doklo init`을 실행하세요. 서버는 떴지만 워크스페이스가 없으면 툴이 에러를 반환합니다.",
   "generate.batch_capped": "토큰 한도로 전체 {total}개 중 {kept}개 실행, {deferred}개 보류입니다. 워크스페이스 잔여 토큰을 확인하고 DOKLO_MAX_TOKENS_PER_RUN / DOKLO_MAX_TOKENS_TOTAL을 필요에 맞게 조정한 뒤 이어서 실행하세요.",
   "generate.token_summary": "Dok {count}개 · 예상 입력 약 {input} / 출력 약 {output} 토큰 · {time}",
-  "generate.token_estimate_note": "대략적인 추정: 준비된 프롬프트 바이트 수 ÷ 4, Dok당 출력 1,500토큰. 출력 허용량 {max}토큰은 예상치가 아닌 한도입니다.",
+  "generate.token_estimate_note": "생성 단계의 최초 시도만 추정합니다: 프롬프트 바이트 수 ÷ 4, Dok당 출력 약 1,500토큰. 출력 허용량 {max}토큰은 예상치가 아닙니다. 캐시 절감과 추론·출력 크기는 불확실하며 재시도는 사용량을 추가합니다.",
   "generate.plan_details_hint": "전체 Dok ID는 --plan-details로 확인하거나 web에서 계획을 검토하세요.",
   "generate.usage_summary": "실패 응답을 포함한 이번 실행: 호출 {attempted}회 · 측정 {measured}회 · 미측정 {missing}회. 측정 토큰: 입력 {input}(캐시 읽기 {read}, 생성 {write} 포함) / 출력 {output}.",
   "generate.usage_comparison": "동일한 호출 범위의 예상: 입력 {input} / 출력 {output}. 실제 − 예상: 입력 {inputDelta} / 출력 {outputDelta}토큰.",

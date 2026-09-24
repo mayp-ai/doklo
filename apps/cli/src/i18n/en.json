@@ -84,7 +84,7 @@
   "mcp.no_workspace": "No workspace.json found — run `doklo init` first. The server is up but tools will error until a workspace exists.",
   "generate.batch_capped": "Token limit: {kept}/{total} Doks will run; {deferred} deferred. Check remaining workspace tokens; adjust DOKLO_MAX_TOKENS_PER_RUN / DOKLO_MAX_TOKENS_TOTAL as needed before continuing.",
   "generate.token_summary": "{count} Doks · estimated input ~{input} / output ~{output} tokens · {time}",
-  "generate.token_estimate_note": "Rough estimate: prepared prompt bytes / 4 and 1,500 output tokens per Dok. Output allowance: {max} tokens (a limit, not the estimate).",
+  "generate.token_estimate_note": "Generation only, initial attempts: prompt bytes / 4 and a rough 1,500 output tokens per Dok. Output allowance: {max} tokens, not a prediction. Cache savings and reasoning/output size are uncertain; retries cost extra.",
   "generate.plan_details_hint": "Use --plan-details for all Dok IDs, or review the plan in the web app.",
   "generate.usage_summary": "This run, including failed responses: {attempted} calls · {measured} measured · {missing} unmeasured. Measured tokens: input {input} (cache read {read}, cache creation {write} included) / output {output}.",
   "generate.usage_comparison": "Estimate for the same attempted calls: input {input} / output {output}. Actual minus estimate: input {inputDelta} / output {outputDelta} tokens.",

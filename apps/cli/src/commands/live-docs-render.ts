@@ -2,9 +2,9 @@
 // current workspace's Hub. Spec §11 surface; exit codes per spec §12.
 
 import type { Command } from 'commander';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import chalk from 'chalk';
-import { loadHubModel } from '@doklo-beta/core';
+import { loadHubModel, PathOutsideRootError, resolveContainedPath } from '@doklo-beta/core';
 import {
   EngineError,
   StableLintError,
@@ -71,10 +71,10 @@ export function registerLiveDocsRenderCommand(program: Command, _ctx: CliContext
     .description('Render a Livedoc from the workspace Hub')
     .option('--locale <code>', 'output locale (e.g., ko, en)')
     .option('--primary-locale <code>', 'fallback chain head locale')
-    .option('--out-dir <path>', 'output directory (default: .doklo/output; preview: .doklo/output/preview)')
+    .option('--out-dir <path>', 'output directory inside the workspace, without symlinks (default: .doklo/output; preview: .doklo/output/preview)')
     .option('--dok <id>', 'restrict to specific Dok id (repeatable)', collect, [])
     .option('--source <name>', 'workspace | user | builtin')
-    .option('--var <key=value>', 'extra Handlebars context var (repeatable)', collect, [])
+    .option('--var <key=value>', 'declared template variable (repeatable)', collect, [])
     .option('--preview', 'review draft Doks with a persistent watermark (stable Markdown/HTML only)')
     .option('--dry-run', 'report selector matches + planned outputs without writing')
     .option('--overwrite', 'replace existing planned outputs')
@@ -84,6 +84,15 @@ export function registerLiveDocsRenderCommand(program: Command, _ctx: CliContext
     .option('--json', 'emit one terminal JSONL result envelope')
     .option('--strict', 'treat empty selector match as a hard error')
     .option('--root <path>', 'workspace root (defaults to cwd)')
+    .addHelpText('after', '\nOutput paths are relative to --root (the Doklo workspace), not a service code_root.\n'
+      + 'Absolute paths must also stay inside that workspace; symlinked path components are rejected.\n'
+      + 'For app integration, render to --out-dir .doklo/output/help. A saved Publication can publish\n'
+      + 'to an in-workspace --destination public/help or use live-docs publication export <name>.\n'
+      + 'For a sibling app, copy reviewed outputs from local staging to a new dedicated destination.\n'
+      + 'Embedding help-page: --format html --var html_fragment=true --var heading_level=2\n'
+      + '(unstyled article; use --var id_prefix=sidebar when embedding the same article again).\n'
+      + 'Public vocabulary: workspace.json stable_public_terms is an exact-match allowlist for\n'
+      + 'INTERNAL_IDENTIFIER pattern checks only; selected Dok IDs remain blocked and other copy checks still apply.\n')
     .action(async (template: string, opts: Opts) => {
       const workspaceRoot = resolve(opts.root ?? process.cwd());
       const outDir = resolve(workspaceRoot, opts.outDir ?? (opts.preview ? '.doklo/output/preview' : '.doklo/output'));
@@ -92,6 +101,27 @@ export function registerLiveDocsRenderCommand(program: Command, _ctx: CliContext
       const legacyNoHtml = opts.noHtml === true || opts.html === false;
 
       try {
+        // Validate only this boundary here. Later template/source containment
+        // errors must retain their own diagnosis rather than becoming out-dir errors.
+        try {
+          await resolveContainedPath(workspaceRoot, relative(workspaceRoot, outDir) || '.', {
+            allowMissingLeaf: true,
+            rejectSymlinkLeaf: true,
+          });
+        } catch (error) {
+          if (!(error instanceof PathOutsideRootError)) throw error;
+          throw new CommandContractError({
+            schema_version: 1,
+            command: 'live-docs render',
+            status: 'failed',
+            data: null,
+            diagnostics: [{
+              code: 'OUTPUT_DIRECTORY_INVALID',
+              message: `Output directory '${opts.outDir ?? outDir}' must resolve inside workspace '${workspaceRoot}' without symlinked path components. `
+                + 'Use --out-dir .doklo/output/help, then publish within this workspace or use live-docs publication export <name> and copy reviewed outputs to a new app destination.',
+            }],
+          });
+        }
         const primaryLocale = opts.primaryLocale
           ?? (await loadHubModel(workspaceRoot)).workspace.default_locale;
         const audience = await loadWorkspaceAudienceDictionary(

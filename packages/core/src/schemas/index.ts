@@ -8,4 +8,5 @@ export * from './code-mapping.js';
 export * from './ia.js';
 export * from './ia-v1.js';
 export * from './workspace.js';
+export * from './writing-policy.js';
 export * from './llm-response.js';

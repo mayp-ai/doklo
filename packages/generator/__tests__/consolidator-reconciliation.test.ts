@@ -61,7 +61,7 @@ function features(): FeatureConfig {
 }
 
 /** Canned LLM answer proposing `prefix` for the single `auth-signin` feature. */
-function llmAnswers(prefix: string): void {
+function llmAnswers(prefix: string, usage: { input_tokens: number; output_tokens: number } | null = null): void {
   callModelMock.mockResolvedValue({
     success: true,
     content: JSON.stringify({
@@ -79,7 +79,7 @@ function llmAnswers(prefix: string): void {
         }],
       }],
     }),
-    usage: null,
+    usage,
     processingTime: 1,
     error: null,
   });
@@ -92,6 +92,15 @@ function prefixOf(config: ConsolidatedFeatureConfig | null): string | undefined 
 describe('consolidateFeatures — id reconciliation', () => {
   beforeEach(() => {
     callModelMock.mockReset();
+  });
+
+  it('keeps unknown completion size separate from the provider output allowance', async () => {
+    const result = await consolidateFeatures(features(), { dryRun: true,
+      preparedPrompt: { systemPrompt: 'aaaa', userPrompt: 'bbbb' } });
+    expect(result.estimatedInputTokens).toBe(3); // 10 ASCII bytes, rounded up from bytes / 4.
+    expect(result.estimatedOutputTokens).toBeNull();
+    expect(result.maxOutputTokens).toBe(32_768);
+    expect(callModelMock).not.toHaveBeenCalled();
   });
 
   it('lists the workspace s existing Doks in the prompt', async () => {
@@ -159,7 +168,7 @@ describe('consolidateFeatures — id reconciliation', () => {
     // model applied its id to a different feature; no ladder rung matches, so
     // the reuse is unproven — surface it instead of letting the new feature
     // inherit the old Dok's file, version and external ids.
-    llmAnswers('AUTH-SIGNIN');
+    llmAnswers('AUTH-SIGNIN', { input_tokens: 17, output_tokens: 23 });
 
     await expect(consolidateFeatures(features(), {
       serviceId: 'web',
@@ -169,7 +178,8 @@ describe('consolidateFeatures — id reconciliation', () => {
         canonical_feature_id: 'auth-legacy',
         primary_route: '/auth/legacy',
       }],
-    })).rejects.toThrow(/AUTH-SIGNIN/);
+    })).rejects.toMatchObject({ message: expect.stringContaining('AUTH-SIGNIN'),
+      usage: { input_tokens: 17, output_tokens: 23 } });
   });
 
   it('announces a feature taking over a Dok that has no provenance', async () => {

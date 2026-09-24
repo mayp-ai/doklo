@@ -84,6 +84,19 @@ export interface MergeRolesResult {
   changed: boolean;
 }
 
+// Display defaults only: no new IDs, permission inference, or curated edits.
+const KOREAN_ROLE_NAMES: Readonly<Record<string, string>> = {
+  'ROLE-USER': '사용자',
+  'ROLE-ADMIN': '관리자',
+  'ROLE-EDITOR': '편집자',
+  'ROLE-MANAGER': '매니저',
+  'ROLE-OWNER': '소유자',
+  'ROLE-STAFF': '직원',
+  'ROLE-GUEST': '게스트',
+  'ROLE-MODERATOR': '운영자',
+  'ROLE-REVIEWER': '검토자',
+};
+
 export function mergeRolesFile(
   existing: RolesFile,
   candidates: readonly RoleCandidate[],
@@ -167,7 +180,12 @@ export async function runRolesRefresh(
     throw new ScanCacheMissingError();
   }
 
-  const candidates = mergeRoleCandidateSets(candidateSets);
+  const candidates = mergeRoleCandidateSets(candidateSets).map(candidate => ({
+    ...candidate,
+    name: workspace.default_locale === 'ko'
+      ? KOREAN_ROLE_NAMES[candidate.role_id] ?? candidate.name
+      : candidate.name,
+  }));
 
   if (!opts.apply) {
     return { candidates, added: [], kept: [], skipped, written: false };

@@ -58,7 +58,7 @@ import {
  * backend (e.g. an unintended anthropic-api call failing on a missing key). */
 function parseLlmBackend(value: string): LLMBackend {
   if (isLLMBackend(value)) return value;
-  throw new InvalidArgumentError('Expected "claude-code" or "anthropic-api".');
+  throw new InvalidArgumentError('Expected "claude-code" (local CLI) or "anthropic-api" (direct API). Try: doklo generate --llm-backend anthropic-api');
 }
 import {
   extractRoleCandidates,
@@ -76,6 +76,8 @@ import {
   computeChangeProposal,
   computeLogicHash,
   lockedPriorityFields,
+  koreanWritingPolicyPrompt,
+  recordDokWritingPolicy,
   readAnchorContents,
   unlinkContained,
   writeFileAtomicContained,
@@ -85,6 +87,8 @@ import {
   type ProjectIR,
   type RoleId,
   type LexiconTerm,
+  type KoreanCustomerTone,
+  type WritingToneConcern,
   type Service,
 } from '@doklo-beta/core';
 import { loadWorkspaceWithPaths } from '../lib/workspace.js';
@@ -93,8 +97,11 @@ import {
   consolidatedCachePath,
   formatUnverifiedIdReuse,
   formatConsolidationSourceSummary,
+  formatConsolidationAttempt,
   runConsolidate,
   type UnverifiedIdReuseNotice,
+  type ConsolidationAttempt,
+  type RunConsolidateResult,
 } from './consolidate.js';
 import { scanCachePath, runScan, validateProjectIrPaths } from './scan.js';
 import { hasValidatedTrackingEvidence, refreshTrackingMappings } from '../lib/tracking-recovery.js';
@@ -424,6 +431,7 @@ export interface GenerateOneResult {
   attempts?: number;
   /** Model-reported concerns are suggestions for human review, not verified findings. */
   reviewConcerns?: number;
+  writingReviewConcerns?: WritingToneConcern[];
 }
 
 export interface GenerateOneFailure {
@@ -463,9 +471,23 @@ export interface LayerResults {
   codeMapping: LayerWriteResult[];
 }
 
+export interface GenerateServicePlanning {
+  serviceId: string;
+  status: 'ready' | 'needs-scan' | 'needs-consolidation' | 'excluded';
+  /** Null means unknown, never an empty generation plan. */
+  dokCount: number | null;
+  nextStep?: { command: string; paid: boolean };
+  nextPaidStep?: string;
+  candidates?: Awaited<ReturnType<typeof runConsolidate>>['results'][number];
+}
+
 export interface RunGenerateResult {
+  planning?: { complete: boolean; services: GenerateServicePlanning[] };
+  /** Auto-consolidation calls are accounted separately from generation. */
+  consolidationAttempts?: ConsolidationAttempt[];
   tokenCapFailure?: { code: 'LLM_RUN_TOKEN_CAP' | 'LLM_TOTAL_TOKEN_CAP'; message: string };
   tokenUsage?: GenerateTokenUsage;
+  tokenUsageScope?: { phase: 'generate'; model: string; retriesIncluded: boolean; otherPhasesIncluded: boolean };
   /** Additional provider usage from recovery attempts (also included in tokenUsage). */
   retryTokenUsage?: GenerateTokenUsage;
   results: GenerateOneResult[];
@@ -553,6 +575,7 @@ export async function runGenerate(
   const failures: GenerateOneFailure[] = [];
   const emptyAnchorDokIds: string[] = [];
   const plan: GeneratePlanItem[] = [];
+  const servicePlanning: GenerateServicePlanning[] = [];
   const layers: LayerResults = { ia: [], codeMapping: [] };
   const layerFailures: LayerFailure[] = [];
   const transmissions: LlmCandidateFile[] = [];
@@ -608,6 +631,7 @@ export async function runGenerate(
     const requestedCacheFile = relative(paths.root, requestedCachePath).replaceAll('\\', '/');
     if (isSensitiveLlmPath(requestedCacheFile)) {
       if (opts.serviceId) throw new ConsolidatedCacheMissingError(svc.service_id);
+      servicePlanning.push({ serviceId: svc.service_id, status: 'excluded', dokCount: null });
       skippedLayerServices.set(svc.service_id, 'sensitive consolidated cache excluded from LLM input');
       continue;
     }
@@ -628,7 +652,20 @@ export async function runGenerate(
     }
 
     if (!(await exists(cachePath))) {
-      if (opts.serviceId) throw new ConsolidatedCacheMissingError(svc.service_id);
+      if (opts.serviceId && !opts.dryRun) throw new ConsolidatedCacheMissingError(svc.service_id);
+      const nextPaidStep = `doklo consolidate --service ${svc.service_id}`;
+      let candidates: GenerateServicePlanning['candidates'];
+      if (opts.dryRun) {
+        const scan = hasScan ? undefined : await runScan({ root: opts.root, serviceId: svc.service_id, previewOnly: true });
+        const scanIr = scan?.results[0]?.ir;
+        const preview = await runConsolidate({ root: opts.root, serviceId: svc.service_id, dryRun: true,
+          ...(scanIr === undefined ? {} : { scanIrs: { [svc.service_id]: scanIr } }),
+        });
+        candidates = preview.results[0];
+      }
+      servicePlanning.push({ serviceId: svc.service_id, status: hasScan ? 'needs-consolidation' : 'needs-scan',
+        dokCount: null, nextStep: { command: hasScan ? nextPaidStep : `doklo scan --service ${svc.service_id}`, paid: hasScan },
+        nextPaidStep, candidates });
       skippedLayerServices.set(
         svc.service_id,
         'no consolidated cache (run `doklo consolidate` first)',
@@ -641,11 +678,16 @@ export async function runGenerate(
     await validateConsolidatedPaths(serviceRoot, consolidated);
     let ir: ProjectIR | null = null;
     if (!hasScan) {
-      if (opts.serviceId) throw new GenerateScanCacheMissingError(svc.service_id);
+      if (opts.serviceId && !opts.dryRun) throw new GenerateScanCacheMissingError(svc.service_id);
       skippedLayerServices.set(
         svc.service_id,
         'no scan cache (run `doklo scan` first)',
       );
+      if (opts.dryRun) {
+        servicePlanning.push({ serviceId: svc.service_id, status: 'needs-scan', dokCount: null,
+          nextStep: { command: `doklo scan --service ${svc.service_id}`, paid: false } });
+        continue;
+      }
     } else {
       ir = ProjectIRSchema.parse(JSON.parse(await readFile(scanPath, 'utf-8')));
       await validateProjectIrPaths(serviceRoot, ir);
@@ -667,6 +709,9 @@ export async function runGenerate(
       contextByServiceId.set(context.serviceId, context);
     }
 
+    servicePlanning.push({ serviceId: svc.service_id, status: hasScan ? 'ready' : 'needs-scan', dokCount: null,
+      ...(!hasScan ? { nextStep: { command: `doklo scan --service ${svc.service_id}`, paid: false } } : {}),
+    });
     const { assigned, accounting } = buildGenerationAccounting(consolidated);
     for (const group of consolidated.groups) {
       for (const feature of group.features) {
@@ -700,7 +745,10 @@ export async function runGenerate(
   if (opts.onlyDokIds !== undefined) {
     const knownDokIds = new Set(allPlanned.map((item) => item.dokId));
     const unknownDokIds = opts.onlyDokIds.filter((dokId) => !knownDokIds.has(dokId));
-    if (unknownDokIds.length > 0) throw new GenerateUnknownDokIdError(unknownDokIds);
+    // An incomplete read-only plan cannot prove that a requested Dok ID is unknown.
+    if (unknownDokIds.length > 0 && (!opts.dryRun || servicePlanning.every(service => service.status === 'ready'))) {
+      throw new GenerateUnknownDokIdError(unknownDokIds);
+    }
   }
 
   // ── Skip-existing pass (idempotent re-run). ──
@@ -814,6 +862,11 @@ export async function runGenerate(
   // every selected service before roles, lexicon, LLMs, or any Hub write.
   const hubPreflight = await preflightExistingHubFiles(paths, services, opts);
   const trustPreflight = await preflightExistingHubOutputs({ root: opts.root });
+  if (workspace.default_locale === 'ko' || opts.preparedGeneration?.items.some(item => item.ctx.defaultLocale === 'ko')) {
+    for (const item of workList) transmissions.push({
+      phase: 'generate', serviceId: item.serviceId, file: 'workspace.json', maxChars: 1_200, dokId: item.dokId,
+    });
+  }
   if (await exists(hubPreflight.rolesPath)) {
     for (const item of workList) {
       transmissions.push({
@@ -862,6 +915,7 @@ export async function runGenerate(
         workList,
         transmissions,
         workspaceLocale: workspace.default_locale,
+        koreanCustomerTone: workspace.korean_customer_tone,
         rolesPath: hubPreflight.rolesPath,
         rolesFile: relative(paths.root, paths.rolesFile).replaceAll('\\', '/'),
         lexiconPath: hubPreflight.lexiconPath ?? paths.lexiconFile,
@@ -875,6 +929,11 @@ export async function runGenerate(
   const contributingTransmissions = preparedGeneration === undefined
     ? transmissions
     : selectContributingTransmissions(transmissions, preparedGeneration);
+
+  for (const service of servicePlanning) {
+    if (service.status === 'ready') service.dokCount = workList.filter(item => item.serviceId === service.serviceId).length;
+  }
+  const planning = { complete: servicePlanning.every(service => service.status === 'ready'), services: servicePlanning };
 
   // ── Dry-run short-circuit. ──
   if (opts.dryRun) {
@@ -893,6 +952,7 @@ export async function runGenerate(
       transmissions: contributingTransmissions,
       preparedGeneration,
       generationLedger: undefined,
+      planning,
     };
   }
 
@@ -1266,6 +1326,8 @@ export async function runGenerate(
     // consolidation recognizes the feature as it is now — not as it was named
     // some earlier run (see upsertOriginsByService). Other services' entries stay.
     dok._meta = carryForwardMeta(existingDokByPlannedId.get(p.dokId)?._meta, dok._meta);
+    // Use the immutable, authorized context even if settings changed after consent.
+    recordDokWritingPolicy(dok, ctx.defaultLocale, ctx.koreanCustomerTone);
     // Resolver evidence is deterministic, never model-authored. Legacy scans
     // and partial reads cannot establish a new trusted baseline.
     delete dok._meta.tracking_version;
@@ -1384,6 +1446,8 @@ export async function runGenerate(
       dokId: p.dokId,
       outputPath: paths.dokFile(p.dokId),
       attempts,
+      ...(canonicalDok._meta.writing_review?.concerns.length
+        ? { writingReviewConcerns: canonicalDok._meta.writing_review.concerns } : {}),
       ...(canonicalDok._meta.content_review && typeof canonicalDok._meta.content_review === 'object'
         && 'concerns' in canonicalDok._meta.content_review
         && Array.isArray(canonicalDok._meta.content_review.concerns)
@@ -1600,6 +1664,7 @@ export async function runGenerate(
     transmissions: contributingTransmissions,
     generationLedger,
     tokenUsage,
+    tokenUsageScope: { phase: 'generate', model: generationModel, retriesIncluded: true, otherPhasesIncluded: false },
     retryTokenUsage,
     ...(tokenCapFailure === undefined ? {} : { tokenCapFailure }),
     ...(generationLedgerFailure === undefined ? {} : { generationLedgerFailure }),
@@ -2087,22 +2152,6 @@ async function loadApprovedTermTexts(lexiconFile: string, locale: string): Promi
   }
 }
 
-async function loadSuggestionTexts(
-  cachePath: string,
-  excludedTexts: readonly string[] = [],
-): Promise<string[]> {
-  if (!(await exists(cachePath))) return [];
-  try {
-    const raw = JSON.parse(await readFile(cachePath, 'utf-8')) as { suggestions?: { text?: unknown }[] };
-    const excluded = new Set(excludedTexts);
-    return capTerminologyTexts((raw.suggestions ?? [])
-      .map((s) => (typeof s.text === 'string' ? s.text : ''))
-      .filter((t) => t.length > 0 && !excluded.has(t)), excluded.size > 0);
-  } catch {
-    return [];
-  }
-}
-
 function capTerminologyTexts(
   values: readonly string[],
   leadingSeparator = false,
@@ -2166,6 +2215,7 @@ async function prepareGenerationPayload(input: {
   }[];
   transmissions: readonly LlmCandidateFile[];
   workspaceLocale: string;
+  koreanCustomerTone?: KoreanCustomerTone;
   rolesPath: string;
   rolesFile: string;
   lexiconPath: string;
@@ -2217,11 +2267,10 @@ async function prepareGenerationPayload(input: {
   const approved = input.noLexicon
     ? []
     : await loadApprovedTermTexts(input.lexiconPath, input.workspaceLocale);
-  const cached = input.noLexicon ? [] : await loadSuggestionTexts(input.suggestionPath, approved);
-  const merged = [...approved, ...cached.filter((term) => !approved.includes(term))];
-  const lexiconTerms = merged.length > 0 ? merged : undefined;
+  // Suggestions are proposals until a person confirms them in the Hub lexicon.
+  const lexiconTerms = approved.length > 0 ? approved : undefined;
   const approvedChars = renderedTerminologyChars(approved);
-  const cachedChars = renderedTerminologyChars(cached, approved.length > 0);
+  const cachedChars = 0;
   const items: PreparedGenerationItem[] = [];
   for (const item of input.workList) {
     const feature = buildFeatureForGeneration(item.feature, item.ir);
@@ -2244,6 +2293,7 @@ async function prepareGenerationPayload(input: {
     }));
     const ctx: DokGenContext = {
       defaultLocale: input.workspaceLocale,
+      ...(input.workspaceLocale === 'ko' ? { koreanCustomerTone: input.koreanCustomerTone ?? 'formal' } : {}),
       knownRoles,
       fileContext,
       dokId: item.dokId,
@@ -2268,6 +2318,7 @@ async function prepareGenerationPayload(input: {
         actualChars += roleCharsBySource.get(manifestSourceKey(source)) ?? 0;
         if (file === '.doklo/hub/lexicon.json') actualChars += approvedChars;
         if (file === '.doklo/cache/lexicon-suggestions.json') actualChars += cachedChars;
+        if (file === 'workspace.json' && input.workspaceLocale === 'ko') actualChars += koreanWritingPolicyPrompt(input.koreanCustomerTone).length;
         if (actualChars > maxChars) {
           throw new Error(`Rendered LLM source contribution exceeds its cap: ${file}`);
         }
@@ -2570,7 +2621,7 @@ export function registerGenerateCommand(
       .option('--only <dokIds>', 'Generate only these comma-separated Dok IDs; existing files are preserved unless --force is explicitly passed')
       .option('--retries <count>', 'Additional attempts for malformed or truncated responses (0–2); extra tokens may be billed', parseGenerationRetries, 1)
       .option('--no-roles', 'Skip deterministic roles.json refresh')
-      .option('--no-lexicon', 'Ignore approved/cached terminology hints (run lexicon-suggest separately)')
+      .option('--no-lexicon', 'Ignore confirmed lexicon terminology (review lexicon-suggest proposals separately)')
       .option('--no-ia', 'Skip deterministic service IA refresh')
       .option('--no-code-mapping', 'Skip deterministic service code-mapping refresh')
       .option(
@@ -2714,7 +2765,7 @@ export function registerGenerateCommand(
               id: preview.serviceId,
             },
             prompt: preview.prompt ?? '',
-            maxOutputTokens: preview.estimatedOutputTokens,
+            maxOutputTokens: preview.maxOutputTokens ?? preview.estimatedOutputTokens ?? 32_768,
           })),
           ...(input.generation?.preparedGeneration?.items ?? []).flatMap((item) => Array.from({ length: retries + 1 }, (_, attempt) => ({
             phase: 'generate' as const,
@@ -2762,469 +2813,515 @@ export function registerGenerateCommand(
       // machine consumers get them in the result envelope — same dual surface as
       // orphaned dok files. Stays empty on dry-run, which never consolidates.
       const unverifiedIdReuse: UnverifiedIdReuseNotice[] = [];
+      const consolidationAttempts: ConsolidationAttempt[] = [];
 
-      // Happy-path chain: on a fresh workspace `generate` runs scan and
-      // consolidate itself when their caches are missing, so the CLI-only
-      // route is a single command after `init`. Dry-run keeps the explicit
-      // step-by-step contract (no hidden LLM calls).
-      if (!dryRun) {
-        const { workspace, paths } = await loadWorkspaceWithPaths(root);
-        const services = opts.service
-          ? workspace.services.filter((s) => s.service_id === opts.service)
-          : workspace.services;
-        if (opts.service && services.length === 0) {
-          throw new GenerateServiceNotFoundError(opts.service as string);
-        }
-        for (const service of services) {
-          const serviceRoot = await resolveContainedPath(paths.root, service.code_root);
-          await assertSupportedRuntimeProject(serviceRoot);
-        }
-        // Build every selected service's state behind the same containment and
-        // schema/path trust boundary as runGenerate before emitting or writing
-        // anything. This is the global validation barrier for preparation.
-        const cacheStates: GeneratePreparationCacheState[] = [];
-        for (const service of services) {
-          const serviceRoot = await resolveContainedPath(paths.root, service.code_root);
-          cacheStates.push(await loadGeneratePreparationCacheState(paths, service, serviceRoot));
-        }
-        for (const state of cacheStates) {
-          if (state.scan !== undefined) {
+      try {
+
+        // Happy-path chain: on a fresh workspace `generate` runs scan and
+        // consolidate itself when their caches are missing, so the CLI-only
+        // route is a single command after `init`. Dry-run keeps the explicit
+        // step-by-step contract (no hidden LLM calls).
+        if (!dryRun) {
+          const { workspace, paths } = await loadWorkspaceWithPaths(root);
+          const services = opts.service
+            ? workspace.services.filter((s) => s.service_id === opts.service)
+            : workspace.services;
+          if (opts.service && services.length === 0) {
+            throw new GenerateServiceNotFoundError(opts.service as string);
+          }
+          for (const service of services) {
+            const serviceRoot = await resolveContainedPath(paths.root, service.code_root);
+            await assertSupportedRuntimeProject(serviceRoot);
+          }
+          // Build every selected service's state behind the same containment and
+          // schema/path trust boundary as runGenerate before emitting or writing
+          // anything. This is the global validation barrier for preparation.
+          const cacheStates: GeneratePreparationCacheState[] = [];
+          for (const service of services) {
+            const serviceRoot = await resolveContainedPath(paths.root, service.code_root);
+            cacheStates.push(await loadGeneratePreparationCacheState(paths, service, serviceRoot));
+          }
+          for (const state of cacheStates) {
+            if (state.scan !== undefined) {
+              emitProgress({
+                stage: 'scan',
+                serviceId: state.service.service_id,
+                status: 'reused',
+                routes: state.scan.routes,
+                components: state.scan.components,
+              });
+            }
+            if (state.consolidated !== undefined) {
+              emitProgress({
+                stage: 'consolidate',
+                serviceId: state.service.service_id,
+                status: 'reused',
+                featureGroups: state.consolidated.featureGroups,
+              });
+            }
+            if (state.consolidationSkipReason !== undefined) {
+              emitProgress({
+                stage: 'consolidate',
+                serviceId: state.service.service_id,
+                status: 'skipped',
+                featureGroups: 0,
+                reason: state.consolidationSkipReason,
+              });
+            }
+          }
+
+          type ScanPreview = Awaited<ReturnType<typeof runScan>>['results'][number];
+          type ConsolidationPreviewResult = Awaited<ReturnType<typeof executeConsolidate>>['results'][number];
+          const scanPreviews = new Map<string, ScanPreview>();
+          const consolidationPreviews = new Map<string, ConsolidationPreviewResult>();
+          const statesNeedingScan = cacheStates.filter((state) => state.needsScan);
+          if (statesNeedingScan.length > 0) {
+            logHuman('\n  ' + chalk.cyan('→ ') + chalk.dim(ctx.t('generate.auto_scan')));
+            for (const state of statesNeedingScan) {
+              const preview = await runScan({
+                root,
+                serviceId: state.service.service_id,
+                previewOnly: true,
+              });
+              const result = preview.results[0];
+              if (result === undefined) throw new Error(`Scan preview produced no result for "${state.service.service_id}".`);
+              scanPreviews.set(state.service.service_id, result);
+            }
+          }
+
+          // Preserve the existing role validation barrier before resolving
+          // credentials or allowing a paid consolidation call.
+          if (cacheStates.some((state) => state.needsConsolidation)) {
+            await loadKnownRoles(paths.rolesFile);
+            if (opts.roles !== false && cacheStates.some((state) => state.scan !== undefined)) {
+              await preflightRoles({
+                root,
+                apply: false,
+                ...(opts.service === undefined ? {} : { serviceId: opts.service as string }),
+              });
+            }
+          }
+
+          // Preview every required consolidation before the single global paid
+          // authorization. Individual real calls below make lifecycle events
+          // truthful when an earlier service fails.
+          for (const state of cacheStates.filter((item) => item.needsConsolidation)) {
+            const scanPreview = scanPreviews.get(state.service.service_id);
+            const preview = await executeConsolidate({
+              root,
+              serviceId: state.service.service_id,
+              dryRun: true,
+              ...(scanPreview === undefined ? {} : {
+                scanIrs: { [state.service.service_id]: scanPreview.ir! },
+              }),
+            });
+            const result = preview.results[0];
+            if (result === undefined) throw new Error(`Consolidation preview produced no result for "${state.service.service_id}".`);
+            const sourceSummary = formatConsolidationSourceSummary(result);
+            if (sourceSummary) logHuman(sourceSummary);
+            if (progressJson && result.sourceClassification) process.stdout.write(JSON.stringify({
+              stage: 'source-classification', serviceId: result.serviceId,
+              ...result.sourceClassification,
+            }) + '\n');
+            consolidationPreviews.set(state.service.service_id, result);
+          }
+          if (consolidationPreviews.size > 0) {
+            logHuman('  Candidate groups are not a Dok count. Narrow consolidation with --service <id>, or stop and adjust source scope before approval.');
+            await approveExecutionPlan({
+              consolidationPreviews: [...consolidationPreviews.values()].map((item) => item.preview),
+            });
+          }
+
+          for (const state of statesNeedingScan) {
+            const preview = scanPreviews.get(state.service.service_id)!;
             emitProgress({
               stage: 'scan',
               serviceId: state.service.service_id,
-              status: 'reused',
-              routes: state.scan.routes,
-              components: state.scan.components,
+              status: 'running',
+              routes: preview.counts.routes,
+              components: preview.counts.components,
+            });
+            await runScan({
+              root,
+              serviceId: state.service.service_id,
+              prepared: { results: [preview], skipped: [] },
+            });
+            emitProgress({
+              stage: 'scan',
+              serviceId: state.service.service_id,
+              status: 'completed',
+              routes: preview.counts.routes,
+              components: preview.counts.components,
             });
           }
-          if (state.consolidated !== undefined) {
+
+          if (consolidationPreviews.size > 0) {
+            logHuman('  ' + chalk.cyan('→ ') + chalk.dim(ctx.t('generate.auto_consolidate')));
+          }
+          for (const state of cacheStates.filter((item) => item.needsConsolidation)) {
+            const preview = consolidationPreviews.get(state.service.service_id)!;
             emitProgress({
               stage: 'consolidate',
               serviceId: state.service.service_id,
-              status: 'reused',
-              featureGroups: state.consolidated.featureGroups,
+              status: 'running',
+              featureGroups: preview.featureGroupCount,
             });
-          }
-          if (state.consolidationSkipReason !== undefined) {
+            const consolidated = await executeConsolidate({
+              root,
+              serviceId: state.service.service_id,
+              authorizedRun,
+              ...(scanPreviews.has(state.service.service_id) ? {
+                scanIrs: { [state.service.service_id]: scanPreviews.get(state.service.service_id)!.ir! },
+              } : {}),
+            });
+            consolidationAttempts.push(...(consolidated.attempts ?? []));
+            const result = consolidated.results[0];
+            if (result === undefined) throw new Error(`Consolidation produced no result for "${state.service.service_id}".`);
             emitProgress({
               stage: 'consolidate',
-              serviceId: state.service.service_id,
-              status: 'skipped',
-              featureGroups: 0,
-              reason: state.consolidationSkipReason,
+              serviceId: result.serviceId,
+              status: 'completed',
+              featureGroups: result.featureGroupCount,
             });
+            logHuman(
+              `  ${chalk.green('✓')} ${result.serviceId}: ${result.featureGroupCount} feature group(s)`,
+            );
+            // Auto-consolidation is still consolidation: a Dok changing hands
+            // without provenance has to be as visible here as in `doklo
+            // consolidate`, since this run is about to rewrite that file.
+            for (const notice of consolidated.unverifiedIdReuse) {
+              unverifiedIdReuse.push(notice);
+              logHuman(`  ${chalk.yellow('⚠')} ${formatUnverifiedIdReuse(notice)}`);
+            }
           }
         }
 
-        type ScanPreview = Awaited<ReturnType<typeof runScan>>['results'][number];
-        type ConsolidationPreviewResult = Awaited<ReturnType<typeof executeConsolidate>>['results'][number];
-        const scanPreviews = new Map<string, ScanPreview>();
-        const consolidationPreviews = new Map<string, ConsolidationPreviewResult>();
-        const statesNeedingScan = cacheStates.filter((state) => state.needsScan);
-        if (statesNeedingScan.length > 0) {
-          logHuman('\n  ' + chalk.cyan('→ ') + chalk.dim(ctx.t('generate.auto_scan')));
-          for (const state of statesNeedingScan) {
-            const preview = await runScan({
-              root,
-              serviceId: state.service.service_id,
-              previewOnly: true,
-            });
-            const result = preview.results[0];
-            if (result === undefined) throw new Error(`Scan preview produced no result for "${state.service.service_id}".`);
-            scanPreviews.set(state.service.service_id, result);
-          }
-        }
-
-        // Preserve the existing role validation barrier before resolving
-        // credentials or allowing a paid consolidation call.
-        if (cacheStates.some((state) => state.needsConsolidation)) {
-          await loadKnownRoles(paths.rolesFile);
-          if (opts.roles !== false && cacheStates.some((state) => state.scan !== undefined)) {
-            await preflightRoles({
-              root,
-              apply: false,
-              ...(opts.service === undefined ? {} : { serviceId: opts.service as string }),
-            });
-          }
-        }
-
-        // Preview every required consolidation before the single global paid
-        // authorization. Individual real calls below make lifecycle events
-        // truthful when an earlier service fails.
-        for (const state of cacheStates.filter((item) => item.needsConsolidation)) {
-          const scanPreview = scanPreviews.get(state.service.service_id);
-          const preview = await executeConsolidate({
+        // Preview/confirm gate: before the paid per-Dok generation, show what
+        // will be produced (domain-grouped) + a token/time estimates, and
+        // confirm. Dry-run skips the gate; non-TTY and machine invocations were
+        // already required to pass -y/--yes before reaching this point.
+        if (!dryRun) {
+          const preview = await executeGenerate({
             root,
-            serviceId: state.service.service_id,
             dryRun: true,
-            ...(scanPreview === undefined ? {} : {
-              scanIrs: { [state.service.service_id]: scanPreview.ir! },
-            }),
+            onlyDokIds,
+            serviceId: opts.service as string | undefined,
+            force: opts.force as boolean,
+            noRoles: opts.roles === false,
+            noLexicon: opts.lexicon === false,
+            noIa: opts.ia === false,
+            noCodeMapping: opts.codeMapping === false,
           });
-          const result = preview.results[0];
-          if (result === undefined) throw new Error(`Consolidation preview produced no result for "${state.service.service_id}".`);
-          const sourceSummary = formatConsolidationSourceSummary(result);
-          if (sourceSummary) logHuman(sourceSummary);
-          if (progressJson && result.sourceClassification) process.stdout.write(JSON.stringify({
-            stage: 'source-classification', serviceId: result.serviceId,
-            ...result.sourceClassification,
-          }) + '\n');
-          consolidationPreviews.set(state.service.service_id, result);
-        }
-        if (consolidationPreviews.size > 0) {
-          await approveExecutionPlan({
-            consolidationPreviews: [...consolidationPreviews.values()].map((item) => item.preview),
-          });
-        }
-
-        for (const state of statesNeedingScan) {
-          const preview = scanPreviews.get(state.service.service_id)!;
-          emitProgress({
-            stage: 'scan',
-            serviceId: state.service.service_id,
-            status: 'running',
-            routes: preview.counts.routes,
-            components: preview.counts.components,
-          });
-          await runScan({
-            root,
-            serviceId: state.service.service_id,
-            prepared: { results: [preview], skipped: [] },
-          });
-          emitProgress({
-            stage: 'scan',
-            serviceId: state.service.service_id,
-            status: 'completed',
-            routes: preview.counts.routes,
-            components: preview.counts.components,
-          });
-        }
-
-        if (consolidationPreviews.size > 0) {
-          logHuman('  ' + chalk.cyan('→ ') + chalk.dim(ctx.t('generate.auto_consolidate')));
-        }
-        for (const state of cacheStates.filter((item) => item.needsConsolidation)) {
-          const preview = consolidationPreviews.get(state.service.service_id)!;
-          emitProgress({
-            stage: 'consolidate',
-            serviceId: state.service.service_id,
-            status: 'running',
-            featureGroups: preview.featureGroupCount,
-          });
-          const consolidated = await executeConsolidate({
-            root,
-            serviceId: state.service.service_id,
-            authorizedRun,
-            ...(scanPreviews.has(state.service.service_id) ? {
-              scanIrs: { [state.service.service_id]: scanPreviews.get(state.service.service_id)!.ir! },
-            } : {}),
-          });
-          const result = consolidated.results[0];
-          if (result === undefined) throw new Error(`Consolidation produced no result for "${state.service.service_id}".`);
-          emitProgress({
-            stage: 'consolidate',
-            serviceId: result.serviceId,
-            status: 'completed',
-            featureGroups: result.featureGroupCount,
-          });
-          logHuman(
-            `  ${chalk.green('✓')} ${result.serviceId}: ${result.featureGroupCount} feature group(s)`,
-          );
-          // Auto-consolidation is still consolidation: a Dok changing hands
-          // without provenance has to be as visible here as in `doklo
-          // consolidate`, since this run is about to rewrite that file.
-          for (const notice of consolidated.unverifiedIdReuse) {
-            unverifiedIdReuse.push(notice);
-            logHuman(`  ${chalk.yellow('⚠')} ${formatUnverifiedIdReuse(notice)}`);
+          if (preview.plan.length === 0) {
+            logHuman('\n  ' + chalk.yellow(ctx.t('generate.gate_none')));
+          } else {
+            // A large repo can plan more generation than the configured token cap
+            // allows (cal.com's apps/web planned 76 Doks). The cap stays; the
+            // batch shrinks. Deferred Doks are produced by running the command
+            // again — existing files are skipped without --force.
+            const limits = resolveLlmTokenLimits();
+            const budget = await readLlmTokenBudget(root);
+            const remainingTokens = Math.max(0, limits.maxTokensTotal - budget.chargedTokens);
+            const batchCap = Math.min(limits.maxTokensPerRun, remainingTokens);
+            const items = preview.preparedGeneration?.items ?? [];
+            const batch = selectGenerationBatch(items, Math.floor(batchCap / (retries + 1)));
+            if (items.length > 0 && batch.keptDokIds.length === 0) {
+              const required = (retries + 1) * Math.min(...items.map(item => estimateConservativeLlmCallTokens(item.prompt, 8192)));
+              const totalLimited = remainingTokens < limits.maxTokensPerRun;
+              throw new LlmTokenCapError(totalLimited ? 'LLM_TOTAL_TOKEN_CAP' : 'LLM_RUN_TOKEN_CAP',
+                `No Dok fits: smallest reservation ${required} tokens; run limit ${limits.maxTokensPerRun}, workspace remaining ${remainingTokens}. Adjust ${totalLimited ? 'DOKLO_MAX_TOKENS_TOTAL' : 'DOKLO_MAX_TOKENS_PER_RUN'}; rerunning with the same limits will not help.`);
+            }
+            const batched = batch.capped
+              ? {
+                  ...preview,
+                  plan: preview.plan.filter((item) => batch.keptDokIds.includes(item.dokId)),
+                  preparedGeneration: {
+                    items: (preview.preparedGeneration?.items ?? []).filter((item) =>
+                      batch.keptDokIds.includes(item.dokId)),
+                  },
+                }
+              : preview;
+            if (batch.capped) {
+              batchDokIds = batch.keptDokIds;
+              logHuman('\n  ' + chalk.yellow(ctx.t('generate.batch_capped', {
+                kept: batch.keptDokIds.length,
+                total: batch.keptDokIds.length + batch.deferredDokIds.length,
+                deferred: batch.deferredDokIds.length,
+              })));
+            }
+            await approveExecutionPlan({ generation: batched });
+            preparedGeneration = batched.preparedGeneration;
+            if (!progressJson) {
+              const domains = new Set(batched.plan.map((p) => p.domain)).size;
+              const tokens = estimateGenerateTokens(batched.preparedGeneration?.items ?? []);
+              logHuman(
+                '\n  ' +
+                  chalk.cyan(ctx.t('generate.gate_header', { count: batched.plan.length, domains })) +
+                  '\n' +
+                  formatGeneratePlan(batched.plan, opts.planDetails === true),
+              );
+              logHuman('  ' + ctx.t('generate.token_estimate_note', {
+                max: tokens.maxOutputTokens.toLocaleString('en-US'),
+              }));
+              logHuman('  ' + formatGateSummary(batched.plan.length, tokens, ctx.locale));
+              if (!opts.planDetails) logHuman('  ' + ctx.t('generate.plan_details_hint'));
+              if (shouldPromptGate({ yes: opts.yes as boolean, isTTY: Boolean(process.stdin.isTTY) })) {
+                const { select, isCancel } = await import('@clack/prompts');
+                const summary = formatGateSummary(batched.plan.length, tokens, ctx.locale);
+                const choice = await runGateInteraction(
+                  ctx.t('generate.gate_choose', { summary }),
+                  {
+                    generate: ctx.t('generate.gate_opt_generate'),
+                    studio: ctx.t('generate.gate_opt_studio'),
+                    cancel: ctx.t('generate.gate_opt_cancel'),
+                  },
+                  {
+                    select,
+                    isCancel,
+                    launchStudio: async () => {
+                      // Non-strict: a busy 4321 falls back to a neighbor
+                      // instead of crashing the spawned Studio child.
+                      const { port } = await pickStudioPort(DEFAULT_STUDIO_PORT);
+                      await runServe({ root, port, open: true, openPath: '/consolidation' });
+                    },
+                  },
+                );
+                if (choice === 'studio') {
+                  logHuman('  ' + chalk.dim(ctx.t('generate.gate_studio_return')));
+                  throw generateCancelled(
+                    'STUDIO_HANDOFF',
+                    'Generation was cancelled after handing review to the web app.',
+                  );
+                }
+                if (choice === 'cancel') {
+                  logHuman('  ' + chalk.dim(ctx.t('generate.gate_cancelled')));
+                  throw generateCancelled('COMMAND_CANCELLED', 'Generation was cancelled.');
+                }
+              }
+            }
           }
         }
-      }
 
-      // Preview/confirm gate: before the paid per-Dok generation, show what
-      // will be produced (domain-grouped) + a token/time estimates, and
-      // confirm. Dry-run skips the gate; non-TTY and machine invocations were
-      // already required to pass -y/--yes before reaching this point.
-      if (!dryRun) {
-        const preview = await executeGenerate({
+        let totalForFormatting = 0;
+        const widthOf = (n: number) => String(n).length;
+        const startTime = Date.now();
+
+        const runOptions: RunGenerateOptions = {
           root,
-          dryRun: true,
+          dryRun,
+          retries,
           onlyDokIds,
           serviceId: opts.service as string | undefined,
+          ...(!dryRun && llmPlan !== undefined && authorizedRun !== undefined
+            ? {
+                authorizedRun,
+                planDigest: llmPlan.digest,
+                preparedGeneration,
+                ...(batchDokIds ? { onlyDokIds: batchDokIds } : {}),
+              }
+            : {}),
           force: opts.force as boolean,
+          // Commander negated options default true and become false when passed.
           noRoles: opts.roles === false,
+          // commander maps `--no-lexicon` to opts.lexicon === false (default true).
           noLexicon: opts.lexicon === false,
           noIa: opts.ia === false,
           noCodeMapping: opts.codeMapping === false,
-        });
-        if (preview.plan.length === 0) {
-          logHuman('\n  ' + chalk.yellow(ctx.t('generate.gate_none')));
-        } else {
-          // A large repo can plan more generation than the configured token cap
-          // allows (cal.com's apps/web planned 76 Doks). The cap stays; the
-          // batch shrinks. Deferred Doks are produced by running the command
-          // again — existing files are skipped without --force.
-          const limits = resolveLlmTokenLimits();
-          const budget = await readLlmTokenBudget(root);
-          const remainingTokens = Math.max(0, limits.maxTokensTotal - budget.chargedTokens);
-          const batchCap = Math.min(limits.maxTokensPerRun, remainingTokens);
-          const items = preview.preparedGeneration?.items ?? [];
-          const batch = selectGenerationBatch(items, Math.floor(batchCap / (retries + 1)));
-          if (items.length > 0 && batch.keptDokIds.length === 0) {
-            const required = (retries + 1) * Math.min(...items.map(item => estimateConservativeLlmCallTokens(item.prompt, 8192)));
-            const totalLimited = remainingTokens < limits.maxTokensPerRun;
-            throw new LlmTokenCapError(totalLimited ? 'LLM_TOTAL_TOKEN_CAP' : 'LLM_RUN_TOKEN_CAP',
-              `No Dok fits: smallest reservation ${required} tokens; run limit ${limits.maxTokensPerRun}, workspace remaining ${remainingTokens}. Adjust ${totalLimited ? 'DOKLO_MAX_TOKENS_TOTAL' : 'DOKLO_MAX_TOKENS_PER_RUN'}; rerunning with the same limits will not help.`);
-          }
-          const batched = batch.capped
-            ? {
-                ...preview,
-                plan: preview.plan.filter((item) => batch.keptDokIds.includes(item.dokId)),
-                preparedGeneration: {
-                  items: (preview.preparedGeneration?.items ?? []).filter((item) =>
-                    batch.keptDokIds.includes(item.dokId)),
-                },
-              }
-            : preview;
-          if (batch.capped) {
-            batchDokIds = batch.keptDokIds;
-            logHuman('\n  ' + chalk.yellow(ctx.t('generate.batch_capped', {
-              kept: batch.keptDokIds.length,
-              total: batch.keptDokIds.length + batch.deferredDokIds.length,
-              deferred: batch.deferredDokIds.length,
-            })));
-          }
-          await approveExecutionPlan({ generation: batched });
-          preparedGeneration = batched.preparedGeneration;
-          if (!progressJson) {
-            const domains = new Set(batched.plan.map((p) => p.domain)).size;
-            const tokens = estimateGenerateTokens(batched.preparedGeneration?.items ?? []);
-            logHuman(
-              '\n  ' +
-                chalk.cyan(ctx.t('generate.gate_header', { count: batched.plan.length, domains })) +
-                '\n' +
-                formatGeneratePlan(batched.plan, opts.planDetails === true),
-            );
-            logHuman('  ' + ctx.t('generate.token_estimate_note', {
-              max: tokens.maxOutputTokens.toLocaleString('en-US'),
-            }));
-            logHuman('  ' + formatGateSummary(batched.plan.length, tokens, ctx.locale));
-            if (!opts.planDetails) logHuman('  ' + ctx.t('generate.plan_details_hint'));
-            if (shouldPromptGate({ yes: opts.yes as boolean, isTTY: Boolean(process.stdin.isTTY) })) {
-              const { select, isCancel } = await import('@clack/prompts');
-              const summary = formatGateSummary(batched.plan.length, tokens, ctx.locale);
-              const choice = await runGateInteraction(
-                ctx.t('generate.gate_choose', { summary }),
-                {
-                  generate: ctx.t('generate.gate_opt_generate'),
-                  studio: ctx.t('generate.gate_opt_studio'),
-                  cancel: ctx.t('generate.gate_opt_cancel'),
-                },
-                {
-                  select,
-                  isCancel,
-                  launchStudio: async () => {
-                    // Non-strict: a busy 4321 falls back to a neighbor
-                    // instead of crashing the spawned Studio child.
-                    const { port } = await pickStudioPort(DEFAULT_STUDIO_PORT);
-                    await runServe({ root, port, open: true, openPath: '/consolidation' });
-                  },
-                },
-              );
-              if (choice === 'studio') {
-                logHuman('  ' + chalk.dim(ctx.t('generate.gate_studio_return')));
-                throw generateCancelled(
-                  'STUDIO_HANDOFF',
-                  'Generation was cancelled after handing review to the web app.',
-                );
-              }
-              if (choice === 'cancel') {
-                logHuman('  ' + chalk.dim(ctx.t('generate.gate_cancelled')));
-                throw generateCancelled('COMMAND_CANCELLED', 'Generation was cancelled.');
-              }
-            }
-          }
-        }
-      }
-
-      let totalForFormatting = 0;
-      const widthOf = (n: number) => String(n).length;
-      const startTime = Date.now();
-
-      const runOptions: RunGenerateOptions = {
-        root,
-        dryRun,
-        retries,
-        onlyDokIds,
-        serviceId: opts.service as string | undefined,
-        ...(!dryRun && llmPlan !== undefined && authorizedRun !== undefined
-          ? {
-              authorizedRun,
-              planDigest: llmPlan.digest,
-              preparedGeneration,
-              ...(batchDokIds ? { onlyDokIds: batchDokIds } : {}),
-            }
-          : {}),
-        force: opts.force as boolean,
-        // Commander negated options default true and become false when passed.
-        noRoles: opts.roles === false,
-        // commander maps `--no-lexicon` to opts.lexicon === false (default true).
-        noLexicon: opts.lexicon === false,
-        noIa: opts.ia === false,
-        noCodeMapping: opts.codeMapping === false,
-        onProgress: dryRun
-          ? undefined
-          : progressJson
-          ? emitProgress
-          : machine
-          ? undefined
-          : (e) => {
-              if (e.stage === 'roles') {
-                if (e.status === 'updated') {
-                  console.log(`  ${chalk.green('✓')} roles: ${e.added} added, ${e.kept} kept`);
-                } else if (e.status === 'unchanged') {
-                  console.log(`  ${chalk.dim(`roles: unchanged (${e.kept} kept)`)}`);
-                } else if (e.status === 'skipped') {
-                  console.log(`  ${chalk.dim('roles: skipped')}`);
-                } else {
-                  console.error(`  ${chalk.red('✗')} roles: ${chalk.red(e.error ?? 'refresh failed')}`);
-                }
-              } else if (e.stage === 'plan') {
-                totalForFormatting = e.total;
-                const skippedNote =
-                  e.skippedExisting.length > 0
-                    ? chalk.dim(
-                        ` (${e.skippedExisting.length} already exist — re-run with --force to regenerate)`,
-                      )
-                    : '';
-                console.log(
-                  `\n  ${chalk.cyan(`Generating ${e.total} Dok(s)`)}${skippedNote}\n  ` +
-                    chalk.dim(
-                      `per-Dok progress below — ${resolved?.model ?? 'the model'} may take 30s–2min per call`,
-                    ),
-                );
-                console.log();
-              } else if (e.stage === 'dok-start') {
-                const w = widthOf(totalForFormatting);
-                const idx = `[${String(e.index).padStart(w)}/${e.total}]`;
-                console.log(
-                  `  ${chalk.dim(idx)} ${chalk.bold(e.dokId)} ${chalk.dim(`— ${e.featureLabel}`)}`,
-                );
-              } else if (e.stage === 'dok-retry') {
-                console.log(`         Retrying ${e.dokId}: attempt ${e.attempt}/${e.maxAttempts} (${e.failureKind}; extra usage may be billed)`);
-              } else if (e.stage === 'dok-done') {
-                const elapsed = `${(e.elapsedMs / 1000).toFixed(1)}s`;
-                if (e.success) {
+          onProgress: dryRun
+            ? undefined
+            : progressJson
+            ? emitProgress
+            : machine
+            ? undefined
+            : (e) => {
+                if (e.stage === 'roles') {
+                  if (e.status === 'updated') {
+                    console.log(`  ${chalk.green('✓')} roles: ${e.added} added, ${e.kept} kept`);
+                  } else if (e.status === 'unchanged') {
+                    console.log(`  ${chalk.dim(`roles: unchanged (${e.kept} kept)`)}`);
+                  } else if (e.status === 'skipped') {
+                    console.log(`  ${chalk.dim('roles: skipped')}`);
+                  } else {
+                    console.error(`  ${chalk.red('✗')} roles: ${chalk.red(e.error ?? 'refresh failed')}`);
+                  }
+                } else if (e.stage === 'plan') {
+                  totalForFormatting = e.total;
+                  const skippedNote =
+                    e.skippedExisting.length > 0
+                      ? chalk.dim(
+                          ` (${e.skippedExisting.length} already exist — re-run with --force to regenerate)`,
+                        )
+                      : '';
                   console.log(
-                    `         ${chalk.green('✓')} ${chalk.dim(elapsed)}`,
+                    `\n  ${chalk.cyan(`Generating ${e.total} Dok(s)`)}${skippedNote}\n  ` +
+                      chalk.dim(
+                        `per-Dok progress below — ${resolved?.model ?? 'the model'} may take 30s–2min per call`,
+                      ),
                   );
-                } else {
-                  console.error(
-                    `         ${chalk.red('✗')} ${chalk.dim(elapsed)} ${chalk.red((e.error ?? '').split('\n')[0]?.slice(0, 80) ?? '')}`,
+                  console.log();
+                } else if (e.stage === 'dok-start') {
+                  const w = widthOf(totalForFormatting);
+                  const idx = `[${String(e.index).padStart(w)}/${e.total}]`;
+                  console.log(
+                    `  ${chalk.dim(idx)} ${chalk.bold(e.dokId)} ${chalk.dim(`— ${e.featureLabel}`)}`,
                   );
+                } else if (e.stage === 'dok-retry') {
+                  console.log(`         Retrying ${e.dokId}: attempt ${e.attempt}/${e.maxAttempts} (${e.failureKind}; extra usage may be billed)`);
+                } else if (e.stage === 'dok-done') {
+                  const elapsed = `${(e.elapsedMs / 1000).toFixed(1)}s`;
+                  if (e.success) {
+                    console.log(
+                      `         ${chalk.green('✓')} ${chalk.dim(elapsed)}`,
+                    );
+                  } else {
+                    console.error(
+                      `         ${chalk.red('✗')} ${chalk.dim(elapsed)} ${chalk.red((e.error ?? '').split('\n')[0]?.slice(0, 80) ?? '')}`,
+                    );
+                  }
+                } else if (e.stage === 'done') {
+                  const total = ((Date.now() - startTime) / 1000).toFixed(1);
+                  console.log(
+                    `\n  ${e.succeeded} succeeded, ${e.failed} Dok failed, ${e.layerFailed} layer failed ${chalk.dim(`(total ${total}s)`)}\n`,
+                  );
+                } else if (e.stage === 'lexicon') {
+                  if (e.status === 'reused') {
+                    console.log(`  ${chalk.dim(`lexicon: reusing ${e.termCount} known term(s)`)}`);
+                  } else {
+                    console.log(`  ${chalk.dim('lexicon: hints disabled')}`);
+                  }
+                } else if (e.stage === 'ia' || e.stage === 'code-mapping') {
+                  const label = `${e.serviceId} ${e.stage}`;
+                  if (e.status === 'written') {
+                    console.log(`  ${chalk.green('✓')} ${label}: ${e.count} item(s) written`);
+                  } else if (e.status === 'unchanged') {
+                    console.log(`  ${chalk.dim(`${label}: unchanged (${e.count} item(s))`)}`);
+                  } else if (e.status === 'skipped') {
+                    const message = `  ${chalk.dim(`${label}: skipped${e.error ? ` (${e.error})` : ''}`)}`;
+                    if (e.error) console.error(message);
+                    else console.log(message);
+                  } else {
+                    console.error(`  ${chalk.red('✗')} ${label}: ${chalk.red(e.error ?? 'refresh failed')}`);
+                  }
                 }
-              } else if (e.stage === 'done') {
-                const total = ((Date.now() - startTime) / 1000).toFixed(1);
-                console.log(
-                  `\n  ${e.succeeded} succeeded, ${e.failed} Dok failed, ${e.layerFailed} layer failed ${chalk.dim(`(total ${total}s)`)}\n`,
-                );
-              } else if (e.stage === 'lexicon') {
-                if (e.status === 'reused') {
-                  console.log(`  ${chalk.dim(`lexicon: reusing ${e.termCount} known term(s)`)}`);
-                } else {
-                  console.log(`  ${chalk.dim('lexicon: hints disabled')}`);
-                }
-              } else if (e.stage === 'ia' || e.stage === 'code-mapping') {
-                const label = `${e.serviceId} ${e.stage}`;
-                if (e.status === 'written') {
-                  console.log(`  ${chalk.green('✓')} ${label}: ${e.count} item(s) written`);
-                } else if (e.status === 'unchanged') {
-                  console.log(`  ${chalk.dim(`${label}: unchanged (${e.count} item(s))`)}`);
-                } else if (e.status === 'skipped') {
-                  const message = `  ${chalk.dim(`${label}: skipped${e.error ? ` (${e.error})` : ''}`)}`;
-                  if (e.error) console.error(message);
-                  else console.log(message);
-                } else {
-                  console.error(`  ${chalk.red('✗')} ${label}: ${chalk.red(e.error ?? 'refresh failed')}`);
-                }
-              }
-            },
-      };
-      let result: RunGenerateResult;
-      if (dryRun) {
-        result = await executeGenerate(runOptions);
-      } else {
-        const controller = new AbortController();
-        const interrupt = (): void => controller.abort(new Error('SIGINT'));
-        process.once('SIGINT', interrupt);
-        try {
-          result = await executeGenerate({ ...runOptions, signal: controller.signal });
-          if (controller.signal.aborted && !result.interrupted) {
-            result = { ...result, interrupted: true };
+              },
+        };
+        let result: RunGenerateResult;
+        if (dryRun) {
+          result = await executeGenerate(runOptions);
+        } else {
+          const controller = new AbortController();
+          const interrupt = (): void => controller.abort(new Error('SIGINT'));
+          process.once('SIGINT', interrupt);
+          try {
+            result = await executeGenerate({ ...runOptions, signal: controller.signal });
+            if (controller.signal.aborted && !result.interrupted) {
+              result = { ...result, interrupted: true };
+            }
+          } finally {
+            process.removeListener('SIGINT', interrupt);
           }
-        } finally {
-          process.removeListener('SIGINT', interrupt);
         }
-      }
 
-      if (opts.dryRun) {
-        logHuman(`\n  ${chalk.cyan(`Would generate ${result.plan.length} Dok(s):`)}`);
-        for (const p of result.plan) {
-          logHuman(`    - ${p.dokId} (${p.serviceId}) — ${p.featureLabel}`);
+        if (consolidationAttempts.length > 0) result.consolidationAttempts = consolidationAttempts;
+        if (opts.dryRun) {
+          const incomplete = result.planning?.complete === false;
+          logHuman(`\n  ${chalk.cyan(incomplete
+            ? `Generation plan incomplete; ${result.plan.length} Dok(s) currently planned for ready services.`
+            : `Would generate ${result.plan.length} Dok(s):`)}`);
+          for (const service of result.planning?.services ?? []) {
+            if (service.status === 'ready') continue;
+            logHuman(`    ${service.serviceId}: ${service.status}; Dok count unknown.`);
+            if (service.nextStep) logHuman(`      Next: ${service.nextStep.command} (${service.nextStep.paid ? 'paid model call; approval required' : 'local, no paid model call'}).`);
+            if (service.nextPaidStep && !service.nextStep?.paid) logHuman(`      Then: ${service.nextPaidStep} (paid model call; approval required).`);
+            if (service.candidates) {
+              logHuman(formatConsolidationSourceSummary(service.candidates));
+              logHuman(`      Consolidation input ~${service.candidates.estimatedInputTokens} tokens (bytes / 4); output unknown; allowance ${service.candidates.maxOutputTokens ?? 32_768}. Model resolved before paid approval; cache and output size unknown.`);
+            }
+          }
+          if (incomplete) logHuman('  Candidate groups are not a Dok count. Use --service <id> to narrow scope before consolidation.');
+          for (const p of result.plan) {
+            logHuman(`    - ${p.dokId} (${p.serviceId}) — ${p.featureLabel}`);
+          }
+          if (result.plan.length > 0) {
+            const tokens = estimateGenerateTokens(result.preparedGeneration?.items ?? []);
+            logHuman('  ' + formatGateSummary(result.plan.length, tokens, ctx.locale));
+            logHuman('  ' + ctx.t('generate.token_estimate_note', { max: tokens.maxOutputTokens.toLocaleString('en-US') }));
+            logHuman(`  Phase: generate only; model resolved before paid approval. Initial attempts only; up to ${retries} additional retries per Dok. Cache savings unknown; reasoning/output size varies by model.`);
+          }
+          recordGenerateResult(program, result, unverifiedIdReuse);
+          return;
+        }
+
+        if (result.tokenUsage && result.tokenUsage.attemptedCalls > 0) {
+          const usage = result.tokenUsage;
+          const input = usage.actual.inputTokens + usage.actual.cacheReadTokens + usage.actual.cacheCreationTokens;
+          logHuman('\n  ' + ctx.t('generate.usage_summary', {
+            attempted: usage.attemptedCalls, measured: usage.measuredCalls, missing: usage.missingCalls,
+            input: input.toLocaleString('en-US'), output: usage.actual.outputTokens.toLocaleString('en-US'),
+            read: usage.actual.cacheReadTokens.toLocaleString('en-US'),
+            write: usage.actual.cacheCreationTokens.toLocaleString('en-US'),
+          }));
+          if (usage.missingCalls === 0) {
+            logHuman('  ' + ctx.t('generate.usage_comparison', {
+              input: usage.estimated.inputTokens.toLocaleString('en-US'),
+              output: usage.estimated.outputTokens.toLocaleString('en-US'),
+              inputDelta: (input - usage.estimated.inputTokens).toLocaleString('en-US', { signDisplay: 'always' }),
+              outputDelta: (usage.actual.outputTokens - usage.estimated.outputTokens).toLocaleString('en-US', { signDisplay: 'always' }),
+            }));
+          } else logHuman('  ' + ctx.t('generate.usage_incomplete'));
+        }
+        if (batchDokIds) logHuman('  ' + ctx.t('generate.deferred_end'));
+        if (result.retryTokenUsage && result.retryTokenUsage.attemptedCalls > 0) {
+          const usage = result.retryTokenUsage;
+          const input = usage.actual.inputTokens + usage.actual.cacheReadTokens + usage.actual.cacheCreationTokens;
+          logHuman(`  Recovery: ${usage.attemptedCalls} extra call(s), ${input} measured input tokens, ${usage.actual.outputTokens} output tokens; ${usage.missingCalls} call(s) with unavailable usage. Additional cost depends on the provider's billing.`);
+        }
+        if (result.failures.length > 0) {
+          logHuman(`\n  Partial generation: ${result.failures.length} Dok(s) failed; completed Doks are preserved.`);
+          for (const failure of result.failures) {
+            logHuman(`    ${failure.dokId}: ${failure.reason} (${failure.attempts ?? 1} attempt(s))`);
+            if (failure.existingPreserved) {
+              logHuman('      Existing Dok preserved. The scoped --force command below intentionally replaces it only if generation succeeds.');
+            }
+            logHuman(`      Resume: ${failure.nextCommand ?? generationRecoveryCommand(failure.dokId, failure.existingPreserved === true)}`);
+          }
+        }
+        for (const item of result.results) {
+          for (const concern of item.writingReviewConcerns ?? []) {
+            logHuman(`  ${item.dokId} ${concern.field}: ${concern.actual_tone} ending conflicts with ${concern.expected_tone} Korean tone. Review the draft; no wording was rewritten.`);
+          }
+        }
+        if (result.tokenCapFailure) {
+          throw new CommandContractError({
+            schema_version: 1, command: 'generate', status: result.results.length > 0 ? 'partial' : 'cancelled',
+            data: result, diagnostics: [{ ...result.tokenCapFailure,
+              preserved: preservedGenerationFiles(root, result.results, result.skippedExisting),
+            }],
+          }, 2);
+        }
+        if (result.interrupted) throw generationInterrupted(root, result);
+        if (result.orphanedDokIds.length > 0) {
+          logHuman(
+            `\n  ${chalk.yellow('⚠')} orphaned dok files (no longer produced by consolidation): `
+              + `${formatOrphanedDokFiles(result.orphanedDokIds)} — review & delete manually`,
+          );
         }
         recordGenerateResult(program, result, unverifiedIdReuse);
-        return;
-      }
-
-      if (result.tokenUsage && result.tokenUsage.attemptedCalls > 0) {
-        const usage = result.tokenUsage;
-        const input = usage.actual.inputTokens + usage.actual.cacheReadTokens + usage.actual.cacheCreationTokens;
-        logHuman('\n  ' + ctx.t('generate.usage_summary', {
-          attempted: usage.attemptedCalls, measured: usage.measuredCalls, missing: usage.missingCalls,
-          input: input.toLocaleString('en-US'), output: usage.actual.outputTokens.toLocaleString('en-US'),
-          read: usage.actual.cacheReadTokens.toLocaleString('en-US'),
-          write: usage.actual.cacheCreationTokens.toLocaleString('en-US'),
-        }));
-        if (usage.missingCalls === 0) {
-          logHuman('  ' + ctx.t('generate.usage_comparison', {
-            input: usage.estimated.inputTokens.toLocaleString('en-US'),
-            output: usage.estimated.outputTokens.toLocaleString('en-US'),
-            inputDelta: (input - usage.estimated.inputTokens).toLocaleString('en-US', { signDisplay: 'always' }),
-            outputDelta: (usage.actual.outputTokens - usage.estimated.outputTokens).toLocaleString('en-US', { signDisplay: 'always' }),
-          }));
-        } else logHuman('  ' + ctx.t('generate.usage_incomplete'));
-      }
-      if (batchDokIds) logHuman('  ' + ctx.t('generate.deferred_end'));
-      if (result.retryTokenUsage && result.retryTokenUsage.attemptedCalls > 0) {
-        const usage = result.retryTokenUsage;
-        const input = usage.actual.inputTokens + usage.actual.cacheReadTokens + usage.actual.cacheCreationTokens;
-        logHuman(`  Recovery: ${usage.attemptedCalls} extra call(s), ${input} measured input tokens, ${usage.actual.outputTokens} output tokens; ${usage.missingCalls} call(s) with unavailable usage. Additional cost depends on the provider's billing.`);
-      }
-      if (result.failures.length > 0) {
-        logHuman(`\n  Partial generation: ${result.failures.length} Dok(s) failed; completed Doks are preserved.`);
-        for (const failure of result.failures) {
-          logHuman(`    ${failure.dokId}: ${failure.reason} (${failure.attempts ?? 1} attempt(s))`);
-          if (failure.existingPreserved) {
-            logHuman('      Existing Dok preserved. The scoped --force command below intentionally replaces it only if generation succeeds.');
-          }
-          logHuman(`      Resume: ${failure.nextCommand ?? generationRecoveryCommand(failure.dokId, failure.existingPreserved === true)}`);
+      } catch (error) {
+        const failure = toCommandContractError(error, 'generate');
+        const data = failure.result.data;
+        if (failure.result.command === 'consolidate') {
+          consolidationAttempts.push(...((data as RunConsolidateResult | null)?.attempts ?? []));
         }
+        if (consolidationAttempts.length === 0) throw error;
+        failure.result.data = {
+          ...(data !== null && typeof data === 'object' ? data : {}),
+          consolidationAttempts: [...consolidationAttempts],
+        };
+        throw failure;
+      } finally {
+        for (const attempt of consolidationAttempts) logHuman(formatConsolidationAttempt(attempt));
       }
-      if (result.tokenCapFailure) {
-        throw new CommandContractError({
-          schema_version: 1, command: 'generate', status: result.results.length > 0 ? 'partial' : 'cancelled',
-          data: result, diagnostics: [{ ...result.tokenCapFailure,
-            preserved: preservedGenerationFiles(root, result.results, result.skippedExisting),
-          }],
-        }, 2);
-      }
-      if (result.interrupted) throw generationInterrupted(root, result);
-      if (result.orphanedDokIds.length > 0) {
-        logHuman(
-          `\n  ${chalk.yellow('⚠')} orphaned dok files (no longer produced by consolidation): `
-            + `${formatOrphanedDokFiles(result.orphanedDokIds)} — review & delete manually`,
-        );
-      }
-      recordGenerateResult(program, result, unverifiedIdReuse);
     });
 }
 
@@ -3235,11 +3332,20 @@ function recordGenerateResult(
   unverifiedIdReuse: readonly UnverifiedIdReuseNotice[],
 ): void {
   const diagnostics: CommandDiagnostic[] = [
+    ...(result.planning?.services.filter(service => service.status !== 'ready').map(service => ({
+      code: 'GENERATION_PLAN_INCOMPLETE', serviceId: service.serviceId,
+      message: `${service.status}; Dok count unknown. ${service.nextStep?.paid ? 'Next step uses a paid model call.' : 'Next step is local.'}`,
+      ...(service.nextStep ? { nextCommand: service.nextStep.command } : {}),
+    })) ?? []),
     ...result.results.filter(item => (item.reviewConcerns ?? 0) > 0).map(item => ({
       code: 'CONTENT_REVIEW_REQUIRED',
       message: `${item.dokId}: ${item.reviewConcerns} model-reported concern(s); inspect _meta.content_review before approving this draft.`,
       serviceId: item.serviceId,
     })),
+    ...result.results.flatMap(item => (item.writingReviewConcerns ?? []).map(concern => ({
+      code: concern.code, serviceId: item.serviceId, field: concern.field,
+      message: `${item.dokId}: expected ${concern.expected_tone} Korean tone; found ${concern.actual_tone}: ${concern.excerpt}. Review _meta.writing_review before approval.`,
+    }))),
     ...result.failures.map((failure) => ({
       code: failure.code ?? 'DOK_GENERATION_FAILED',
       message: `${failure.dokId}: ${failure.reason}${failure.existingPreserved ? ' Existing Dok preserved; a scoped --force retry intentionally replaces it only after successful generation.' : ''}`,

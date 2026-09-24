@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ServiceIdSchema } from './ids.js';
+import { KoreanCustomerToneSchema } from './writing-policy.js';
 
 export const ServiceTypeSchema = z.enum([
   'frontend',  // web app, mobile web, etc.
@@ -54,6 +55,8 @@ export const WorkspaceSchema = z.object({
   // Language used in inline Dok text (description, intent, outcome).
   // Drives the LLM prompt's "respond in <locale>" instruction.
   default_locale: z.string().default('en'),
+  // Absent means formal, preserving the existing Korean generation default.
+  korean_customer_tone: KoreanCustomerToneSchema.optional(),
   // User-facing UI locales tracked by the Lexicon.
   // May differ from default_locale (e.g., PM writes in en, users see ko/en/ja).
   supported_locales: z.array(z.string()).default(['en', 'ko']),
