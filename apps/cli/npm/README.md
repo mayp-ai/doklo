@@ -8,7 +8,7 @@ Doklo reads supported application code and creates feature-document drafts for p
 npm install -g @mayp/doklo
 ```
 
-Version 0.3.0 requires Node.js 20.9 or newer, with one project per workspace.
+Version 0.3.1 requires Node.js 20.9 or newer, with one project per workspace.
 
 ## Start in your project
 
@@ -28,6 +28,29 @@ For command options, run `doklo --help` or `doklo <command> --help`. Coding agen
 - **Generic source analysis:** Groups readable UTF-8 source files for model review without requiring a framework-specific parser or package.json. Next.js App Router adds specialized route and dependency extraction; other frameworks use generic source evidence.
 - **Source exclusions:** Known sensitive paths, Git-ignored files, dependencies, and build output are excluded before source reads. Binary files, non-UTF-8 files, and files over 1 MiB are also excluded.
 - **Change detection and edit protection:** `doklo sync --check` reports tracked source changes. Ordinary `doklo sync` preserves human-edited documents by skipping them.
+
+## First-run planning and embedded help in 0.3.1
+
+- Select a contained service directory with `init --code-root web`; scan results
+  explain the analysis strategy, included source paths and exclusions.
+- Preview source candidates with `generate --dry-run` or `consolidate --dry-run`
+  before paid work. Missing plans are distinguished from zero-item plans, token
+  estimates are separated from output limits, and reported usage survives later
+  cancellation or failure. Estimates are not provider price guarantees.
+- Embed sanitized help-page HTML fragments using `--var html_fragment=true`,
+  `--var heading_level=2` and, when needed, a distinct `--var id_prefix=sidebar`.
+  Apply host-page styles and keep outputs inside the workspace.
+- New standard role names follow the workspace locale; curated names remain
+  unchanged. Generation uses confirmed terms and a shared Korean customer tone
+  (`formal` by default, or `plain`). Official Korean help-page output reports and
+  blocks clear tone conflicts or an unreviewed policy change. Review and correct
+  the prose, or use a marked draft preview; existing prose is not rewritten.
+- Public image-format names such as WebP no longer trigger identifier-pattern
+  warnings. Internal Dok IDs and other customer-copy checks remain enforced.
+
+Generated documents still require human review. See the
+[first-run and embedding guide](https://github.com/mayp-ai/doklo/blob/v0.3.1/docs/en/first-run-and-embedding.md)
+for examples, terminology review and output delivery paths.
 
 ## Generation recovery and draft previews in 0.3.0
 
