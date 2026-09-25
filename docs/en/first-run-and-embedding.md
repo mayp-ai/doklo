@@ -7,7 +7,7 @@ These examples describe the current source. Check the installed CLI's `--help` b
 The workspace root owns `workspace.json`, the Hub and output files. A service's `code_root` selects the source directory inside that workspace. For a repository containing `web/` and `server/`:
 
 ```sh
-doklo init --root . --code-root web --service-id web --default-locale ko --yes
+doklo init --root . --code-root web --service-id web --default-locale ko --supported-locales ko --yes
 doklo scan --root . --json
 ```
 
@@ -20,6 +20,18 @@ To add the server, append a service to the existing `services` array in `workspa
 ```
 
 Then run `doklo scan` again. Source roots must be existing contained relative directories. Parent paths, absolute paths and symlinks that escape the workspace are rejected.
+
+## Agent integration files
+
+By default, `doklo init` installs project-local integration files for Claude Code and Codex without adding another prompt. Human output lists their purpose and every created, unchanged or preserved path. JSON output includes `agentSkillsRequested`, `agentSkillsStatus`, `agentSkillsPurpose` and the per-target `agentSkills` results.
+
+Use `--no-agent-skills` to initialize the workspace without inspecting or changing `.claude` or `.agents`. It also works with noninteractive setup:
+
+```sh
+doklo init --root . --code-root web --yes --no-agent-skills
+```
+
+Install the files later with `doklo agent setup --target claude-code` and `doklo agent setup --target codex`. Setup is idempotent for exact Doklo-managed content. Customized files are preserved, and symlinked or non-regular paths are refused. A second `doklo init` is still rejected once `workspace.json` exists; use `doklo agent setup` for agent integration changes in an existing workspace.
 
 ## Inspect before paying
 

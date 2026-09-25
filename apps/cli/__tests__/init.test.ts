@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { access, mkdir, mkdtemp, writeFile, readFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, writeFile, readFile, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Command } from 'commander';
@@ -12,7 +12,7 @@ vi.mock('@doklo-beta/generator', async (importOriginal) => {
 });
 import { registerInitCommand, runInit } from '../src/commands/init.js';
 import { createContext } from '../src/lib/context.js';
-import { DOKLO_AGENT_SKILL } from '../src/lib/agent-skill.js';
+import { DOKLO_AGENT_SKILL, DOKLO_CLAUDE_RULE } from '../src/lib/agent-skill.js';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -53,14 +53,79 @@ describe('runInit', () => {
     const root = await nextjsTmp();
     await mkdir(join(root, '.claude/skills/doklo'), { recursive: true });
     await writeFile(join(root, '.claude/skills/doklo/SKILL.md'), 'My own skill');
+    const preservedPath = await realpath(join(root, '.claude/skills/doklo/SKILL.md'));
     const result = await runInit({ root, workspaceId: 'demo', name: 'Demo', defaultLocale: 'en', supportedLocales: ['en'], serviceId: 'web' });
     expect(await readFile(join(root, '.claude/skills/doklo/SKILL.md'), 'utf8')).toBe('My own skill');
     expect(await readFile(join(root, '.agents/skills/doklo/SKILL.md'), 'utf8')).toBe(DOKLO_AGENT_SKILL);
     expect(result.agentSkills).toEqual(expect.arrayContaining([
-      expect.objectContaining({ target: 'claude-code', status: 'failed', code: 'conflict' }),
+      expect.objectContaining({
+        target: 'claude-code',
+        status: 'preserved',
+        code: 'conflict',
+        path: preservedPath,
+      }),
       expect.objectContaining({ target: 'codex', status: 'installed' }),
     ]));
     await access(join(root, 'workspace.json'));
+  });
+
+  it('skips agent path inspection and mutation when programmatic installation is disabled', async () => {
+    const root = await nextjsTmp();
+    const external = await mkdtemp(join(tmpdir(), 'doklo-init-agent-external-'));
+    await writeFile(join(external, 'sentinel.txt'), 'outside');
+    await symlink(external, join(root, '.claude'));
+    await mkdir(join(root, '.agents/skills/doklo'), { recursive: true });
+    await writeFile(join(root, '.agents/skills/doklo/SKILL.md'), 'My Codex skill');
+
+    const result = await runInit({
+      root,
+      workspaceId: 'demo',
+      name: 'Demo',
+      defaultLocale: 'en',
+      supportedLocales: ['en'],
+      serviceId: 'web',
+      installAgentSkills: false,
+    });
+
+    expect(result).toMatchObject({
+      agentSkillsRequested: false,
+      agentSkillsStatus: 'skipped',
+      agentSkillsPurpose: 'Expose existing Doklo Doks as project context to Claude Code and Codex.',
+      agentSkills: [],
+    });
+    expect(await readFile(join(external, 'sentinel.txt'), 'utf8')).toBe('outside');
+    expect(await readFile(join(root, '.agents/skills/doklo/SKILL.md'), 'utf8')).toBe('My Codex skill');
+  });
+
+  it('reports exact managed files as unchanged during a fresh partial initialization', async () => {
+    const root = await nextjsTmp();
+    await mkdir(join(root, '.claude/skills/doklo'), { recursive: true });
+    await mkdir(join(root, '.claude/rules'), { recursive: true });
+    await mkdir(join(root, '.agents/skills/doklo'), { recursive: true });
+    await writeFile(join(root, '.claude/skills/doklo/SKILL.md'), DOKLO_AGENT_SKILL);
+    await writeFile(join(root, '.claude/rules/doklo.md'), DOKLO_CLAUDE_RULE);
+    await writeFile(join(root, '.agents/skills/doklo/SKILL.md'), DOKLO_AGENT_SKILL);
+
+    const result = await runInit({
+      root,
+      workspaceId: 'demo',
+      name: 'Demo',
+      defaultLocale: 'en',
+      supportedLocales: ['en'],
+      serviceId: 'web',
+    });
+
+    expect(result).toMatchObject({
+      agentSkillsRequested: true,
+      agentSkillsStatus: 'completed',
+      agentSkillsPurpose: 'Expose existing Doklo Doks as project context to Claude Code and Codex.',
+    });
+    const canonicalRoot = await realpath(root);
+    expect(result.agentSkills.flatMap(skill => 'files' in skill ? skill.files : [])).toEqual([
+      { path: join(canonicalRoot, '.claude/skills/doklo/SKILL.md'), status: 'unchanged' },
+      { path: join(canonicalRoot, '.claude/rules/doklo.md'), status: 'unchanged' },
+      { path: join(canonicalRoot, '.agents/skills/doklo/SKILL.md'), status: 'unchanged' },
+    ]);
   });
 
   it('requires --yes in non-TTY mode before model resolution or workspace mutation', async () => {
