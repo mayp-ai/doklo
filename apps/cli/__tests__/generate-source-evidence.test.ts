@@ -10,9 +10,12 @@ import { DOK_SOURCE_MAX_CHARS, resolveContainedOutputPath } from '@doklo-beta/ge
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 
-async function fixture() {
-  const root = await mkdtemp(join(tmpdir(), 'doklo-evidence-'));
-  roots.push(root);
+async function fixture(options: { shellMetacharactersInRoot?: boolean } = {}) {
+  const cleanupRoot = await mkdtemp(join(tmpdir(), 'doklo-evidence-'));
+  roots.push(cleanupRoot);
+  const root = options.shellMetacharactersInRoot
+    ? join(cleanupRoot, "workspace $HOME `tick` 'quoted")
+    : cleanupRoot;
   for (const path of ['.doklo/cache', '.doklo/hub/doks', 'app']) await mkdir(join(root, path), { recursive: true });
   const files = {
     'app/page.tsx': "import { completedMonths } from './ChatPage';\nexport default function Child() { return completedMonths(12); }",
@@ -82,7 +85,8 @@ describe('generation evidence preparation', () => {
   });
 
   it('reports one true oversize as blocked while preserving the ready dry-run plan', async () => {
-    const { root, consolidated } = await fixture();
+    const { root, consolidated } = await fixture({ shellMetacharactersInRoot: true });
+    const shellQuotedRoot = `'${root.slice(0, -"'quoted".length)}'\\''quoted'`;
     const oversized = 'z'.repeat(DOK_SOURCE_MAX_CHARS + 1);
     await writeFile(join(root, 'app/Oversize.ts'), oversized);
     consolidated.groups[0]!.features.push({
@@ -112,7 +116,7 @@ describe('generation evidence preparation', () => {
       serviceId: 'web', dokId: 'OVERSIZE', code: 'DOK_SOURCE_CONTEXT_LIMIT',
       file: 'app/Oversize.ts', actualChars: DOK_SOURCE_MAX_CHARS + 1,
       limitChars: DOK_SOURCE_MAX_CHARS, retryable: false,
-      nextCommand: 'doklo generate --only CHILD --yes',
+      nextCommand: `cd ${shellQuotedRoot} && doklo generate --only 'CHILD' --yes`,
     })]);
 
     await expect(runGenerate({
@@ -121,16 +125,58 @@ describe('generation evidence preparation', () => {
     }, { generateDokForFeature: generator })).rejects.toMatchObject({
       result: { diagnostics: [expect.objectContaining({
         code: 'DOK_SOURCE_CONTEXT_BLOCKED',
-        nextCommand: 'doklo generate --only CHILD --yes',
+        nextCommand: `cd ${shellQuotedRoot} && doklo generate --only 'CHILD' --yes`,
       })] },
     });
     expect(generator).not.toHaveBeenCalled();
 
+    const readyExistingPath = join(root, '.doklo/hub/doks/CHILD.json');
+    const readyExisting = `${JSON.stringify({
+      dok_id: 'CHILD', name: 'Human edited ready Dok', status: 'draft', description: 'Regenerate me.',
+      tags: [], surfaces: ['web'],
+      user_actions: { steps: [{
+        order: 1, actor: { kind: 'system' }, intent: 'Regenerate', outcome: 'Regenerated',
+        variants: [{ platform: 'all', interaction: 'auto' }],
+      }] },
+      business_rules: { rules: [] }, acceptance_criteria: { criteria: [] },
+      _meta: { version: 1, history: [], source_anchors: [{ file: 'app/page.tsx' }] },
+    }, null, 2)}\n`;
+    await writeFile(readyExistingPath, readyExisting);
+    const forcedPreview = await runGenerate({
+      root, serviceId: 'web', dryRun: true, force: true, noIa: true, noCodeMapping: true,
+    }, { generateDokForFeature: generator });
+    expect(forcedPreview.failures).toEqual([expect.objectContaining({
+      dokId: 'OVERSIZE',
+      nextCommand: `cd ${shellQuotedRoot} && doklo generate --service 'web' --only 'CHILD' --force --yes`,
+    })]);
+    const forcedReadySubset = await runGenerate({
+      root, serviceId: 'web', dryRun: true, force: true, onlyDokIds: ['CHILD'],
+      noIa: true, noCodeMapping: true,
+    }, { generateDokForFeature: generator });
+    expect(forcedReadySubset.plan.map(item => item.dokId)).toEqual(['CHILD']);
+    expect(forcedReadySubset.skippedExisting).not.toContain('CHILD');
+    expect(await readFile(readyExistingPath, 'utf8')).toBe(readyExisting);
+
+    const allBlocked = await runGenerate({
+      root, dryRun: true, onlyDokIds: ['OVERSIZE'], noIa: true, noCodeMapping: true,
+    }, { generateDokForFeature: generator });
+    expect(allBlocked.preparedGeneration?.items).toEqual([]);
+    expect(allBlocked.failures).toEqual([expect.not.objectContaining({ nextCommand: expect.anything() })]);
+    await expect(runGenerate({
+      root, noIa: true, noCodeMapping: true,
+      preparedGeneration: allBlocked.preparedGeneration,
+    }, { generateDokForFeature: generator })).rejects.toMatchObject({
+      result: { diagnostics: [expect.objectContaining({
+        code: 'DOK_SOURCE_CONTEXT_BLOCKED',
+        message: expect.not.stringContaining('ready subset'),
+      })] },
+    });
+
     const readySubset = await runGenerate({
       root, dryRun: true, onlyDokIds: ['CHILD'], noIa: true, noCodeMapping: true,
     }, { generateDokForFeature: generator });
-    expect(readySubset.failures).toEqual([]);
-    expect(readySubset.preparedGeneration!.items.map(item => item.dokId)).toEqual(['CHILD']);
+    expect(readySubset.skippedExisting).toContain('CHILD');
+    expect(readySubset.preparedGeneration!.items).toEqual([]);
 
     const existingPath = join(root, '.doklo/hub/doks/OVERSIZE.json');
     const existing = `${JSON.stringify({

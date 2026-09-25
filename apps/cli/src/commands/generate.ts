@@ -942,6 +942,9 @@ export async function runGenerate(
         noLexicon: opts.noLexicon === true,
         prospectiveRolePlan,
         existingDoks: existingDokByPlannedId,
+        root: paths.root,
+        force: opts.force === true,
+        ...(opts.serviceId === undefined ? {} : { serviceId: opts.serviceId }),
       })
     : opts.preparedGeneration;
   if (opts.dryRun) {
@@ -982,17 +985,12 @@ export async function runGenerate(
   if (workList.length > 0) {
     const preparationFailures = preparedGeneration?.preparationFailures ?? [];
     if (preparationFailures.length > 0) {
-      const nextCommand = preparationFailures.find((failure) => failure.nextCommand !== undefined)?.nextCommand;
       throw new CommandContractError({
         schema_version: 1,
         command: 'generate',
         status: 'cancelled',
         data: { failures: preparationFailures },
-        diagnostics: [{
-          code: 'DOK_SOURCE_CONTEXT_BLOCKED',
-          message: `${preparationFailures.length} selected Dok(s) exceed the source-context limit. Run the ready subset explicitly with --only, or reduce the blocked feature scope and rescan.`,
-          ...(nextCommand === undefined ? {} : { nextCommand }),
-        }],
+        diagnostics: [sourceContextBlockedDiagnostic(preparationFailures)],
       }, 2);
     }
     await requireAuthorizedLlmRun(opts.authorizedRun, opts.root);
@@ -2276,6 +2274,9 @@ async function prepareGenerationPayload(input: {
   suggestionPath: string;
   noLexicon: boolean;
   prospectiveRolePlan: ProspectiveRolePlan;
+  root: string;
+  force: boolean;
+  serviceId?: string;
   /**
    * Doks already on disk, by planned dok_id. Read here only for the priority
    * axes a person pinned: those are stated as settled in the prompt and left
@@ -2420,7 +2421,11 @@ async function prepareGenerationPayload(input: {
   const readyDokIds = items.map((item) => item.dokId);
   const nextCommand = readyDokIds.length === 0
     ? undefined
-    : `doklo generate --only ${readyDokIds.join(',')} --yes`;
+    : generationReadySubsetCommand(readyDokIds, {
+        root: input.root,
+        force: input.force,
+        ...(input.serviceId === undefined ? {} : { serviceId: input.serviceId }),
+      });
   return deepFreeze({
     items,
     preparationFailures: preparationFailures.map((failure) => ({
@@ -2629,6 +2634,32 @@ function generationAttemptId(dokId: string, attempt: number): string {
 
 function generationRecoveryCommand(dokId: string, replaceExisting: boolean): string {
   return `doklo generate --only ${dokId}${replaceExisting ? ' --force' : ''} --yes`;
+}
+
+function generationReadySubsetCommand(
+  dokIds: readonly string[],
+  selection: { root: string; force: boolean; serviceId?: string },
+): string {
+  return `cd ${shellQuoteArgument(selection.root)} && doklo generate`
+    + (selection.serviceId === undefined ? '' : ` --service ${shellQuoteArgument(selection.serviceId)}`)
+    + ` --only ${shellQuoteArgument(dokIds.join(','))}${selection.force ? ' --force' : ''} --yes`;
+}
+
+function shellQuoteArgument(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function sourceContextBlockedDiagnostic(
+  failures: readonly GenerateOneFailure[],
+): CommandDiagnostic {
+  const nextCommand = failures.find((failure) => failure.nextCommand !== undefined)?.nextCommand;
+  return {
+    code: 'DOK_SOURCE_CONTEXT_BLOCKED',
+    message: nextCommand === undefined
+      ? `${failures.length} selected Dok(s) exceed the source-context limit. No selected Dok is ready; reduce the blocked feature scope and rescan.`
+      : `${failures.length} selected Dok(s) exceed the source-context limit. Run the ready subset explicitly with --only, or reduce the blocked feature scope and rescan.`,
+    ...(nextCommand === undefined ? {} : { nextCommand }),
+  };
 }
 
 function retryableGenerationFailure(
@@ -3097,17 +3128,12 @@ export function registerGenerateCommand(
           const blockedSourceContexts = preview.failures.filter((failure) =>
             failure.code === 'DOK_SOURCE_CONTEXT_LIMIT');
           if (blockedSourceContexts.length > 0) {
-            const nextCommand = blockedSourceContexts.find((failure) => failure.nextCommand !== undefined)?.nextCommand;
             throw new CommandContractError({
               schema_version: 1,
               command: 'generate',
               status: 'cancelled',
               data: preview,
-              diagnostics: [{
-                code: 'DOK_SOURCE_CONTEXT_BLOCKED',
-                message: `${blockedSourceContexts.length} selected Dok(s) exceed the source-context limit. Run the ready subset explicitly with --only, or reduce the blocked feature scope and rescan.`,
-                ...(nextCommand === undefined ? {} : { nextCommand }),
-              }],
+              diagnostics: [sourceContextBlockedDiagnostic(blockedSourceContexts)],
             }, 2);
           }
           if (preview.plan.length === 0) {
