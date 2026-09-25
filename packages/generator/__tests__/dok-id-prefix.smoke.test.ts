@@ -38,6 +38,16 @@ describe('suggestDokIdPrefix', () => {
     expect(suggestDokIdPrefix('reconciliation', 'reconciliation')).toBe('RECONCILIA');
   });
 
+  it('keeps consonants-only suggestions valid when abbreviation removes every trailing vowel', () => {
+    const prefix = suggestDokIdPrefix(
+      'aeiouaeioua',
+      'aeiouaeioua',
+      { consonantsOnly: true },
+    );
+    expect(prefix).toBe('AX');
+    expect(DOK_ID_RE.test(prefix)).toBe(true);
+  });
+
   it('turns internal source groups and digit-leading hashes into a valid deterministic id', () => {
     const prefix = suggestDokIdPrefix('source-8c5967fd8486f344', '_source');
     expect(prefix).toBe('SOURCE-X8C5967FD8');

@@ -126,12 +126,13 @@ function toDokIdSegment(
   let segment = token.toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!segment) segment = 'ID';
   if (/^[0-9]/.test(segment)) segment = `X${segment}`;
-  if (segment.length === 1) segment += 'X';
-  if (first && (segment === 'BR' || segment === 'AC')) segment += 'X';
-  return abbrev(segment, {
+  segment = abbrev(segment, {
     length: MAX_SEGMENT_LENGTH,
     consonantsOnly: opts.consonantsOnly,
   });
+  if (segment.length === 1) segment += 'X';
+  if (first && (segment === 'BR' || segment === 'AC')) segment += 'X';
+  return segment;
 }
 
 // Word → abbreviation. First 4 chars by default (unless `length` is given
