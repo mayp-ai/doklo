@@ -31,14 +31,11 @@ export function suggestDokIdPrefix(
   groupId: string,
   opts: SuggestPrefixOptions = {},
 ): string {
-  const groupTokens = groupId.toLowerCase().split('-').filter(Boolean);
-  const featureTokens = featureId.toLowerCase().split('-').filter(Boolean);
+  const groupTokens = idTokens(groupId);
+  const featureTokens = idTokens(featureId);
 
-  const groupHead = groupTokens[0] ?? groupId;
-  const groupSegment = abbrev(groupHead, {
-    length: MAX_SEGMENT_LENGTH,
-    consonantsOnly: opts.consonantsOnly,
-  });
+  const groupHead = groupTokens[0] ?? 'dok';
+  const groupSegment = toDokIdSegment(groupHead, opts, true);
 
   // Drop tokens that duplicate the group, plus the generic "detail".
   const meaningful = featureTokens.filter((t) => {
@@ -51,10 +48,8 @@ export function suggestDokIdPrefix(
 
   // Up to 2 more segments (3 total) — the last 2 meaningful tokens, which are
   // the most specific/differentiating ones for a multi-word feature id.
-  const subSegments = meaningful.slice(-2).map((token) => abbrev(token, {
-    length: MAX_SEGMENT_LENGTH,
-    consonantsOnly: opts.consonantsOnly,
-  }));
+  const subSegments = meaningful.slice(-2).map((token) =>
+    toDokIdSegment(token, opts, false));
 
   return [groupSegment, ...subSegments].join('-');
 }
@@ -68,13 +63,27 @@ export function suggestUniqueDokIdPrefix(
   return ensureUniquePrefix(undefined, canonicalId, groupId, used);
 }
 
-/** Neither the LLM-suggested prefix nor the auto-suggestion is available. */
+/** Every valid deterministic candidate is already owned by another feature. */
 export class DokIdPrefixCollisionError extends Error {
   constructor(readonly candidate: string, readonly canonicalId: string) {
     super(`Cannot assign a unique dok_id_prefix for feature "${canonicalId}" — ` +
-      `candidate "${candidate}" is already taken. Rename one of the colliding features' ` +
-      'dok_id_prefix in Studio\'s consolidation screen, or edit it directly in the consolidated ' +
-      'cache (`.doklo/cache/<service>.consolidated.json`), or re-run `doklo consolidate`.');
+      `candidate "${candidate}" is already in use. No consolidated cache was written. ` +
+      'Change the source candidate ids/grouping or the proposed dok_id_prefix to a distinct ' +
+      'valid id, then consolidate the updated input.');
+  }
+}
+
+/** No candidate satisfies the shared Dok ID grammar. */
+export class DokIdPrefixInvalidError extends Error {
+  constructor(
+    readonly candidate: string,
+    readonly canonicalId: string,
+    readonly suggested: string,
+  ) {
+    super(`Cannot assign a valid dok_id_prefix for feature "${canonicalId}" — ` +
+      `candidate "${candidate}" and deterministic suggestion "${suggested}" do not satisfy ` +
+      'the Dok ID schema. No consolidated cache was written. Change the source candidate ' +
+      'ids/grouping or the proposed dok_id_prefix, then consolidate the updated input.');
   }
 }
 
@@ -89,12 +98,41 @@ export function ensureUniquePrefix(
   used: Set<string>,
 ): string {
   const normalized = String(llmPrefix ?? '').trim().toUpperCase().replace(/_/g, '-');
-  if (DokIdSchema.safeParse(normalized).success && !used.has(normalized)) return normalized;
+  const normalizedIsValid = DokIdSchema.safeParse(normalized).success;
+  if (normalizedIsValid && !used.has(normalized)) return normalized;
 
   const suggested = suggestDokIdPrefix(canonicalId, groupId);
-  if (DokIdSchema.safeParse(suggested).success && !used.has(suggested)) return suggested;
+  const suggestedIsValid = DokIdSchema.safeParse(suggested).success;
+  if (suggestedIsValid && !used.has(suggested)) return suggested;
 
-  throw new DokIdPrefixCollisionError(normalized || suggested, canonicalId);
+  const colliding = [
+    normalizedIsValid && used.has(normalized) ? normalized : null,
+    suggestedIsValid && used.has(suggested) ? suggested : null,
+  ].find((candidate): candidate is string => candidate !== null);
+  if (colliding) throw new DokIdPrefixCollisionError(colliding, canonicalId);
+
+  throw new DokIdPrefixInvalidError(normalized, canonicalId, suggested);
+}
+
+function idTokens(value: string): string[] {
+  return value.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+function toDokIdSegment(
+  token: string,
+  opts: SuggestPrefixOptions,
+  first: boolean,
+): string {
+  let segment = token.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!segment) segment = 'ID';
+  if (/^[0-9]/.test(segment)) segment = `X${segment}`;
+  segment = abbrev(segment, {
+    length: MAX_SEGMENT_LENGTH,
+    consonantsOnly: opts.consonantsOnly,
+  });
+  if (segment.length === 1) segment += 'X';
+  if (first && (segment === 'BR' || segment === 'AC')) segment += 'X';
+  return segment;
 }
 
 // Word → abbreviation. First 4 chars by default (unless `length` is given

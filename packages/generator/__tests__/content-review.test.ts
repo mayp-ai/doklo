@@ -59,6 +59,49 @@ describe('product intent and generated review evidence', () => {
     ] });
   });
 
+  it('records an acceptance-field tone conflict without rewriting the provider bytes', async () => {
+    const statement = '유효하지 않은 요청은 저장하지 않고 오류를 표시한다.';
+    callModelMock.mockResolvedValueOnce({ success: true, processingTime: 0, error: null, usage: null,
+      content: JSON.stringify({ dok_id: 'CHAT', name: '대화', description: '질문을 작성합니다.',
+        acceptance_criteria: { criteria: [{ id: 'AC-CHAT-01', statement, related_rules: [] }] },
+      }),
+    });
+    const result = await generateDokForFeature(feature, ctx);
+    expect(result.dok?.acceptance_criteria.criteria[0]?.statement).toBe(statement);
+    expect(result.dok?._meta.writing_review?.concerns).toContainEqual(expect.objectContaining({
+      code: 'KOREAN_TONE_CONFLICT',
+      field: 'acceptance_criteria.criteria[0].statement',
+      expected_tone: 'formal',
+      actual_tone: 'plain',
+    }));
+  });
+
+  it('keeps synthetic reliability evidence complete through provider input and preserves a bounded customer outcome', async () => {
+    const reliabilitySource = [
+      'const MAX_RETRIES = 3;',
+      'export async function load(signal: AbortSignal) {',
+      '  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {',
+      '    if (signal.aborted) throw new Error("cancelled");',
+      '    try { return await request(); } catch (error) { if (isPermanent(error)) throw error; }',
+      '  }',
+      '}',
+    ].join('\n');
+    const statement = '일시적인 오류가 이어지면 최대 3번 다시 시도한 뒤 오류를 표시합니다.';
+    callModelMock.mockResolvedValueOnce({ success: true, processingTime: 0, error: null, usage: null,
+      content: JSON.stringify({ dok_id: 'CHAT', name: '대화', description: '질문을 작성합니다.',
+        acceptance_criteria: { criteria: [{ id: 'AC-CHAT-01', statement, related_rules: [] }] },
+      }),
+    });
+    const result = await generateDokForFeature(feature, {
+      ...ctx,
+      fileContext: { 'src/reliability.ts': reliabilitySource },
+    });
+    const input = callModelMock.mock.calls.at(-1)![0];
+    expect(input.userPrompt).toContain(reliabilitySource);
+    expect(input.systemPrompt).toContain('exact numeric bounds');
+    expect(result.dok?.acceptance_criteria.criteria[0]?.statement).toBe(statement);
+  });
+
   it('never carries a model-provided policy acknowledgment into a new generation', async () => {
     callModelMock.mockResolvedValueOnce({ success: true, processingTime: 0, error: null, usage: null,
       content: JSON.stringify({ dok_id: 'CHAT', name: '대화', description: '메시지를 보낸다.', _meta: {

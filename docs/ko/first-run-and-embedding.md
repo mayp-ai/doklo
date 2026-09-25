@@ -7,7 +7,7 @@
 워크스페이스 루트에는 `workspace.json`, Hub, 출력 파일이 저장됩니다. 서비스의 `code_root`는 그 안에서 분석할 소스 경로입니다. `web/`과 `server/`가 있는 저장소에서는 다음처럼 시작합니다.
 
 ```sh
-doklo init --root . --code-root web --service-id web --default-locale ko --yes
+doklo init --root . --code-root web --service-id web --default-locale ko --supported-locales ko --yes
 doklo scan --root . --json
 ```
 
@@ -20,6 +20,18 @@ Doklo 상태는 저장소 루트에 두고 `web/`을 분석합니다. 선택한 
 ```
 
 소스 경로는 실제 존재하는 워크스페이스 내부 상대 디렉터리여야 합니다. 상위 경로·절대 경로·워크스페이스 밖으로 연결되는 심볼릭 링크는 거절합니다.
+
+## 에이전트 연동 파일
+
+`doklo init`은 기본적으로 추가 질문 없이 Claude Code와 Codex의 프로젝트 전용 연동 파일을 설치합니다. 일반 출력은 파일의 목적과 생성·변경 없음·보존 결과의 각 경로를 보여 줍니다. JSON 출력은 `agentSkillsRequested`, `agentSkillsStatus`, `agentSkillsPurpose`, 대상별 `agentSkills` 결과를 포함합니다.
+
+`.claude`와 `.agents` 경로를 확인하거나 변경하지 않고 워크스페이스만 초기화하려면 `--no-agent-skills`를 사용하세요. 비대화형 초기화에서도 사용할 수 있습니다.
+
+```sh
+doklo init --root . --code-root web --yes --no-agent-skills
+```
+
+나중에 `doklo agent setup --target claude-code`와 `doklo agent setup --target codex`로 설치할 수 있습니다. Doklo가 관리하는 정확한 내용은 반복 설치해도 변경되지 않습니다. 수정한 파일은 보존하고, 심볼릭 링크나 일반 파일이 아닌 경로는 변경하지 않습니다. `workspace.json`이 생긴 뒤 두 번째 `doklo init`은 계속 거절됩니다. 기존 워크스페이스의 에이전트 연동은 `doklo agent setup`으로 변경하세요.
 
 ## 비용 발생 전 확인
 
