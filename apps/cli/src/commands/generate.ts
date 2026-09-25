@@ -377,6 +377,18 @@ export interface RunGenerateOptions {
    */
   proposalNote?: ProposalNote;
   preparedGeneration?: PreparedGenerationPayload;
+  /** Explicit CLI choices that must survive a suggested ready-subset run. */
+  recoveryCommand?: GenerateRecoveryCommandOptions;
+}
+
+export interface GenerateRecoveryCommandOptions {
+  model?: string;
+  profile?: string;
+  llmBackend?: LLMBackend;
+  approved?: boolean;
+  json?: boolean;
+  progressJson?: boolean;
+  planDetails?: boolean;
 }
 
 export interface PreparedGenerationItem {
@@ -944,6 +956,11 @@ export async function runGenerate(
         existingDoks: existingDokByPlannedId,
         root: paths.root,
         force: opts.force === true,
+        retries,
+        noRoles: opts.noRoles === true,
+        noIa: opts.noIa === true,
+        noCodeMapping: opts.noCodeMapping === true,
+        recoveryCommand: opts.recoveryCommand,
         ...(opts.serviceId === undefined ? {} : { serviceId: opts.serviceId }),
       })
     : opts.preparedGeneration;
@@ -2276,6 +2293,11 @@ async function prepareGenerationPayload(input: {
   prospectiveRolePlan: ProspectiveRolePlan;
   root: string;
   force: boolean;
+  retries: number;
+  noRoles: boolean;
+  noIa: boolean;
+  noCodeMapping: boolean;
+  recoveryCommand?: GenerateRecoveryCommandOptions;
   serviceId?: string;
   /**
    * Doks already on disk, by planned dok_id. Read here only for the priority
@@ -2424,6 +2446,12 @@ async function prepareGenerationPayload(input: {
     : generationReadySubsetCommand(readyDokIds, {
         root: input.root,
         force: input.force,
+        retries: input.retries,
+        noRoles: input.noRoles,
+        noLexicon: input.noLexicon,
+        noIa: input.noIa,
+        noCodeMapping: input.noCodeMapping,
+        recoveryCommand: input.recoveryCommand,
         ...(input.serviceId === undefined ? {} : { serviceId: input.serviceId }),
       });
   return deepFreeze({
@@ -2638,11 +2666,34 @@ function generationRecoveryCommand(dokId: string, replaceExisting: boolean): str
 
 function generationReadySubsetCommand(
   dokIds: readonly string[],
-  selection: { root: string; force: boolean; serviceId?: string },
+  selection: {
+    root: string;
+    force: boolean;
+    retries: number;
+    noRoles: boolean;
+    noLexicon: boolean;
+    noIa: boolean;
+    noCodeMapping: boolean;
+    recoveryCommand?: GenerateRecoveryCommandOptions;
+    serviceId?: string;
+  },
 ): string {
+  const recovery = selection.recoveryCommand;
   return `cd ${shellQuoteArgument(selection.root)} && doklo generate`
     + (selection.serviceId === undefined ? '' : ` --service ${shellQuoteArgument(selection.serviceId)}`)
-    + ` --only ${shellQuoteArgument(dokIds.join(','))}${selection.force ? ' --force' : ''} --yes`;
+    + ` --only ${shellQuoteArgument(dokIds.join(','))}${selection.force ? ' --force' : ''}`
+    + (recovery?.model === undefined ? '' : ` --model ${shellQuoteArgument(recovery.model)}`)
+    + (recovery?.profile === undefined ? '' : ` --profile ${shellQuoteArgument(recovery.profile)}`)
+    + (recovery?.llmBackend === undefined ? '' : ` --llm-backend ${shellQuoteArgument(recovery.llmBackend)}`)
+    + ` --retries ${shellQuoteArgument(String(selection.retries))}`
+    + (selection.noRoles ? ' --no-roles' : '')
+    + (selection.noLexicon ? ' --no-lexicon' : '')
+    + (selection.noIa ? ' --no-ia' : '')
+    + (selection.noCodeMapping ? ' --no-code-mapping' : '')
+    + (recovery?.json ? ' --json' : '')
+    + (recovery?.progressJson ? ' --progress-json' : '')
+    + (recovery?.planDetails ? ' --plan-details' : '')
+    + (recovery?.approved ? ' --yes' : '');
 }
 
 function shellQuoteArgument(value: string): string {
@@ -2761,6 +2812,15 @@ export function registerGenerateCommand(
       }
       const progressJson = opts.progressJson as boolean;
       const machine = opts.json === true || progressJson;
+      const recoveryCommand: GenerateRecoveryCommandOptions = {
+        ...(opts.model === undefined ? {} : { model: opts.model as string }),
+        ...(opts.profile === undefined ? {} : { profile: opts.profile as string }),
+        ...(opts.llmBackend === undefined ? {} : { llmBackend: opts.llmBackend as LLMBackend }),
+        approved: !dryRun && opts.yes === true,
+        json: opts.json === true,
+        progressJson,
+        planDetails: opts.planDetails === true,
+      };
       type ConsentPlanProgressEvent = {
         stage: 'consent-plan';
         phase: 'consolidation' | 'generation';
@@ -3117,6 +3177,7 @@ export function registerGenerateCommand(
           const preview = await executeGenerate({
             root,
             dryRun: true,
+            retries,
             onlyDokIds,
             serviceId: opts.service as string | undefined,
             force: opts.force as boolean,
@@ -3124,6 +3185,7 @@ export function registerGenerateCommand(
             noLexicon: opts.lexicon === false,
             noIa: opts.ia === false,
             noCodeMapping: opts.codeMapping === false,
+            recoveryCommand,
           });
           const blockedSourceContexts = preview.failures.filter((failure) =>
             failure.code === 'DOK_SOURCE_CONTEXT_LIMIT');
@@ -3251,6 +3313,7 @@ export function registerGenerateCommand(
           noLexicon: opts.lexicon === false,
           noIa: opts.ia === false,
           noCodeMapping: opts.codeMapping === false,
+          recoveryCommand,
           onProgress: dryRun
             ? undefined
             : progressJson

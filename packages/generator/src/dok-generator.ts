@@ -271,17 +271,22 @@ export function buildDokPromptParts(
   }
   const language = ctx.defaultLocale === 'ko' ? 'Korean (한국어)' : 'English';
   const koreanTone = ctx.koreanCustomerTone ?? 'formal';
-  const koreanStepGuidance = koreanTone === 'formal'
-    ? `- Every prose intent and outcome must be a complete formal sentence. Write
+  const koreanProseGuidance = koreanTone === 'formal'
+    ? `- The description, every step intent, outcome, and precondition, every business-rule description, and every acceptance-criterion statement must be complete formal prose. Write
   the actor's action directly in intent, not a wish, heading, or noun phrase.
   Example: intent: "설정 화면을 열어 계정 정보를 확인합니다."
   Example: outcome: "계정 정보가 표시됩니다."
+  Example: acceptance_criteria.criteria[].statement: "유효하지 않은 요청은 저장되지 않고 오류 안내가 표시됩니다."
 - Do not write intention formulas such as "~하고자 합니다" or "~하려고 합니다".`
-    : `- Every prose intent and outcome must be a complete plain sentence. Write
+    : `- The description, every step intent, outcome, and precondition, every business-rule description, and every acceptance-criterion statement must be complete plain prose. Write
   the actor's action directly in intent, not a wish, heading, or noun phrase.
   Example: intent: "설정 화면을 열어 계정 정보를 확인한다."
   Example: outcome: "계정 정보가 표시된다."
+  Example: acceptance_criteria.criteria[].statement: "유효하지 않은 요청은 저장되지 않고 오류 안내가 표시된다."
 - Do not write intention formulas such as "~하고자 한다" or "~하려고 한다".`;
+  const koreanConnectiveExample = koreanTone === 'formal'
+    ? '- Do not put a comma after a connective ending (write "누르면 목록이 열립니다",\n  not "누르면, 목록이 열립니다").'
+    : '- Do not put a comma after a connective ending (write "누르면 목록이 열린다",\n  not "누르면, 목록이 열린다").';
   const renderFiles = (entries: [string, string][]) => entries
     .map(
       ([path, content]) =>
@@ -350,6 +355,14 @@ addresses, storage conventions, function names and other invisible mechanisms
 out of descriptions, steps and rules. Explain the customer's outcome instead.
 Keep observable error handling, limits and permission rules. API-contract features
 still need their public request/response fields and status codes.
+Preserve source-implemented reliability behavior whenever it changes a customer-
+observable result or recovery path. Before returning JSON, check the supplied
+executable source for retry or reconnect maximums, timeout or cancellation behavior,
+transient-versus-terminal failures, fallback behavior, and resume or deduplication
+guarantees. State exact numeric bounds when implemented, and represent each relevant
+fact in a step outcome, business rule, or acceptance criterion. Translate internal
+mechanisms into customer-observable behavior; do not expose headers, function names,
+storage details, or infer behavior from unsupplied dependencies.
 An imported helper establishes only the behavior of that helper, not all actions
 on the screen where the helper was declared. Do not infer omitted source.
 Executing module initializers and side-effect imports are implementation context;
@@ -366,9 +379,8 @@ ASCII.${ctx.defaultLocale === 'ko' ? `
 # Korean style (customer-facing help copy)
 
 ${koreanWritingPolicyPrompt(koreanTone)}
-${koreanStepGuidance}
-- Do not put a comma after a connective ending (write "누르면 목록이 열립니다",
-  not "누르면, 목록이 열립니다"). Avoid "~을 통해"; name the action directly.
+${koreanProseGuidance}
+${koreanConnectiveExample} Avoid "~을 통해"; name the action directly.
 - Write the product's own words, not code names: no identifiers, function
   names, or English technical verbs inside Korean sentences.` : ''}
 

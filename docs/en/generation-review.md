@@ -19,8 +19,10 @@ Existing Doks are skipped by default. Use `--only CHAT --force` only to intentio
 
 ## Preview drafts
 
+The output locale is selected in this order: `--locale`, `DOKLO_LOCALE`, then `en`. This is independent of the workspace `default_locale`, which remains the translation fallback-chain head. Pass `--locale ko` when you want Korean output; Korean draft previews intentionally retain the English safety notice and add the Korean notice.
+
 ```sh
-doklo live-docs render help-page --dok CHAT --format html --preview
+doklo live-docs render help-page --dok CHAT --format html --locale ko --preview
 ```
 
 Preview supports stable Markdown and HTML templates. Output defaults to `.doklo/output/preview/` and carries an unreviewed-draft notice. Hub status and approval history remain unchanged. Normal rendering still requires reviewed documents, and customer-copy checks remain enabled in previews. Preview output cannot serve as official saved Publication publish/export evidence.

@@ -107,6 +107,8 @@ describe('Korean style rules in the Dok prompt', () => {
     expect(ko).toContain('합쇼체');
     expect(ko).toContain('intent: "설정 화면을 열어 계정 정보를 확인합니다."');
     expect(ko).toContain('outcome: "계정 정보가 표시됩니다."');
+    expect(ko).toContain('acceptance_criteria.criteria[].statement: "유효하지 않은 요청은 저장되지 않고 오류 안내가 표시됩니다."');
+    expect(ko).toContain('description, every step intent, outcome, and precondition, every business-rule description, and every acceptance-criterion statement');
     expect(ko).toContain('~하고자 합니다');
     expect(ko).not.toContain('~하고자 한다');
     expect(ko).not.toContain('~하려고 한다');
@@ -122,7 +124,24 @@ describe('Korean style rules in the Dok prompt', () => {
 
     expect(ko).toContain('intent: "설정 화면을 열어 계정 정보를 확인한다."');
     expect(ko).toContain('outcome: "계정 정보가 표시된다."');
+    expect(ko).toContain('acceptance_criteria.criteria[].statement: "유효하지 않은 요청은 저장되지 않고 오류 안내가 표시된다."');
+    expect(ko).toContain('write "누르면 목록이 열린다"');
+    expect(ko).not.toContain('write "누르면 목록이 열립니다"');
     expect(ko).toContain('~하고자 한다');
     expect(ko).not.toContain('~하고자 합니다');
+  });
+
+  it('requires a generic inventory of executable customer-observable reliability behavior', () => {
+    const prompt = buildDokPromptParts(feature, ctx()).systemPrompt;
+    expect(prompt).toContain('retry or reconnect maximums');
+    expect(prompt).toContain('timeout or cancellation behavior');
+    expect(prompt).toContain('transient-versus-terminal failures');
+    expect(prompt).toContain('fallback behavior');
+    expect(prompt).toMatch(/resume or deduplication\s+guarantees/);
+    expect(prompt).toContain('exact numeric bounds');
+    expect(prompt).toContain('supplied executable source');
+    expect(prompt).toContain('step outcome, business rule, or acceptance criterion');
+    expect(prompt).not.toContain('SSE');
+    expect(prompt).not.toContain('Last-Event-ID');
   });
 });

@@ -35,6 +35,80 @@ async function nextjsTmp(): Promise<string> {
 }
 
 describe('runInit', () => {
+  it('normalizes dot, relative nested/parent, and absolute roots before inferring identity', async () => {
+    const originalCwd = process.cwd();
+    const parent = await mkdtemp(join(tmpdir(), 'doklo-init-relative-'));
+    const cases: Array<{ name: string; cwd: string; spelling: string }> = [];
+    try {
+      for (const name of ['dot-app', 'dot-slash-app', 'nested-app', 'parent-app', 'absolute-app']) {
+        const root = join(parent, name);
+        await mkdir(root, { recursive: true });
+        await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { next: '^14.0.0' } }));
+        await mkdir(join(root, 'app'));
+        await writeFile(join(root, 'app/page.tsx'), 'export default function Page(){ return null }');
+      }
+      await mkdir(join(parent, 'parent-app/child'));
+      cases.push(
+        { name: 'dot-app', cwd: join(parent, 'dot-app'), spelling: '.' },
+        { name: 'dot-slash-app', cwd: join(parent, 'dot-slash-app'), spelling: './' },
+        { name: 'nested-app', cwd: parent, spelling: 'nested-app' },
+        { name: 'parent-app', cwd: join(parent, 'parent-app/child'), spelling: '..' },
+        { name: 'absolute-app', cwd: parent, spelling: join(parent, 'absolute-app') },
+      );
+
+      for (const entry of cases) {
+        process.chdir(entry.cwd);
+        const program = new Command();
+        registerInitCommand(program, createContext('en'));
+        await program.parseAsync(['init', '--root', entry.spelling, '--yes', '--json', '--no-scan', '--no-agent-skills'], { from: 'user' });
+        const root = join(parent, entry.name);
+        const workspace = JSON.parse(await readFile(join(root, 'workspace.json'), 'utf8'));
+        expect(workspace).toMatchObject({ name: entry.name, workspace_id: entry.name });
+      }
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  it('falls back only the inferred ASCII slug and preserves display names and explicit ids', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'doklo-init-slug-'));
+    for (const [directory, args, expectedId, expectedName] of [
+      ['한글-★', [], 'doklo-workspace', '한글-★'],
+      ['named', ['--name', '기호 ★'], 'doklo-workspace', '기호 ★'],
+      ['explicit', ['--name', '기호 ★', '--workspace-id', 'chosen-id'], 'chosen-id', '기호 ★'],
+    ] as const) {
+      const root = join(parent, directory);
+      await mkdir(join(root, 'app'), { recursive: true });
+      await writeFile(join(root, 'package.json'), JSON.stringify({ dependencies: { next: '^14.0.0' } }));
+      await writeFile(join(root, 'app/page.tsx'), 'export default function Page(){ return null }');
+      const program = new Command();
+      registerInitCommand(program, createContext('en'));
+      await program.parseAsync(['init', '--root', root, '--yes', '--json', '--no-scan', '--no-agent-skills', ...args], { from: 'user' });
+      const workspace = JSON.parse(await readFile(join(root, 'workspace.json'), 'utf8'));
+      expect(workspace).toMatchObject({ name: expectedName, workspace_id: expectedId });
+    }
+  });
+
+  it('detects repeated init across root spellings before touching agent paths', async () => {
+    const originalCwd = process.cwd();
+    const root = await nextjsTmp();
+    try {
+      process.chdir(root);
+      const first = new Command();
+      registerInitCommand(first, createContext('en'));
+      await first.parseAsync(['init', '--root', '.', '--yes', '--json', '--no-scan', '--no-agent-skills'], { from: 'user' });
+      await mkdir(join(root, '.agents/skills/doklo'), { recursive: true });
+      await writeFile(join(root, '.agents/skills/doklo/SKILL.md'), 'keep me');
+
+      const second = new Command();
+      registerInitCommand(second, createContext('en'));
+      await expect(second.parseAsync(['init', '--root', './', '--yes', '--json', '--no-scan'], { from: 'user' }))
+        .rejects.toThrow(/already exists/i);
+      expect(await readFile(join(root, '.agents/skills/doklo/SKILL.md'), 'utf8')).toBe('keep me');
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
   it('installs both project skills during CLI init without changing user instructions', async () => {
     const root = await nextjsTmp();
     await writeFile(join(root, 'CLAUDE.md'), 'Keep my instructions');

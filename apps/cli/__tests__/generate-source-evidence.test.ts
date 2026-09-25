@@ -3,9 +3,13 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { Command } from 'commander';
 import { runGenerate } from '../src/commands/generate.js';
+import { registerGenerateCommand } from '../src/commands/generate.js';
 import { authorizeLlmRun, buildLlmRunPlan } from '../src/lib/llm-preflight.js';
 import { DOK_SOURCE_MAX_CHARS, resolveContainedOutputPath } from '@doklo-beta/generator';
+import { createContext } from '../src/lib/context.js';
+import { takeCommandResult } from '../src/lib/command-result.js';
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
@@ -116,7 +120,7 @@ describe('generation evidence preparation', () => {
       serviceId: 'web', dokId: 'OVERSIZE', code: 'DOK_SOURCE_CONTEXT_LIMIT',
       file: 'app/Oversize.ts', actualChars: DOK_SOURCE_MAX_CHARS + 1,
       limitChars: DOK_SOURCE_MAX_CHARS, retryable: false,
-      nextCommand: `cd ${shellQuotedRoot} && doklo generate --only 'CHILD' --yes`,
+      nextCommand: `cd ${shellQuotedRoot} && doklo generate --only 'CHILD' --retries '2' --no-ia --no-code-mapping`,
     })]);
 
     await expect(runGenerate({
@@ -125,7 +129,7 @@ describe('generation evidence preparation', () => {
     }, { generateDokForFeature: generator })).rejects.toMatchObject({
       result: { diagnostics: [expect.objectContaining({
         code: 'DOK_SOURCE_CONTEXT_BLOCKED',
-        nextCommand: `cd ${shellQuotedRoot} && doklo generate --only 'CHILD' --yes`,
+        nextCommand: `cd ${shellQuotedRoot} && doklo generate --only 'CHILD' --retries '2' --no-ia --no-code-mapping`,
       })] },
     });
     expect(generator).not.toHaveBeenCalled();
@@ -147,7 +151,7 @@ describe('generation evidence preparation', () => {
     }, { generateDokForFeature: generator });
     expect(forcedPreview.failures).toEqual([expect.objectContaining({
       dokId: 'OVERSIZE',
-      nextCommand: `cd ${shellQuotedRoot} && doklo generate --service 'web' --only 'CHILD' --force --yes`,
+      nextCommand: `cd ${shellQuotedRoot} && doklo generate --service 'web' --only 'CHILD' --force --retries '0' --no-ia --no-code-mapping`,
     })]);
     const forcedReadySubset = await runGenerate({
       root, serviceId: 'web', dryRun: true, force: true, onlyDokIds: ['CHILD'],
@@ -197,6 +201,68 @@ describe('generation evidence preparation', () => {
     expect(withExisting.failures).toEqual([]);
     expect(await readFile(existingPath, 'utf8')).toBe(existing);
     expect(generator).not.toHaveBeenCalled();
+  });
+
+  it('preserves every explicit execution choice in ready-subset recovery without approving a dry-run', async () => {
+    const { root, consolidated } = await fixture({ shellMetacharactersInRoot: true });
+    const oversized = 'z'.repeat(DOK_SOURCE_MAX_CHARS + 1);
+    await writeFile(join(root, 'app/Oversize.ts'), oversized);
+    consolidated.groups[0]!.features.push({
+      canonical_id: 'oversize', label: 'Oversize records', dok_id_prefix: 'OVERSIZE', decision: 'keep', members: ['oversize'],
+      primary_route: '/oversize', reason: '', user_reviewed: false,
+      source_files: ['app/Oversize.ts'], logic_files: ['app/Oversize.ts'],
+      source_context: [{
+        file: 'app/Oversize.ts', content_hash: createHash('sha256').update(oversized).digest('hex'),
+        ranges: [{ start: 1, end: 1 }], symbols: ['oversize'], kind: 'imported-symbol',
+      }],
+    });
+    consolidated.originalFeatureIds.push('oversize');
+    consolidated.stats.originalFeatures = 2;
+    consolidated.stats.consolidatedFeatures = 2;
+    await writeFile(join(root, '.doklo/cache/web.consolidated.json'), JSON.stringify(consolidated));
+
+    const resolveLlmForRole = vi.fn(async () => { throw new Error('dry-run must not resolve a provider'); });
+    const program = new Command();
+    registerGenerateCommand(program, createContext('en'), { resolveLlmForRole });
+    await program.parseAsync([
+      'generate', '--root', root, '--dry-run', '--yes', '--json', '--plan-details',
+      '--service', 'web', '--force', '--model', "anthropic/model 'quoted'",
+      '--profile', 'anthropic:work profile', '--llm-backend', 'claude-code', '--retries', '0',
+      '--no-roles', '--no-lexicon', '--no-ia', '--no-code-mapping',
+    ], { from: 'user' });
+
+    const result = takeCommandResult(program);
+    const nextCommand = (result?.data as { failures: Array<{ nextCommand?: string }> }).failures[0]!.nextCommand!;
+    expect(nextCommand).toContain("--model 'anthropic/model '\\''quoted'\\''' ");
+    expect(nextCommand).toContain("--profile 'anthropic:work profile'");
+    expect(nextCommand).toContain("--llm-backend 'claude-code'");
+    expect(nextCommand).toContain("--retries '0'");
+    expect(nextCommand).toContain('--no-roles --no-lexicon --no-ia --no-code-mapping');
+    expect(nextCommand).toContain('--json --plan-details');
+    expect(nextCommand).not.toContain('--yes');
+    expect(resolveLlmForRole).not.toHaveBeenCalled();
+
+    const executionProgram = new Command();
+    registerGenerateCommand(executionProgram, createContext('en'), { resolveLlmForRole });
+    let executionError: unknown;
+    try {
+      await executionProgram.parseAsync([
+        'generate', '--root', root, '--yes', '--json', '--plan-details',
+        '--service', 'web', '--force', '--model', "anthropic/model 'quoted'",
+        '--profile', 'anthropic:work profile', '--llm-backend', 'claude-code', '--retries', '0',
+        '--no-roles', '--no-lexicon', '--no-ia', '--no-code-mapping',
+      ], { from: 'user' });
+    } catch (error) {
+      executionError = error;
+    }
+    const executionNextCommand = (executionError as {
+      result: { diagnostics: Array<{ nextCommand?: string }> };
+    }).result.diagnostics[0]!.nextCommand!;
+    expect(executionNextCommand).toContain("--llm-backend 'claude-code'");
+    expect(executionNextCommand).toContain("--retries '0'");
+    expect(executionNextCommand).toContain('--no-roles --no-lexicon --no-ia --no-code-mapping');
+    expect(executionNextCommand).toContain('--json --plan-details --yes');
+    expect(resolveLlmForRole).not.toHaveBeenCalled();
   });
 
   it('transmits the imported helper without the other screen and preserves full drift coverage', async () => {

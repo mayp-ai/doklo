@@ -9,7 +9,7 @@ import { AgentSkillError, manageAgentSkill, type AgentSkillResult, type AgentTar
 import { Option, type Command } from 'commander';
 import { access, stat } from 'node:fs/promises';
 import { constants as FS } from 'node:fs';
-import { relative, resolve, sep } from 'node:path';
+import { basename, relative, resolve, sep } from 'node:path';
 import type { Framework, KoreanCustomerTone, Service, ServiceType } from '@doklo-beta/core';
 import { bootstrapWorkspace, WorkspaceAlreadyInitializedError } from '../lib/bootstrap.js';
 import { workspacePaths, type WorkspacePaths } from '../lib/paths.js';
@@ -309,7 +309,7 @@ export function registerInitCommand(
         await import('@clack/prompts');
       const { default: chalk } = await import('chalk');
 
-      const root = opts.root as string;
+      const root = resolve(opts.root as string);
       const machine = opts.json === true;
 
       // Fail fast before the interactive wizard: if the workspace already
@@ -347,7 +347,7 @@ export function registerInitCommand(
 
       const defaults = {
         name: opts.name ?? guessName(root),
-        workspaceId: opts.workspaceId ?? toKebab(opts.name ?? guessName(root)),
+        workspaceId: opts.workspaceId ?? (toKebab(opts.name ?? guessName(root)) || 'doklo-workspace'),
         defaultLocale: opts.defaultLocale ?? ctx.locale,
         supportedLocales:
           opts.supportedLocales ?? `${ctx.locale},${ctx.locale === 'en' ? 'ko' : 'en'}`,
@@ -642,8 +642,7 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 function guessName(root: string): string {
-  const parts = root.split('/').filter(Boolean);
-  return parts[parts.length - 1] ?? 'doklo-workspace';
+  return basename(root) || 'doklo-workspace';
 }
 
 function toKebab(s: string): string {

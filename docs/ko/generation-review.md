@@ -19,8 +19,10 @@ doklo generate --only CHAT,CHILD --retries 0
 
 ## draft를 검토용 화면으로 보기
 
+출력 locale은 `--locale`, `DOKLO_LOCALE`, `en` 순서로 선택됩니다. 이 규칙은 번역 fallback chain의 첫 locale로 쓰이는 workspace `default_locale`과 별개입니다. 한국어 출력에는 `--locale ko`를 지정하세요. 한국어 draft 미리보기에는 안전 표시를 위해 영문 안내가 유지되고 한국어 안내가 함께 표시됩니다.
+
 ```sh
-doklo live-docs render help-page --dok CHAT --format html --preview
+doklo live-docs render help-page --dok CHAT --format html --locale ko --preview
 ```
 
 stable 템플릿의 Markdown·HTML 출력에 사용할 수 있습니다. 기본 경로는 `.doklo/output/preview/`이며 결과에 미검토 초안 표시가 들어갑니다. Hub의 상태·승인 이력은 바뀌지 않습니다. 일반 렌더의 검토 기준과 고객 문구 검사는 유지되므로 내부 용어 오류는 미리보기에서도 수정해야 합니다. 미리보기 결과를 정식 Publication의 게시·내보내기 근거로 사용할 수 없습니다.
