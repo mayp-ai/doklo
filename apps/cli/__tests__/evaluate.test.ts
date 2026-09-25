@@ -83,7 +83,7 @@ describe('runEvaluate', () => {
     expect(result.report.totalDoks).toBe(2);
   });
 
-  it('reports non-scoring writing, content, and lifecycle review signals without collapsing unknown states', async () => {
+  it('separates structural score, recorded review signals, and current lifecycle state', async () => {
     const root = await tmpHub();
     const fixtures = [
       {
@@ -129,6 +129,7 @@ describe('runEvaluate', () => {
 
     const result = await runEvaluate({ root });
 
+    expect(result.score_scope).toBe('structural');
     expect(result.review).toEqual({
       scope: 'recorded_metadata',
       notice: 'Recorded review signals may predate manual prose edits; they are not fresh findings or content approval.',
@@ -146,6 +147,9 @@ describe('runEvaluate', () => {
         doks_with_concerns: 2,
         concerns: 2,
       },
+    });
+    expect(result.lifecycle).toEqual({
+      scope: 'current_state',
       status: { draft: 2, review: 1, active: 1, planned: 0, deprecated: 0, archived: 1 },
     });
     expect(result.report.maxTotal).toBe(500);

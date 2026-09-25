@@ -97,9 +97,11 @@ describe('CLI main result boundary', () => {
     expect(child.exitCode, child.stderr || child.stdout).toBe(0);
     expect(child.stderr).toBe('');
     expect(child.stdout).toContain('Structural score:');
-    expect(child.stdout).toContain('Review signals:');
+    expect(child.stdout).toContain('Recorded review signals:');
     expect(child.stdout).toContain('recorded metadata and may predate manual prose edits');
     expect(child.stdout).toContain('content review missing: 1');
+    expect(child.stdout).toContain('Current lifecycle:');
+    expect(child.stdout).toContain('active 1');
     expect(child.stdout).toContain('This score is not content approval.');
   }, 30_000);
 
@@ -121,10 +123,14 @@ describe('CLI main result boundary', () => {
         command: 'evaluate',
         status: 'success',
         data: {
+          score_scope: 'structural',
           report: { maxTotal: 500, totalDoks: 1 },
           review: {
             scope: 'recorded_metadata',
             content: { missing_doks: 1, unreported_doks: 0, reported_doks: 0, unknown_doks: 0 },
+          },
+          lifecycle: {
+            scope: 'current_state',
             status: { active: 1, draft: 0 },
           },
         },

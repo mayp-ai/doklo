@@ -99,10 +99,14 @@ describe('customer-copy quality flow', () => {
 
     const evaluated = await runEvaluate({ root });
     expect(evaluated.report.maxTotal).toBe(500);
+    expect(evaluated.score_scope).toBe('structural');
     expect(evaluated.review).toMatchObject({
       scope: 'recorded_metadata',
       writing: { concerns: 0, assessed_doks: 1 },
       content: { concerns: 0, reported_doks: 1 },
+    });
+    expect(evaluated.lifecycle).toMatchObject({
+      scope: 'current_state',
       status: { active: 1, draft: 0 },
     });
   });
