@@ -270,6 +270,18 @@ export function buildDokPromptParts(
     throw new Error(`Source context ${sourceChars} exceeds ${DOK_SOURCE_MAX_CHARS} characters; split the service or feature before generation. No source was silently omitted.`);
   }
   const language = ctx.defaultLocale === 'ko' ? 'Korean (한국어)' : 'English';
+  const koreanTone = ctx.koreanCustomerTone ?? 'formal';
+  const koreanStepGuidance = koreanTone === 'formal'
+    ? `- Every prose intent and outcome must be a complete formal sentence. Write
+  the actor's action directly in intent, not a wish, heading, or noun phrase.
+  Example: intent: "설정 화면을 열어 계정 정보를 확인합니다."
+  Example: outcome: "계정 정보가 표시됩니다."
+- Do not write intention formulas such as "~하고자 합니다" or "~하려고 합니다".`
+    : `- Every prose intent and outcome must be a complete plain sentence. Write
+  the actor's action directly in intent, not a wish, heading, or noun phrase.
+  Example: intent: "설정 화면을 열어 계정 정보를 확인한다."
+  Example: outcome: "계정 정보가 표시된다."
+- Do not write intention formulas such as "~하고자 한다" or "~하려고 한다".`;
   const renderFiles = (entries: [string, string][]) => entries
     .map(
       ([path, content]) =>
@@ -353,9 +365,8 @@ ASCII.${ctx.defaultLocale === 'ko' ? `
 
 # Korean style (customer-facing help copy)
 
-${koreanWritingPolicyPrompt(ctx.koreanCustomerTone)}
-- Describe what the actor does and what appears on screen. Do not write
-  intention formulas such as "~하고자 한다" or "~하려고 한다".
+${koreanWritingPolicyPrompt(koreanTone)}
+${koreanStepGuidance}
 - Do not put a comma after a connective ending (write "누르면 목록이 열립니다",
   not "누르면, 목록이 열립니다"). Avoid "~을 통해"; name the action directly.
 - Write the product's own words, not code names: no identifiers, function

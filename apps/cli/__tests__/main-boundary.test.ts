@@ -86,6 +86,52 @@ describe('CLI main result boundary', () => {
     });
   }, 30_000);
 
+  it('labels evaluate as a structural score and prints separate review signals', async () => {
+    const root = await showWorkspace();
+    const child = await execa(
+      process.execPath,
+      ['--import', 'tsx', 'src/index.ts', 'evaluate', '--root', root],
+      { cwd: cliRoot, reject: false },
+    );
+
+    expect(child.exitCode, child.stderr || child.stdout).toBe(0);
+    expect(child.stderr).toBe('');
+    expect(child.stdout).toContain('Structural score:');
+    expect(child.stdout).toContain('Review signals:');
+    expect(child.stdout).toContain('recorded metadata and may predate manual prose edits');
+    expect(child.stdout).toContain('content review missing: 1');
+    expect(child.stdout).toContain('This score is not content approval.');
+  }, 30_000);
+
+  it('includes evaluate review state in the terminal JSON result', async () => {
+    const root = await showWorkspace();
+    const child = await execa(
+      process.execPath,
+      ['--import', 'tsx', 'src/index.ts', 'evaluate', '--root', root, '--json'],
+      { cwd: cliRoot, reject: false },
+    );
+
+    expect(child.exitCode, child.stderr || child.stdout).toBe(0);
+    expect(child.stderr).toBe('');
+    const lines = child.stdout.split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!)).toMatchObject({
+      stage: 'result',
+      result: {
+        command: 'evaluate',
+        status: 'success',
+        data: {
+          report: { maxTotal: 500, totalDoks: 1 },
+          review: {
+            scope: 'recorded_metadata',
+            content: { missing_doks: 1, unreported_doks: 0, reported_doks: 0, unknown_doks: 0 },
+            status: { active: 1, draft: 0 },
+          },
+        },
+      },
+    });
+  }, 30_000);
+
   it.each([
     ['show', ['show', '--help']],
     ['live-docs render', ['live-docs', 'render', '--help']],

@@ -101,12 +101,28 @@ describe('priority section of the Dok prompt', () => {
 });
 
 describe('Korean style rules in the Dok prompt', () => {
-  it('adds the formal-register rules only when the default locale is ko', () => {
+  it('gives formal intent and outcome complete-sentence examples without plain intention formulas', () => {
     const ko = buildDokPromptParts(feature, ctx({ defaultLocale: 'ko' })).systemPrompt;
     expect(ko).toContain('# Korean style');
     expect(ko).toContain('합쇼체');
-    expect(ko).toContain('~하고자 한다');
+    expect(ko).toContain('intent: "설정 화면을 열어 계정 정보를 확인합니다."');
+    expect(ko).toContain('outcome: "계정 정보가 표시됩니다."');
+    expect(ko).toContain('~하고자 합니다');
+    expect(ko).not.toContain('~하고자 한다');
+    expect(ko).not.toContain('~하려고 한다');
     const en = buildDokPromptParts(feature, ctx()).systemPrompt;
     expect(en).not.toContain('# Korean style');
+  });
+
+  it('gives plain intent and outcome examples in the selected register', () => {
+    const ko = buildDokPromptParts(feature, ctx({
+      defaultLocale: 'ko',
+      koreanCustomerTone: 'plain',
+    })).systemPrompt;
+
+    expect(ko).toContain('intent: "설정 화면을 열어 계정 정보를 확인한다."');
+    expect(ko).toContain('outcome: "계정 정보가 표시된다."');
+    expect(ko).toContain('~하고자 한다');
+    expect(ko).not.toContain('~하고자 합니다');
   });
 });

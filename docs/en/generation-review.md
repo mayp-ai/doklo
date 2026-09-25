@@ -8,6 +8,8 @@ This guide describes the current source. Check your installed release's `doklo g
 
 `generate` retries malformed JSON or truncated model responses once by default. Use `--retries 0` to disable retries or `--retries 2` for up to two additional attempts. Retries participate in execution consent and token caps and may incur additional provider charges. Results include attempts, retry usage and final failures. Partial failure does not return a successful exit status.
 
+The token-cap reservation is deliberately conservative: each prepared generation call reserves the UTF-8 byte length of its prompt plus 8,192 output tokens, multiplied by `retries + 1`. The consent preflight's `utf8-bytes/4` input value is an estimate for display, while provider-reported usage is the actual settled usage; neither replaces the conservative cap reservation. The approved batch remains fixed for that run. If the cap defers some Doks, a later run skips Doks already created and continues with the remainder.
+
 ```sh
 doklo generate --only CHAT
 doklo generate --only CHAT,CHILD --retries 0
@@ -32,3 +34,11 @@ For Next.js cross-screen helper imports, evidence includes required declarations
 An inventoried `PRODUCT.md` or `VISION.md` at the selected service source root is supplied separately as product intent. Parent-repository, example and archived briefs are not automatically included. Intent does not establish implementation: planned features must not become claims of implemented behavior.
 
 Model-reported scope conflicts, implementation details and missing evidence are stored in `_meta.content_review`. Nonempty concerns produce `CONTENT_REVIEW_REQUIRED` CLI diagnostics. `reported: false` means the model did not submit its review result; even an empty concern list is neither an accuracy guarantee nor approval. Review customer wording for actions and outcomes instead of internal storage conventions.
+
+For Korean workspaces, generation asks for complete `intent` and `outcome` sentences in the configured formal or plain register. `intent` names the actor's action directly; `outcome` states the observable result. Quoted UI labels, canonical terms, facts and edited role names must remain exact. Doklo records conservative writing diagnostics without mechanically changing sentence endings. A detected conflict blocks normal stable rendering and appears as a warning in draft preview, so a person can correct the sentence without losing the original wording.
+
+## Interpret the evaluation score
+
+`doklo evaluate` reports a structural score out of 500 for schema shape, unique grouping, business-expression fields, structural completeness and connectivity. It does not score factual grounding, current source freshness, Korean writing quality or human approval.
+
+The command shows recorded writing and model-content review counts separately from the score, including missing, unreported, reported and malformed/unknown content-review states, plus the current Dok lifecycle counts. These signals may predate a manual prose edit and are not a fresh re-evaluation. A 500/500 result, zero recorded concerns or an empty reported review is not content approval; inspect the Dok and keep drafts in review until a person approves them.

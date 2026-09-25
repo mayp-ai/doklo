@@ -67,6 +67,7 @@ export type {
   RunEvaluateOptions,
   RunEvaluateResult,
   DokLoadProblem,
+  EvaluateReviewSummary,
 } from './commands/evaluate.js';
 
 export function consolidatedCachePath(cacheDir: string, serviceId: string): string {

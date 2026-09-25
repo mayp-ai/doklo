@@ -83,6 +83,74 @@ describe('runEvaluate', () => {
     expect(result.report.totalDoks).toBe(2);
   });
 
+  it('reports non-scoring writing, content, and lifecycle review signals without collapsing unknown states', async () => {
+    const root = await tmpHub();
+    const fixtures = [
+      {
+        ...dummyDok('REPORTED', 'Reported'),
+        status: 'draft',
+        _meta: {
+          writing_review: { assessed_by: 'deterministic', concerns: [] },
+          content_review: { assessed_by: 'model', reported: true, product_sources: [], concerns: [] },
+        },
+      },
+      {
+        ...dummyDok('UNREPORTED', 'Unreported'),
+        status: 'review',
+        _meta: {
+          writing_review: { assessed_by: 'deterministic', concerns: [
+            { code: 'KOREAN_TONE_CONFLICT', field: 'description', expected_tone: 'formal', actual_tone: 'plain', excerpt: '메시지를 보낸다.' },
+            { code: 'KOREAN_TONE_CONFLICT', field: 'user_actions.steps[0].intent', expected_tone: 'formal', actual_tone: 'plain', excerpt: '설정을 확인한다.' },
+          ] },
+          content_review: { assessed_by: 'model', reported: false, product_sources: [], concerns: [] },
+        },
+      },
+      { ...dummyDok('MISSING', 'Missing'), status: 'active' },
+      {
+        ...dummyDok('MALFORMED', 'Malformed'),
+        status: 'archived',
+        _meta: {
+          content_review: { reported: 'unknown', concerns: [{ message: 'Retain visible concern count.' }] },
+        },
+      },
+      {
+        ...dummyDok('CONCERN', 'Concern'),
+        status: 'draft',
+        _meta: {
+          content_review: { assessed_by: 'model', reported: true, product_sources: [], concerns: [{ message: 'Check fact.' }] },
+        },
+      },
+    ];
+    await Promise.all(fixtures.map((dok) => writeFile(
+      join(root, `.doklo/hub/doks/${dok.dok_id}.json`),
+      JSON.stringify(dok),
+      'utf-8',
+    )));
+
+    const result = await runEvaluate({ root });
+
+    expect(result.review).toEqual({
+      scope: 'recorded_metadata',
+      notice: 'Recorded review signals may predate manual prose edits; they are not fresh findings or content approval.',
+      writing: {
+        assessed_doks: 2,
+        missing_doks: 3,
+        doks_with_concerns: 1,
+        concerns: 2,
+      },
+      content: {
+        reported_doks: 2,
+        unreported_doks: 1,
+        missing_doks: 1,
+        unknown_doks: 1,
+        doks_with_concerns: 2,
+        concerns: 2,
+      },
+      status: { draft: 2, review: 1, active: 1, planned: 0, deprecated: 0, archived: 1 },
+    });
+    expect(result.report.maxTotal).toBe(500);
+  });
+
   it('also accepts a single doks.json (array form) for golden-fixture compat', async () => {
     const root = await tmpHub();
     await writeFile(
