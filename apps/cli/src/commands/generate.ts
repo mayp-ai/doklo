@@ -246,6 +246,20 @@ export class InvalidExistingDokError extends Error {
   }
 }
 
+class DokSourceContextLimitError extends Error {
+  readonly file: string;
+  readonly actualChars: number;
+  readonly limitChars: number;
+
+  constructor(file: string, actualChars: number, limitChars: number) {
+    super(`Source context exceeds ${limitChars} characters at ${file}; split the service or feature before generation. No source was silently omitted.`);
+    this.name = 'DokSourceContextLimitError';
+    this.file = file;
+    this.actualChars = actualChars;
+    this.limitChars = limitChars;
+  }
+}
+
 export type GenerateProgressEvent =
   | { stage: 'dok-retry'; serviceId: string; dokId: string; attempt: number; maxAttempts: number; failureKind: string }
   | {
@@ -386,6 +400,8 @@ export interface PreparedGenerationItem {
 
 export interface PreparedGenerationPayload {
   readonly items: readonly PreparedGenerationItem[];
+  /** Per-Dok read-only preparation failures. Paid runs reject this payload. */
+  readonly preparationFailures?: readonly GenerateOneFailure[];
 }
 
 export interface PreflightGenerateHubOptions {
@@ -446,6 +462,8 @@ export interface GenerateOneFailure {
   file?: string;
   preserved?: string[];
   nextCommand?: string;
+  actualChars?: number;
+  limitChars?: number;
 }
 
 export interface GeneratePlanItem {
@@ -926,6 +944,9 @@ export async function runGenerate(
         existingDoks: existingDokByPlannedId,
       })
     : opts.preparedGeneration;
+  if (opts.dryRun) {
+    failures.push(...(preparedGeneration?.preparationFailures ?? []));
+  }
   const contributingTransmissions = preparedGeneration === undefined
     ? transmissions
     : selectContributingTransmissions(transmissions, preparedGeneration);
@@ -957,7 +978,23 @@ export async function runGenerate(
   }
 
   let approvedPlanDigest = opts.planDigest?.trim() || undefined;
+  const preparedByWorkKey = new Map<string, PreparedGenerationItem>();
   if (workList.length > 0) {
+    const preparationFailures = preparedGeneration?.preparationFailures ?? [];
+    if (preparationFailures.length > 0) {
+      const nextCommand = preparationFailures.find((failure) => failure.nextCommand !== undefined)?.nextCommand;
+      throw new CommandContractError({
+        schema_version: 1,
+        command: 'generate',
+        status: 'cancelled',
+        data: { failures: preparationFailures },
+        diagnostics: [{
+          code: 'DOK_SOURCE_CONTEXT_BLOCKED',
+          message: `${preparationFailures.length} selected Dok(s) exceed the source-context limit. Run the ready subset explicitly with --only, or reduce the blocked feature scope and rescan.`,
+          ...(nextCommand === undefined ? {} : { nextCommand }),
+        }],
+      }, 2);
+    }
     await requireAuthorizedLlmRun(opts.authorizedRun, opts.root);
     const boundPlanDigest = await getAuthorizedLlmRunPlanDigest(opts.authorizedRun, opts.root);
     generationModel = await getAuthorizedLlmRunModel(opts.authorizedRun, opts.root);
@@ -974,7 +1011,24 @@ export async function runGenerate(
         }],
       }, 2);
     }
-    if (!preparedGeneration || preparedGeneration.items.length !== workList.length) {
+    for (const item of preparedGeneration?.items ?? []) {
+      const key = `${item.serviceId}\0${item.dokId}`;
+      if (preparedByWorkKey.has(key)) {
+        throw new CommandContractError({
+          schema_version: 1,
+          command: 'llm',
+          status: 'cancelled',
+          data: null,
+          diagnostics: [{
+            code: 'LLM_PREPARED_PAYLOAD_CHANGED',
+            message: 'Prepared generation payload contains a duplicate work item.',
+          }],
+        }, 2);
+      }
+      preparedByWorkKey.set(key, item);
+    }
+    if (!preparedGeneration || preparedByWorkKey.size !== workList.length
+      || workList.some((item) => !preparedByWorkKey.has(`${item.serviceId}\0${item.dokId}`))) {
       throw new CommandContractError({
         schema_version: 1,
         command: 'llm',
@@ -1071,8 +1125,8 @@ export async function runGenerate(
       break;
     }
     const p = workList[i]!;
-    const preparedItem = preparedGeneration!.items[i]!;
-    if (preparedItem.serviceId !== p.serviceId || preparedItem.dokId !== p.dokId) {
+    const preparedItem = preparedByWorkKey.get(`${p.serviceId}\0${p.dokId}`);
+    if (preparedItem === undefined) {
       throw new CommandContractError({
         schema_version: 1,
         command: 'llm',
@@ -2272,10 +2326,27 @@ async function prepareGenerationPayload(input: {
   const approvedChars = renderedTerminologyChars(approved);
   const cachedChars = 0;
   const items: PreparedGenerationItem[] = [];
+  const preparationFailures: GenerateOneFailure[] = [];
   for (const item of input.workList) {
     const feature = buildFeatureForGeneration(item.feature, item.ir);
     const featureChars = renderDokFeatureBlock(feature).length;
-    const fileContext = await loadFileContext(item.serviceRoot, feature.files, feature.source_context);
+    let fileContext: Record<string, string>;
+    try {
+      fileContext = await loadFileContext(item.serviceRoot, feature.files, feature.source_context);
+    } catch (error) {
+      if (!(error instanceof DokSourceContextLimitError)) throw error;
+      preparationFailures.push({
+        serviceId: item.serviceId,
+        dokId: item.dokId,
+        code: 'DOK_SOURCE_CONTEXT_LIMIT',
+        reason: error.message,
+        retryable: false,
+        file: error.file,
+        actualChars: error.actualChars,
+        limitChars: error.limitChars,
+      });
+      continue;
+    }
     const suggestedActorRole = suggestRoleFromRoutePath(
       feature.primary_route,
       knownRoles,
@@ -2345,7 +2416,18 @@ async function prepareGenerationPayload(input: {
       transmissions,
     });
   }
-  return deepFreeze({ items });
+  if (preparationFailures.length === 0) return deepFreeze({ items });
+  const readyDokIds = items.map((item) => item.dokId);
+  const nextCommand = readyDokIds.length === 0
+    ? undefined
+    : `doklo generate --only ${readyDokIds.join(',')} --yes`;
+  return deepFreeze({
+    items,
+    preparationFailures: preparationFailures.map((failure) => ({
+      ...failure,
+      ...(nextCommand === undefined ? {} : { nextCommand }),
+    })),
+  });
 }
 
 function renderedTerminologyChars(
@@ -2404,14 +2486,14 @@ async function loadFileContext(
           selected[0] = selected[0]!.slice(start - 1);
           selected[selected.length - 1] = selected.at(-1)!.slice(0, end - 1);
         }
-        return `// Evidence lines ${range.start}-${range.end}\n${selected.join('\n')}`;
+        return selected.join('\n');
       }).join('\n\n');
     } else if (sourceContext !== undefined && !isProductIntentFile(f)) {
       throw new Error(`Source context does not cover ${f}; rescan and consolidate before generation.`);
     }
     totalChars += content.length;
     if (totalChars > DOK_SOURCE_MAX_CHARS) {
-      throw new Error(`Source context exceeds ${DOK_SOURCE_MAX_CHARS} characters at ${f}; split the service or feature before generation. No source was silently omitted.`);
+      throw new DokSourceContextLimitError(f, totalChars, DOK_SOURCE_MAX_CHARS);
     }
     out[f] = content;
   }
@@ -3012,6 +3094,22 @@ export function registerGenerateCommand(
             noIa: opts.ia === false,
             noCodeMapping: opts.codeMapping === false,
           });
+          const blockedSourceContexts = preview.failures.filter((failure) =>
+            failure.code === 'DOK_SOURCE_CONTEXT_LIMIT');
+          if (blockedSourceContexts.length > 0) {
+            const nextCommand = blockedSourceContexts.find((failure) => failure.nextCommand !== undefined)?.nextCommand;
+            throw new CommandContractError({
+              schema_version: 1,
+              command: 'generate',
+              status: 'cancelled',
+              data: preview,
+              diagnostics: [{
+                code: 'DOK_SOURCE_CONTEXT_BLOCKED',
+                message: `${blockedSourceContexts.length} selected Dok(s) exceed the source-context limit. Run the ready subset explicitly with --only, or reduce the blocked feature scope and rescan.`,
+                ...(nextCommand === undefined ? {} : { nextCommand }),
+              }],
+            }, 2);
+          }
           if (preview.plan.length === 0) {
             logHuman('\n  ' + chalk.yellow(ctx.t('generate.gate_none')));
           } else {
@@ -3239,12 +3337,20 @@ export function registerGenerateCommand(
             }
           }
           if (incomplete) logHuman('  Candidate groups are not a Dok count. Use --service <id> to narrow scope before consolidation.');
+          const blockedDokIds = new Set(result.failures
+            .filter((failure) => failure.code === 'DOK_SOURCE_CONTEXT_LIMIT')
+            .map((failure) => failure.dokId));
           for (const p of result.plan) {
-            logHuman(`    - ${p.dokId} (${p.serviceId}) — ${p.featureLabel}`);
+            logHuman(`    - ${p.dokId} (${p.serviceId}) — ${p.featureLabel}${blockedDokIds.has(p.dokId) ? ' [blocked: source context limit]' : ''}`);
           }
-          if (result.plan.length > 0) {
+          for (const failure of result.failures.filter((item) => item.code === 'DOK_SOURCE_CONTEXT_LIMIT')) {
+            logHuman(`      ${failure.file}: ${failure.actualChars?.toLocaleString('en-US')} / ${failure.limitChars?.toLocaleString('en-US')} characters.`);
+            if (failure.nextCommand) logHuman(`      Ready subset: ${failure.nextCommand}`);
+          }
+          const readyCount = result.preparedGeneration?.items.length ?? 0;
+          if (readyCount > 0) {
             const tokens = estimateGenerateTokens(result.preparedGeneration?.items ?? []);
-            logHuman('  ' + formatGateSummary(result.plan.length, tokens, ctx.locale));
+            logHuman('  ' + formatGateSummary(readyCount, tokens, ctx.locale));
             logHuman('  ' + ctx.t('generate.token_estimate_note', { max: tokens.maxOutputTokens.toLocaleString('en-US') }));
             logHuman(`  Phase: generate only; model resolved before paid approval. Initial attempts only; up to ${retries} additional retries per Dok. Cache savings unknown; reasoning/output size varies by model.`);
           }
