@@ -2776,7 +2776,7 @@ export function registerGenerateCommand(
       .command('generate')
       .alias('gen')
       .description(
-        'Generate Doks via runtime-trust (anthropic/claude-sonnet-5 or openai/gpt-5.6-terra)',
+        'Generate Doks via runtime-trust (anthropic/claude-sonnet-5, openai/gpt-5.6-terra, or openai/gpt-5.6-luna)',
       )
       .option('-r, --root <dir>', 'Workspace root', process.cwd())
       .option('--dry-run', 'List would-be Doks without calling the LLM', false)
