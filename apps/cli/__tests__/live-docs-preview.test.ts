@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ensureLiveDocsCommand, registerLiveDocsRenderCommand } from '../src/commands/live-docs-render.js';
 import { registerPublicationCommands } from '../src/commands/live-docs-publication.js';
 import { createContext } from '../src/lib/context.js';
@@ -12,7 +12,10 @@ import { takeCommandResult } from '../src/lib/command-result.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
 async function workspace(status = 'draft'): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'doklo-cli-preview-'));
   roots.push(root);
@@ -32,6 +35,37 @@ async function run(root: string, args: string[]) {
 }
 
 describe('draft preview CLI', () => {
+  it('documents and enforces output locale precedence independently of workspace default_locale', async () => {
+    const helpProgram = new Command();
+    registerLiveDocsRenderCommand(helpProgram, createContext('en'));
+    const render = helpProgram.commands.find(command => command.name() === 'live-docs')!
+      .commands.find(command => command.name() === 'render')!;
+    expect(render.helpInformation()).toMatch(/default: DOKLO_LOCALE, then en;\s+independent of workspace default_locale/);
+
+    vi.stubEnv('DOKLO_LOCALE', undefined);
+    const defaultRoot = await workspace();
+    const defaultHtml = await run(defaultRoot, ['render', 'help-page', '--dok', 'AUTH', '--format', 'html', '--preview']);
+    expect(defaultHtml).toMatchObject({ status: 'success' });
+    expect(await readFile(join(defaultRoot, '.doklo/output/preview/AUTH.html'), 'utf8')).not.toContain('미검토 초안');
+
+    vi.stubEnv('DOKLO_LOCALE', 'ko');
+    const envRoot = await workspace();
+    await run(envRoot, ['render', 'help-page', '--dok', 'AUTH', '--format', 'html', '--preview']);
+    expect(await readFile(join(envRoot, '.doklo/output/preview/AUTH.html'), 'utf8')).toContain('미검토 초안');
+
+    vi.stubEnv('DOKLO_LOCALE', 'en');
+    const flagRoot = await workspace();
+    await run(flagRoot, ['render', 'help-page', '--dok', 'AUTH', '--format', 'html', '--preview', '--locale', 'ko']);
+    expect(await readFile(join(flagRoot, '.doklo/output/preview/AUTH.html'), 'utf8')).toContain('미검토 초안');
+
+    const workspaceRoot = await workspace();
+    const workspaceJson = JSON.parse(await readFile(join(workspaceRoot, 'workspace.json'), 'utf8'));
+    await writeFile(join(workspaceRoot, 'workspace.json'), JSON.stringify({ ...workspaceJson, default_locale: 'ko' }));
+    vi.stubEnv('DOKLO_LOCALE', undefined);
+    await run(workspaceRoot, ['render', 'help-page', '--dok', 'AUTH', '--format', 'html', '--preview']);
+    expect(await readFile(join(workspaceRoot, '.doklo/output/preview/AUTH.html'), 'utf8')).not.toContain('미검토 초안');
+  });
+
   it('renders an explicitly requested draft in a separate default directory with an observable preview result', async () => {
     const root = await workspace();
     const before = await readFile(join(root, '.doklo/hub/doks/AUTH.json'), 'utf8');

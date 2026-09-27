@@ -37,6 +37,28 @@ describe('suggestDokIdPrefix', () => {
   it('truncates a segment longer than 10 chars instead of failing', () => {
     expect(suggestDokIdPrefix('reconciliation', 'reconciliation')).toBe('RECONCILIA');
   });
+
+  it('keeps consonants-only suggestions valid when abbreviation removes every trailing vowel', () => {
+    const prefix = suggestDokIdPrefix(
+      'aeiouaeioua',
+      'aeiouaeioua',
+      { consonantsOnly: true },
+    );
+    expect(prefix).toBe('AX');
+    expect(DOK_ID_RE.test(prefix)).toBe(true);
+  });
+
+  it('turns internal source groups and digit-leading hashes into a valid deterministic id', () => {
+    const prefix = suggestDokIdPrefix('source-8c5967fd8486f344', '_source');
+    expect(prefix).toBe('SOURCE-X8C5967FD8');
+    expect(DOK_ID_RE.test(prefix)).toBe(true);
+  });
+
+  it('turns an omitted root-group feature into a valid deterministic id', () => {
+    const prefix = suggestDokIdPrefix('home', '_root');
+    expect(prefix).toBe('ROOT-HOME');
+    expect(DOK_ID_RE.test(prefix)).toBe(true);
+  });
 });
 
 describe('ensureUniquePrefix', () => {
@@ -84,6 +106,20 @@ describe('ensureUniquePrefix', () => {
       expect(error).toBeInstanceOf(DokIdPrefixCollisionError);
       expect((error as DokIdPrefixCollisionError).candidate).toBe('AUTH');
       expect((error as DokIdPrefixCollisionError).canonicalId).toBe('auth-signup');
+    }
+  });
+
+  it('reports only real collisions and gives recovery that does not assume a cache exists', () => {
+    const used = new Set(['AUTH-SIGNIN']);
+    try {
+      ensureUniquePrefix(undefined, 'auth-signin', 'auth', used);
+      expect.unreachable('expected ensureUniquePrefix to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(DokIdPrefixCollisionError);
+      expect((error as Error).message).toContain('already in use');
+      expect((error as Error).message).toContain('No consolidated cache was written');
+      expect((error as Error).message).not.toContain('edit it directly in the consolidated cache');
+      expect((error as Error).message).not.toContain('re-run `doklo consolidate`');
     }
   });
 });

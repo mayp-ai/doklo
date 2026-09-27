@@ -133,6 +133,45 @@ describe('generation ledger integration', () => {
     expect(persisted.model).toBe('openai/gpt-5.6-terra');
   });
 
+  it('forwards the exact Codex OAuth transport and records Luna in the ledger', async () => {
+    const root = await fixture();
+    const codexFetch = (async () => new Response()) as typeof fetch;
+    let receivedOptions: Parameters<GenerateDeps['generateDokForFeature']>[2] | undefined;
+    const deps: Partial<GenerateDeps> = {
+      generateDokForFeature: async (_feature, _context, options) => {
+        receivedOptions = options;
+        return { success: true, dok: dok(), prompt: '', rawResponse: '{}', usage: null };
+      },
+    };
+    const options = await paidOptions(
+      root,
+      deps,
+      { noRoles: true, noIa: true, noCodeMapping: true, noLexicon: true },
+      {
+        providerKind: 'openai',
+        model: 'openai/gpt-5.6-luna',
+        authSource: 'oauth',
+        baseURL: 'https://chatgpt.com/backend-api/codex',
+        fetch: codexFetch,
+      },
+    );
+
+    const result = await runGenerate(options, deps);
+
+    expect(receivedOptions).toMatchObject({
+      providerKind: 'openai', model: 'openai/gpt-5.6-luna',
+      baseURL: 'https://chatgpt.com/backend-api/codex',
+    });
+    expect(receivedOptions?.fetch).toBe(codexFetch);
+    expect(receivedOptions?.apiKey).toBeUndefined();
+    expect(result.generationLedger?.model).toBe('openai/gpt-5.6-luna');
+    const persisted = JSON.parse(await readFile(
+      join(root, '.doklo', 'cache', 'generation-ledger.json'),
+      'utf8',
+    )) as { model: string };
+    expect(persisted.model).toBe('openai/gpt-5.6-luna');
+  });
+
   it('writes a failed source-feature ledger after a partial generation', async () => {
     const root = await fixture();
     const deps: Partial<GenerateDeps> = {

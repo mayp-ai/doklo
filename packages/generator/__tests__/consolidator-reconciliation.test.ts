@@ -250,6 +250,65 @@ it('retains generic source for generation when metadata-only consolidation exclu
   expect(result.config?.groups[0]?.excluded).toEqual([]);
 });
 
+it('preserves source-review protection when a model excludes a route-less script without a prefix', async () => {
+  const source = features();
+  const group = source.featureGroups[0]!;
+  const f = group.features[0]!;
+  group.id = '_source';
+  group.label = 'Source analysis';
+  group.routePrefix = '';
+  f.id = 'source-8c5967fd8486f344';
+  f.label = 'scripts';
+  f.routePath = '';
+  f.entryPoint = 'scripts/sync-help-docs.mjs';
+  f.files = [{ path: 'scripts/sync-help-docs.mjs', role: 'entry', depth: 0, isShared: false }];
+  f.enabled = false;
+  f.candidate_kind = 'unconnected-source';
+  callModelMock.mockResolvedValue({ success: true, content: JSON.stringify({ groups: [{
+    group_id: '_source', group_label: 'Source analysis', decisions: [{
+      canonical_id: f.id,
+      label: 'scripts',
+      decision: 'exclude',
+      members: [f.id],
+      primary_route: '',
+      reason: 'No route metadata',
+    }],
+  }] }), usage: null, processingTime: 1, error: null });
+
+  const result = await consolidateFeatures(source);
+
+  expect(result.success).toBe(true);
+  expect(result.config?.groups[0]?.features).toEqual([]);
+  expect(result.config?.groups[0]?.excluded).toEqual([{
+    id: f.id,
+    reason: 'UNCONNECTED_SOURCE_REQUIRES_REVIEW',
+  }]);
+  expect(result.config?.stats).toMatchObject({ excluded: 1, consolidatedFeatures: 0 });
+});
+
+it('assigns a valid deterministic id when the model omits the root group', async () => {
+  const source = features();
+  const group = source.featureGroups[0]!;
+  const f = group.features[0]!;
+  group.id = '_root';
+  group.label = 'Root';
+  group.routePrefix = '/';
+  f.id = 'home';
+  f.label = 'Home';
+  f.routePath = '/';
+  callModelMock.mockResolvedValue({
+    success: true,
+    content: '{"groups":[]}',
+    usage: null,
+    processingTime: 1,
+    error: null,
+  });
+
+  const result = await consolidateFeatures(source);
+
+  expect(result.config?.groups[0]?.features[0]?.dok_id_prefix).toBe('ROOT-HOME');
+});
+
 it.each([true, false])('keeps unconnected source excluded even when the model keeps it or omits its group (%s)', async (includeGroup) => {
   const source = features();
   const f = source.featureGroups[0]!.features[0]!;

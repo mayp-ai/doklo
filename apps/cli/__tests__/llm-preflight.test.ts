@@ -212,6 +212,52 @@ describe('LLM runtime-trust preflight', () => {
     await completeAuthorizedLlmCall(run, root, call, null);
   });
 
+  it('binds Codex OAuth Luna without changing the model reference', async () => {
+    const root = await runtimeRoot();
+    const debugDir = join(root, '.doklo/debug');
+    const prompt = 'exact Luna Codex OAuth prompt';
+    const codexFetch = (async () => new Response()) as typeof fetch;
+    const lunaInput: LlmPlanInput = {
+      llm: {
+        providerKind: 'openai',
+        model: 'openai/gpt-5.6-luna',
+        authSource: 'oauth',
+        baseURL: 'https://chatgpt.com/backend-api/codex',
+        fetch: codexFetch,
+      },
+      previews: [],
+      candidateFiles: [{ phase: 'generate', serviceId: 'web', file: 'app/page.tsx', maxChars: 2_000, dokId: 'AUTH' }],
+      preparedCalls: [{
+        phase: 'generate',
+        workItem: { phase: 'generate', serviceId: 'web', id: 'AUTH' },
+        prompt,
+        maxOutputTokens: 8_192,
+      }],
+      debugDir,
+    };
+
+    const plan = buildLlmRunPlan(lunaInput);
+    expect(plan).toMatchObject({
+      providerKind: 'openai', route: 'openai-codex-oauth',
+      model: 'openai/gpt-5.6-luna', authSource: 'oauth',
+    });
+    const run = await authorizeLlmRun(root, plan, lunaInput.llm, { yes: true, isTTY: false });
+    const call = await beginAuthorizedLlmCall(run, root, {
+      phase: 'generate',
+      workItem: { phase: 'generate', serviceId: 'web', id: 'AUTH' },
+      debugDir,
+      prompt,
+      transmissions: [{ phase: 'generate', serviceId: 'web', file: 'app/page.tsx', actualChars: 100 }],
+    });
+
+    expect(call).toMatchObject({
+      providerKind: 'openai', model: 'openai/gpt-5.6-luna',
+      baseURL: 'https://chatgpt.com/backend-api/codex', prompt,
+    });
+    expect(call.fetch).toBe(codexFetch);
+    expect(call).not.toHaveProperty('apiKey');
+  });
+
   it('rejects near-miss OpenAI routes before approval', () => {
     const codexFetch = (async () => new Response()) as typeof fetch;
     const base = {
@@ -223,6 +269,7 @@ describe('LLM runtime-trust preflight', () => {
     };
     for (const llm of [
       { ...base, model: 'openai/gpt-5.5' },
+      { ...base, model: 'openai/gpt-5.6-luna', authSource: 'keychain' as const },
       { ...base, authSource: 'keychain' as const, apiKey: 'must-not-pass' },
       { ...base, baseURL: 'https://proxy.example/v1' },
       { ...base, fetch: undefined },

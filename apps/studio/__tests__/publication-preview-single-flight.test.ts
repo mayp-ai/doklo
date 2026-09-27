@@ -9,7 +9,27 @@ import type {
 const harness = vi.hoisted(() => ({
   renderLivedoc: vi.fn(),
   gate: undefined as ReturnType<typeof deferred> | undefined,
+  canonicalGate: undefined as ReturnType<typeof deferred> | undefined,
+  canonicalStarted: undefined as ReturnType<typeof deferred> | undefined,
+  pauseCanonicalRealpath: false,
 }));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    realpath: vi.fn(async (path: string) => {
+      if (
+        harness.pauseCanonicalRealpath
+        && /doklo-publication-preview-[^/]+$/.test(path)
+      ) {
+        harness.canonicalStarted!.resolve(undefined);
+        await harness.canonicalGate!.promise;
+      }
+      return actual.realpath(path);
+    }),
+  };
+});
 
 vi.mock('@doklo-beta/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@doklo-beta/core')>();
@@ -45,6 +65,9 @@ vi.mock('@doklo-beta/livedoc-engine', () => ({
 describe('renderPublicationCandidateSingleFlight', () => {
   beforeEach(() => {
     harness.gate = deferred<void>();
+    harness.canonicalGate = deferred<void>();
+    harness.canonicalStarted = deferred<void>();
+    harness.pauseCanonicalRealpath = false;
     harness.renderLivedoc.mockReset();
     harness.renderLivedoc.mockImplementation(async (input: {
       outDir: string;
@@ -97,6 +120,28 @@ describe('renderPublicationCandidateSingleFlight', () => {
       html: '<html><body>Shared candidate</body></html>',
     });
     expect(harness.renderLivedoc).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps temporary outputs alive until candidate materialization finishes', async () => {
+    const { renderPublicationCandidateSingleFlight } = await import(
+      '../lib/publication-preview'
+    );
+    const model = previewModel();
+    harness.pauseCanonicalRealpath = true;
+
+    const candidate = renderPublicationCandidateSingleFlight({
+      root: '/workspace',
+      entry: model.publications[0]!,
+      model,
+    });
+    harness.gate!.resolve(undefined);
+    await harness.canonicalStarted!.promise;
+    harness.canonicalGate!.resolve(undefined);
+
+    await expect(candidate).resolves.toMatchObject({
+      kind: 'html',
+      html: '<html><body>Shared candidate</body></html>',
+    });
   });
 });
 

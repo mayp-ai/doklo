@@ -34,7 +34,8 @@ export interface FeatureLedgerEntry {
 
 export type GenerationLedgerModel =
   | 'anthropic/claude-sonnet-5'
-  | 'openai/gpt-5.6-terra';
+  | 'openai/gpt-5.6-terra'
+  | 'openai/gpt-5.6-luna';
 
 export interface GenerationLedgerMetadata {
   workspaceId: string;

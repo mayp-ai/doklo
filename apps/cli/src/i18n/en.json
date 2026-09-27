@@ -112,6 +112,8 @@
   "agent.removed": "Removed Doklo skill: {path}",
   "agent.absent": "No Doklo skill at {path}",
   "agent.discovery_note": "Restart or refresh the client to discover the project skill. Automatic selection depends on the client. Explicit invocation: $doklo (Codex), /doklo (Claude Code).",
+  "agent.purpose": "Project agent integration exposes existing Doklo Doks as product context to Claude Code and Codex.",
+  "agent.skipped": "Skipped project agent integration. No .claude or .agents paths were inspected. Install it later with `doklo agent setup --target claude-code` and `doklo agent setup --target codex`.",
   "agent.invalid_target": "Unsupported client: {path}",
   "agent.conflict": "Preserved existing or modified skill: {path}. Move it aside yourself before retrying.",
   "agent.unsafe_path": "Refusing a symlink or non-regular skill path: {path}",
