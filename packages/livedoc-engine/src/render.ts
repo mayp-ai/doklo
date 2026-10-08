@@ -998,11 +998,13 @@ export async function renderPublication(
     } else {
       // A pre-existing *empty* output directory is not a conflict (MAYP-36).
       // Snapshot its identity first, then verify that this same directory is
-      // empty: the atomic publish re-checks the snapshot (realPath, device,
-      // inode), so a directory swapped in after the snapshot fails closed
+      // empty: publish re-checks identity and modification metadata, including
+      // when a replacement reuses an inode, so a changed destination fails closed
       // instead of being replaced, and an empty directory that was already
       // there is replaced exactly once rather than failing every attempt with
       // a PATH_IDENTITY_CHANGED that the CLI reports as retryable.
+      // Callers must still retain exclusive writer ownership during publish;
+      // this expectation is not an OS-native compare-and-swap.
       expectedDestination = await captureDirectoryPublishDestination(
         workspaceRoot,
         rootRelative(workspaceRoot, outDir),

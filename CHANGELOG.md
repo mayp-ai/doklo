@@ -18,6 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Keep the experimental HWPX toolchain an optional peer in the packaged CLI.
 - Try the next valid document for a template preview when an earlier document
   needs Korean writing-policy review, without changing approval or prose.
+- Reject an output directory changed before publication even if the filesystem
+  reuses its identity number, preserving intervening content.
 
 ### Upgrade notes
 - Existing Hub documents, review status, and official publications remain intact.

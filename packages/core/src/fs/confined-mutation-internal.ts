@@ -57,6 +57,8 @@ export type DirectoryPublishDestinationSnapshot = (
     realPath: string;
     device: string;
     inode: string;
+    modifiedNs?: string;
+    changedNs?: string;
   }
 );
 
@@ -120,6 +122,8 @@ type ExistingPathIdentity = {
   realPath: string;
   device: string;
   inode: string;
+  modifiedNs: string;
+  changedNs: string;
   fileType: number;
 };
 
@@ -414,6 +418,8 @@ function assertExpectedDirectoryPublishDestination(
     || current.realPath !== expected.realPath
     || current.device !== expected.device
     || current.inode !== expected.inode
+    || (expected.modifiedNs !== undefined && current.modifiedNs !== expected.modifiedNs)
+    || (expected.changedNs !== undefined && current.changedNs !== expected.changedNs)
   ) {
     throw identityChanged(authorized);
   }
@@ -427,6 +433,8 @@ function directoryPublishDestinationSnapshot(
     realPath: identity.realPath,
     device: identity.device,
     inode: identity.inode,
+    modifiedNs: identity.modifiedNs,
+    changedNs: identity.changedNs,
   };
 }
 
@@ -1028,6 +1036,8 @@ function identityFromStats(
     realPath,
     device,
     inode,
+    modifiedNs: String(stats.mtimeNs),
+    changedNs: String(stats.ctimeNs),
     fileType,
   };
 }
