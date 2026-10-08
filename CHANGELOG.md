@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-10-08
+
+### Changed
+- Refine Live Docs article navigation, reading layout, tables, and responsive
+  presentation while retaining namespaced anchors for embedded help articles.
+- Allow renderer integrations to supply a stored previous document snapshot for
+  publication change summaries, including an explicitly empty baseline.
+
+### Fixed
+- Keep stable customer-copy checks responsive on long identifiers, whitespace,
+  route-like strings, and structural HTML without loosening publication checks.
+- Keep the experimental HWPX toolchain an optional peer in the packaged CLI.
+- Try the next valid document for a template preview when an earlier document
+  needs Korean writing-policy review, without changing approval or prose.
+- Reject an output directory changed before publication even if the filesystem
+  reuses its identity number, preserving intervening content.
+
+### Upgrade notes
+- Existing Hub documents, review status, and official publications remain intact.
+  Render and review new outputs explicitly to adopt the updated presentation.
+- The package remains an Apache-2.0 developer preview. This update does not
+  enable Cloud hosting, automatic publication, or document approval.
+
 ## [0.3.1] - 2026-09-25
 
 ### Added

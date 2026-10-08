@@ -237,6 +237,8 @@ export interface RenderPublicationInput {
   publication: PublicationV1;
   definition: { path: string; sha256: string };
   overwrite?: boolean;
+  /** Immutable baseline supplied by a host that stores versions outside the filesystem. */
+  previousDokSnapshots?: EvidenceDokSnapshot[];
   dryRun?: boolean;
   signal?: AbortSignal;
   onPlan?: (plan: RenderOutputPlan) => void;
@@ -727,6 +729,7 @@ export async function renderPublication(
       selectedDokIds: selection.selectedDokIds,
       hub,
       resolvedTemplate,
+      previousDokSnapshots: input.previousDokSnapshots,
     });
     const audience = await loadWorkspaceAudienceDictionary(
       workspaceRoot,
@@ -738,9 +741,9 @@ export async function renderPublication(
       input.publication.output_dir,
     );
     const priorEvidence = await readPriorEvidence(workspaceRoot, outDir);
-    const baseline = Array.isArray(priorEvidence?.dok_snapshots)
+    const baseline = input.previousDokSnapshots ?? (Array.isArray(priorEvidence?.dok_snapshots)
       ? priorEvidence.dok_snapshots as EvidenceDokSnapshot[]
-      : undefined;
+      : undefined);
     const dokById = new Map(hub.doks.map((dok) => [dok.dok_id, dok]));
     const selectedDoks = selection.selectedDokIds
       .map((dokId) => dokById.get(dokId))
@@ -869,6 +872,7 @@ export async function renderPublication(
       workspaceRoot,
       publication: input.publication,
       expected: renderInputSha256,
+      previousDokSnapshots: input.previousDokSnapshots,
     });
     const ledger = await publicationOutputLedger(
       workspaceRoot,
@@ -994,11 +998,13 @@ export async function renderPublication(
     } else {
       // A pre-existing *empty* output directory is not a conflict (MAYP-36).
       // Snapshot its identity first, then verify that this same directory is
-      // empty: the atomic publish re-checks the snapshot (realPath, device,
-      // inode), so a directory swapped in after the snapshot fails closed
+      // empty: publish re-checks identity and modification metadata, including
+      // when a replacement reuses an inode, so a changed destination fails closed
       // instead of being replaced, and an empty directory that was already
       // there is replaced exactly once rather than failing every attempt with
       // a PATH_IDENTITY_CHANGED that the CLI reports as retryable.
+      // Callers must still retain exclusive writer ownership during publish;
+      // this expectation is not an OS-native compare-and-swap.
       expectedDestination = await captureDirectoryPublishDestination(
         workspaceRoot,
         rootRelative(workspaceRoot, outDir),
@@ -1022,6 +1028,7 @@ export async function renderPublication(
       workspaceRoot,
       publication: input.publication,
       expected: renderInputSha256,
+      previousDokSnapshots: input.previousDokSnapshots,
     });
     await publishDirectoryContained(
       workspaceRoot,
@@ -1619,6 +1626,7 @@ async function assertEffectiveRenderInputDigest(input: {
   workspaceRoot: string;
   publication: PublicationV1;
   expected: string;
+  previousDokSnapshots?: EvidenceDokSnapshot[];
 }): Promise<void> {
   const hub = await loadHubModel(input.workspaceRoot);
   const resolvedTemplate = await resolveTemplate(input.publication.template, {
@@ -1643,6 +1651,7 @@ async function assertEffectiveRenderInputDigest(input: {
     selectedDokIds: selection.selectedDokIds,
     hub,
     resolvedTemplate,
+    previousDokSnapshots: input.previousDokSnapshots,
   });
   if (actual !== input.expected) {
     throw Object.assign(

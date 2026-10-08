@@ -8,7 +8,7 @@ Doklo reads supported application code and creates feature-document drafts for p
 npm install -g @mayp/doklo
 ```
 
-Version 0.3.1 requires Node.js 20.9 or newer, with one project per workspace.
+Version 0.3.2 requires Node.js 20.9 or newer, with one project per workspace.
 
 ## Start in your project
 
@@ -28,6 +28,14 @@ For command options, run `doklo --help` or `doklo <command> --help`. Coding agen
 - **Generic source analysis:** Groups readable UTF-8 source files for model review without requiring a framework-specific parser or package.json. Next.js App Router adds specialized route and dependency extraction; other frameworks use generic source evidence.
 - **Source exclusions:** Known sensitive paths, Git-ignored files, dependencies, and build output are excluded before source reads. Binary files, non-UTF-8 files, and files over 1 MiB are also excluded.
 - **Change detection and edit protection:** `doklo sync --check` reports tracked source changes. Ordinary `doklo sync` preserves human-edited documents by skipping them.
+
+## Live Docs improvements in 0.3.2
+
+Help articles have a revised reading layout and section navigation that also
+works when several articles are embedded together. Stable copy checks handle
+long input without the previous excessive scanning time. Renderer integrations
+can supply a stored document baseline for change summaries. The experimental
+HWPX toolchain remains optional. Existing documents are not rewritten or approved.
 
 ## First-run planning and embedded help in 0.3.1
 

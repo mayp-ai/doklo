@@ -81,7 +81,7 @@ const RELEASE_DIR = join(
   `.release.stage-${process.pid}-${randomUUID()}`,
 );
 const PKG_NAME = '@mayp/doklo';
-const PKG_VERSION = '0.3.1';
+const PKG_VERSION = '0.3.2';
 const RELEASE_LICENSE = 'Apache-2.0';
 
 const argv = process.argv.slice(2);
@@ -284,7 +284,9 @@ function computeDependencies() {
 
   for (const mp of manifests) {
     const m = JSON.parse(readFileSync(mp, 'utf-8'));
-    for (const [name, range] of Object.entries(m.dependencies ?? {})) {
+    const optionalPeers = Object.fromEntries(Object.entries(m.peerDependencies ?? {})
+      .filter(([name]) => DROP_TO_PEER.has(name)));
+    for (const [name, range] of Object.entries({ ...optionalPeers, ...m.dependencies })) {
       if (name.startsWith('@doklo-beta/')) continue; // workspace → inlined, not shipped
       if (DROP_TO_PEER.has(name)) {
         peers[name] = peers[name] ? pickHigher(peers[name], range) : range;

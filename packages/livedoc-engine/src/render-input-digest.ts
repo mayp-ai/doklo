@@ -17,6 +17,7 @@ import {
 } from './template-loader.js';
 import type { PublicationFormat } from './publication.js';
 import { ENGINE_VERSION } from './version.js';
+import type { EvidenceDokSnapshot } from './dok-changes.js';
 
 type ContentFile = {
   path: string;
@@ -36,6 +37,7 @@ export async function effectiveRenderInputDigest(input: {
   resolvedTemplate?: ResolvedTemplate;
   userHome?: string;
   builtinRoot?: string;
+  previousDokSnapshots?: EvidenceDokSnapshot[];
 }): Promise<string> {
   const hub = input.hub ?? await loadHubModel(input.workspaceRoot);
   const template = input.resolvedTemplate ?? await resolveTemplate(
@@ -73,6 +75,7 @@ export async function effectiveRenderInputDigest(input: {
   return digest({
     schema_version: 1,
     engine_version: ENGINE_VERSION,
+    ...(input.previousDokSnapshots !== undefined ? { previous_dok_snapshots: input.previousDokSnapshots } : {}),
     template: {
       source: template.source,
       files: await resolvedTree(template.path),

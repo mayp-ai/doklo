@@ -1,6 +1,8 @@
+import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 import * as engine from '../src/index.js';
-import { lintStableMarkdown } from '../src/stable-lint.js';
+import { INTERNAL_IDENTIFIER_PATTERN, lintStableMarkdown, rawHtmlTags, visibleText } from '../src/stable-lint.js';
+import { LEADING_WHITESPACE_REWRITES } from '../src/stable-help-copy.js';
 import { parseTemplateManifest, type TemplateManifest } from '../src/template-manifest.js';
 
 type Violation = {
@@ -320,5 +322,192 @@ describe('stable lint public-term allowlist', () => {
     } as Parameters<typeof lint>[0]).filter((violation) => violation.code === 'INTERNAL_IDENTIFIER');
     expect(allowed.map((violation) => violation.excerpt).join(' ')).not.toContain('ExampleCompany');
     expect(allowed.map((violation) => violation.excerpt).join(' ')).toContain('useAuthToken');
+  });
+});
+
+describe('stable lint identifier rule runs in linear time', () => {
+  /**
+   * The lint runs under a watchdog, so a pattern that backtracks without bound
+   * fails the test instead of hanging the suite.
+   */
+  function lintWithin(milliseconds: number, input: Parameters<typeof run>): Violation[] {
+    return runInNewContext('lintNow()', { lintNow: () => run(...input) }, { timeout: milliseconds }) as Violation[];
+  }
+
+  // A capitalised word, a run of capitals, then a character that denies the
+  // closing word boundary. A nested quantifier over the capitals tried every
+  // way of splitting the run: 2^64 here.
+  const hostile = `Aa${'A'.repeat(64)}_`;
+
+  it('finishes on a capital run that cannot end at a word boundary', () => {
+    const identifiers = lintWithin(2_000, [`<h1>${hostile} guide</h1>`])
+      .filter((violation) => violation.code === 'INTERNAL_IDENTIFIER');
+    expect(identifiers).toEqual([]);
+  });
+
+  it('finishes on the same word in template metadata and in the source revision', () => {
+    expect(lintWithin(2_000, [
+      '<p>Account recovery</p>',
+      stableManifest({ display_name: { en: `${hostile} guide` } }),
+      { sourceRevision: hostile },
+    ]).filter((violation) => violation.code === 'INTERNAL_IDENTIFIER')).toEqual([]);
+  });
+
+  it('still reports the word once it does end at a word boundary', () => {
+    const word = hostile.slice(0, -1);
+    expect(lintWithin(2_000, [`<h1>${word} guide</h1>`])).toContainEqual(
+      expect.objectContaining({ code: 'INTERNAL_IDENTIFIER', excerpt: `${word} guide` }),
+    );
+  });
+
+  it('finishes on a long document of hostile words', () => {
+    const html = `<p>${Array.from({ length: 2_000 }, () => hostile).join(' ')}</p>`;
+    expect(lintWithin(5_000, [html]).filter((violation) => violation.code === 'INTERNAL_IDENTIFIER')).toEqual([]);
+  });
+
+  it('finishes on a long whitespace run after "auto-suggested from" in template metadata', () => {
+    // Metadata strings reach the lint without whitespace collapsing. Two
+    // adjacent whitespace repetitions made this quadratic: seconds at 80,000.
+    const description = `Auto-suggested from${' '.repeat(200_000)}x`;
+    expect(lintWithin(1_000, [
+      '<p>Account recovery</p>',
+      stableManifest({ description: { en: description } }),
+    ]).filter((violation) => violation.code === 'INTERNAL_IDENTIFIER')).toContainEqual(
+      expect.objectContaining({ excerpt: expect.stringContaining('Auto-suggested') }),
+    );
+  });
+
+  it('matches exactly what the old "auto-suggested … scan" form matched', () => {
+    const before = /\b[Aa]uto[- ]suggested(?:\s+from\s+(?:a\s+)?(?:code|repository|workspace)?\s*scan)?\b/gu;
+    const tokens = ['Auto-suggested', 'auto suggested', 'from', 'a', 'code', 'workspace', 'scan', 'x', ' ', '  ', '\n'];
+    const matches = (pattern: RegExp, text: string) =>
+      [...text.matchAll(pattern)].map((match) => `${match.index}:${match[0]}`).join('|');
+    const differences: string[] = [];
+    const visit = (text: string, depth: number) => {
+      if (matches(INTERNAL_IDENTIFIER_PATTERN, text) !== matches(before, text)) differences.push(JSON.stringify(text));
+      if (depth === 6) return;
+      for (const token of tokens) visit(text + token, depth + 1);
+    };
+    visit('', 0);
+    expect(differences).toEqual([]);
+  });
+
+  it('matches exactly what the nested form matched, on every short string', () => {
+    // The rule as it was written before, kept as the oracle. Strings this short
+    // keep its backtracking small.
+    const nested = /\b(?:user_actions(?:\.steps)?|business_rules|acceptance_criteria|source_anchors|topology\.edges|editingBanner|sourceAnchors?|dokId|termRef|userActions|businessRules|acceptanceCriteria|TermRef|Handlebars|DOM|null|Doks?|ROLE-[A-Z0-9_-]+|[Aa]uto[- ]suggested(?:\s+from\s+(?:a\s+)?(?:code|repository|workspace)?\s*scan)?|[Gg]enerated\s+from\s+(?:a\s+)?(?:code|repository|workspace)\s+scan|(?:high|medium|low)\s+confidence|[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|(?:use|has|is)[A-Z][A-Za-z0-9]*|[a-z][A-Za-z0-9]*(?:Id|Email))\b|_meta\b/gu;
+    const matches = (pattern: RegExp, text: string) =>
+      [...text.matchAll(pattern)].map((match) => `${match.index}:${match[0]}`).join('|');
+    // Every character class the CamelCase branch distinguishes, plus the
+    // letters that reach its neighbours ("isA…", "…Id").
+    const alphabet = ['A', 'I', 'a', 'd', 'i', 's', '1', '_', ' '];
+    const differences: string[] = [];
+    let checked = 0;
+    const visit = (text: string) => {
+      checked += 1;
+      if (matches(INTERNAL_IDENTIFIER_PATTERN, text) !== matches(nested, text)) differences.push(text);
+      if (text.length === 6) return;
+      for (const character of alphabet) visit(text + character);
+    };
+    visit('');
+    expect(checked).toBe((9 ** 7 - 1) / 8);
+    expect(differences).toEqual([]);
+  });
+});
+
+describe('stable lint text extraction runs in linear time', () => {
+  // The extraction as written before: three replacements, then entities and spaces.
+  const before = (html: string) => html
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<(?:style|script)\b[^>]*>[\s\S]*?<\/(?:style|script)>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  const tagsBefore = (raw: string) =>
+    [...raw.matchAll(/<\/?([A-Za-z][A-Za-z0-9-]*)(?=[\s/>])[^>]*>/gu)].map((match) => `${match.index}:${match[0]}:${match[1]}`);
+  const tokens = ['<', '>', '<!--', '-->', '-', '<style', '<STYLE', '<script', '<styles', '</style>', '</Script>', '<p>', 'a', ' ', '&lt;', '/'];
+
+  function* sequences(depth: number, prefix = ''): Generator<string> {
+    yield prefix;
+    if (depth === 0) return;
+    for (const token of tokens) yield* sequences(depth - 1, prefix + token);
+  }
+
+  function within<T>(milliseconds: number, work: () => T): T {
+    return runInNewContext('work()', { work }, { timeout: milliseconds }) as T;
+  }
+
+  it('extracts the same visible text as the replacements on every short token sequence', () => {
+    const differences: string[] = [];
+    for (const html of sequences(5)) {
+      if (visibleText(html) !== before(html)) differences.push(JSON.stringify(html));
+      if (differences.length > 20) break;
+    }
+    expect(differences).toEqual([]);
+  });
+
+  it('finds the same structural tags on every short token sequence', () => {
+    const differences: string[] = [];
+    for (const raw of sequences(5)) {
+      const found = rawHtmlTags(raw).map((match) => `${match.index}:${match[0]}:${match[1]}`);
+      if (JSON.stringify(found) !== JSON.stringify(tagsBefore(raw))) differences.push(JSON.stringify(raw));
+      if (differences.length > 20) break;
+    }
+    expect(differences).toEqual([]);
+  });
+
+  it.each([
+    ['unclosed comments', (n: number) => '<!--'.repeat(n)],
+    ['unclosed style elements', (n: number) => '<style>'.repeat(n)],
+    ['unclosed script openers', (n: number) => '<script x'.repeat(n)],
+    ['a trailing run of <', (n: number) => `<p>a</p>${'<'.repeat(n)}`],
+  ])('extracts visible text from %s', (_name, build) => {
+    const html = build(100_000);
+    within(2_000, () => visibleText(html));
+  });
+
+  it('reads structural tags from one long unterminated html token', () => {
+    const markdown = `<div ${'<a '.repeat(100_000)}`;
+    within(2_000, () => lintStableMarkdown(markdown));
+  });
+});
+
+describe('stable help copy rewrites run in linear time', () => {
+  const beforePatterns = [
+    /\s+via\s+(?:an?\s+)?server[- ]side\s+authenticated\s+form\b/giu,
+    /\s*\(pending\)/giu,
+    /\s+without a session\b/giu,
+  ];
+  const tokens = [' ', '\n', 'via', 'a', 'server-side', 'authenticated', 'form', '(pending)', 'without', 'session', 'x'];
+
+  function* sequences(depth: number, prefix = ''): Generator<string> {
+    yield prefix;
+    if (depth === 0) return;
+    for (const token of tokens) yield* sequences(depth - 1, prefix + token);
+  }
+
+  it('rewrite exactly what the leading-whitespace forms rewrote', () => {
+    expect(LEADING_WHITESPACE_REWRITES).toHaveLength(beforePatterns.length);
+    const differences: string[] = [];
+    for (const text of sequences(5)) {
+      LEADING_WHITESPACE_REWRITES.forEach((pattern, index) => {
+        if (text.replace(pattern, '') !== text.replace(beforePatterns[index]!, '')) differences.push(JSON.stringify(text));
+      });
+      if (differences.length > 20) break;
+    }
+    expect(differences).toEqual([]);
+  });
+
+  it('finish on a long whitespace run that leads nowhere', () => {
+    const text = `${' '.repeat(200_000)}x`;
+    for (const pattern of LEADING_WHITESPACE_REWRITES) {
+      runInNewContext('text.replace(pattern, "")', { text, pattern }, { timeout: 1_000 });
+    }
   });
 });

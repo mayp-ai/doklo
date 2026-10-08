@@ -1,107 +1,95 @@
-/* layer: template */
-/* ============================================================
- * help-page — customer help article.
- * One accent, three greys, hierarchy from size and spacing.
- * Structure follows mainstream help centers: title, one-line
- * summary, task steps, conditions, verification, support link.
- * extends_default_css: false (full replace).
- * ============================================================ */
-
+/* Help articles: a quiet reading surface, customer identity, and task navigation.
+ * Shared tokens also power workspace branding. No external asset is required. */
 :root {
-  --font-sans: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI",
-               "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  --ink: #1f2328;
-  --ink-soft: #3b434b;
-  --ink-muted: #57606a;
-  --line: #e6e8eb;
-  --bg: #ffffff;
-  --bg-soft: #f6f8fa;
-  --accent: #1f6feb;
-  --measure: 720px;
+  color-scheme: light;
+  --font-sans: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --ink: oklch(0.255 0.016 165);
+  --ink-soft: oklch(0.38 0.014 165);
+  --ink-muted: oklch(0.46 0.014 165);
+  --line: oklch(0.89 0.01 165);
+  --bg: oklch(0.994 0.003 165);
+  --bg-soft: oklch(0.964 0.008 165);
+  --accent: #045e52;
+  --measure: 1040px;
 }
-
-/* ----- reset (extends_default_css: false) ----- */
 *, *::before, *::after { box-sizing: border-box; }
+html { scroll-padding-top: 24px; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
-body {
-  font-family: var(--font-sans);
-  font-size: 16px;
-  line-height: 1.7;
-  -webkit-font-smoothing: antialiased;
-  word-break: keep-all;
-  max-width: var(--measure);
-  margin: 0 auto;
-  padding: 40px 24px 72px;
-}
+body { font-family: var(--font-sans); font-size: 16px; line-height: 1.75; -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: anywhere; }
+main.livedoc { max-width: var(--measure); margin: 0 auto; padding: 48px 24px 80px; }
 h1, h2, h3, p, ol, ul, figure { margin: 0; }
 img { max-width: 100%; height: auto; display: block; }
-a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
-.doklo-help:focus-visible, .doklo-help :focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
-
-/* ----- hero: breadcrumb, title, summary ----- */
-.help-hero { padding-bottom: 24px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
-.help-crumb { font-size: 14px; color: var(--ink-muted); margin-bottom: 14px; }
+a { color: var(--accent); text-decoration: underline; text-underline-offset: 4px; }
+.doklo-help:focus-visible, .doklo-help :focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+.help-hero { padding-bottom: 32px; border-bottom: 1px solid var(--line); }
+.help-crumb { font-size: 13px; font-weight: 600; color: var(--ink-muted); margin-bottom: 16px; }
 .help-crumb a { color: var(--ink-muted); }
-.help-title { font-size: 30px; line-height: 1.25; font-weight: 700; letter-spacing: -0.01em; }
-.help-lede { font-size: 17px; color: var(--ink-soft); margin-top: 10px; }
-
-/* ----- sections ----- */
-.help-section { padding-top: 28px; }
-.help-section + .help-section { margin-top: 8px; border-top: 1px solid var(--line); }
-.help-section-title { font-size: 20px; font-weight: 700; margin-bottom: 12px; }
-
-/* ----- steps: one numbered list, automatic steps unnumbered ----- */
+.help-title { max-width: 24ch; font-size: 40px; line-height: 1.25; font-weight: 750; letter-spacing: -0.025em; }
+.help-lede { max-width: 65ch; font-size: 18px; line-height: 1.7; color: var(--ink-soft); margin-top: 16px; }
+.help-layout { display: grid; grid-template-columns: 176px minmax(0,1fr); column-gap: 48px; align-items: start; margin-top: 40px; }
+.help-layout:not(:has(.help-toc)) { display: block; }
+.help-toc { position: sticky; top: 24px; padding-top: 4px; }
+.help-toc-title { font-size: 12px; font-weight: 700; color: var(--ink-muted); margin-bottom: 12px; }
+.help-toc ul { list-style: none; padding: 0; }
+.help-toc li + li { margin-top: 12px; }
+.help-toc a { font-size: 14px; text-decoration: none; color: var(--ink-soft); }
+.help-toc a:hover { color: var(--accent); text-decoration: underline; }
+.help-content { min-width: 0; max-width: 70ch; }
+.help-section + .help-section { margin-top: 40px; padding-top: 32px; border-top: 1px solid var(--line); }
+.help-section-title { font-size: 23px; line-height: 1.35; font-weight: 700; letter-spacing: -0.015em; margin-bottom: 24px; }
 .help-steps { list-style: none; padding: 0; counter-reset: helpstep; }
-.help-step { position: relative; padding: 0 0 14px 34px; }
+.help-step { position: relative; padding: 0 0 28px 44px; }
+.help-step:last-child { padding-bottom: 0; }
 .help-step--user { counter-increment: helpstep; }
-.help-step--user::before {
-  content: counter(helpstep) ".";
-  position: absolute; left: 0; top: 0;
-  width: 26px; text-align: right;
-  font-weight: 600; color: var(--ink);
-}
-.help-step-actor { font-size: 13px; color: var(--ink-muted); margin-bottom: 2px; }
-.help-step-intent { font-weight: 600; }
-.help-step-pre, .help-step-result { color: var(--ink-soft); margin-top: 4px; }
-.help-step-pre-label, .help-step-result-label { color: var(--ink-muted); font-size: 14px; margin-right: 6px; }
-.help-step--auto { padding-left: 34px; }
-.help-step-auto-text { color: var(--ink-soft); }
-.help-step-auto-label { color: var(--ink-muted); font-size: 14px; margin-right: 6px; }
-.help-step-auto-cond { color: var(--ink-soft); font-size: 15px; }
-.help-step-auto-cond-label { color: var(--ink-muted); font-size: 14px; margin-right: 6px; }
-
-/* ----- step screenshots ----- */
-.help-step-screenshot { margin-top: 10px; }
+.help-step--user::before { content: counter(helpstep, decimal-leading-zero); position: absolute; left: 0; top: 0; width: 28px; font-size: 13px; font-weight: 700; line-height: 28px; color: var(--accent); }
+.help-step-actor { font-size: 13px; color: var(--ink-muted); margin-bottom: 4px; }
+.help-step-intent { font-size: 17px; font-weight: 650; }
+.help-step-pre { color: var(--ink-soft); margin-top: 8px; }
+.help-step-result { color: var(--ink-soft); margin-top: 12px; padding: 12px 16px; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 8px; }
+.help-step-pre-label, .help-step-result-label { color: var(--ink-muted); font-size: 13px; font-weight: 500; margin-right: 8px; }
+.help-step--auto { padding-left: 44px; }
+.help-step-auto-text, .help-step-auto-cond { color: var(--ink-soft); }
+.help-step-auto-label, .help-step-auto-cond-label { color: var(--ink-muted); font-size: 13px; margin-right: 8px; }
+.help-step-screenshot { margin-top: 16px; }
 .help-shot-wrap { position: relative; display: block; }
-.help-screenshot-img { border: 1px solid var(--line); }
-/* annotation overlay: the capture pipeline measured where the user acts */
-.help-shot-box { position: absolute; border: 2px solid var(--accent); pointer-events: none; }
-.help-shots-multi { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.help-screenshot-img { border: 1px solid var(--line); border-radius: 8px; }
+.help-shot-box { position: absolute; border: 2px solid var(--accent); border-radius: 4px; pointer-events: none; }
+.help-shots-multi { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .help-shot-pane { min-width: 0; }
-.help-shot-pane:has(.help-shot-plat--mobile) { max-width: 320px; }
-.help-shot-plat { display: block; font-size: 13px; color: var(--ink-muted); margin-bottom: 4px; }
-
-/* ----- conditions and limits ----- */
+.help-shot-pane:has(.help-shot-plat--mobile) { max-width: 280px; }
+.help-shot-plat { display: block; font-size: 12px; font-weight: 600; color: var(--ink-muted); margin-bottom: 8px; }
 .help-tips { list-style: none; padding: 0; }
-.help-tip { padding: 8px 0; border-bottom: 1px solid var(--line); }
-.help-tip:last-child { border-bottom: 0; }
-.help-tip-type { color: var(--ink-muted); font-size: 14px; margin-right: 8px; }
+.help-tip { display: grid; grid-template-columns: 112px minmax(0,1fr); gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.help-tip:first-child { padding-top: 0; }
+.help-tip:last-child { border-bottom: 0; padding-bottom: 0; }
+.help-tip-type { color: var(--ink-muted); font-size: 13px; }
 .help-tip-text { color: var(--ink); }
-
-/* ----- verification ----- */
 .help-checks { padding-left: 22px; }
-.help-check { padding: 3px 0; }
-.help-check-rules { color: var(--ink-muted); font-size: 14px; margin-left: 6px; }
-.help-check-rules-label { margin-right: 4px; }
+.help-check { padding: 6px 0; }
+.help-check::marker { color: var(--accent); }
+.help-check-rules { display: block; color: var(--ink-muted); font-size: 13px; margin-top: 4px; }
+.help-check-rules-label { margin-right: 8px; }
 .help-check-rule + .help-check-rule::before { content: ", "; }
-
-/* ----- support ----- */
-.help-feedback { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 15px; color: var(--ink-soft); }
-.help-feedback-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
-
-/* ----- responsive ----- */
-@media (max-width: 640px) {
-  body { padding: 24px 16px 56px; font-size: 15px; }
-  .help-title { font-size: 26px; }
+.help-feedback { margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 15px; }
+.help-feedback-title { font-size: 16px; font-weight: 650; margin-bottom: 4px; }
+@media (max-width: 760px) {
+  main.livedoc { padding: 32px 20px 56px; }
+  .help-title { font-size: 30px; }
+  .help-lede { font-size: 16px; }
+  .help-layout { display: block; margin-top: 24px; }
+  .help-toc { position: static; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+  .help-toc ul { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+  .help-toc li + li { margin-top: 0; }
+  .help-section-title { font-size: 21px; margin-bottom: 20px; }
+  .help-tip { grid-template-columns: 1fr; gap: 4px; }
   .help-shots-multi { grid-template-columns: 1fr; }
+}
+@media print {
+  main.livedoc { max-width: none; padding: 0; }
+  .help-layout { display: block; }
+  .help-toc { display: none; }
+  .help-title { font-size: 28pt; }
+  .help-step, .help-tip, .help-check, figure { break-inside: avoid; }
+  h2, h3 { break-after: avoid; }
+  a { color: inherit; }
 }

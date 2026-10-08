@@ -7,6 +7,19 @@
   {{/if}}
 </header>
 
+<div class="help-layout">
+{{#if (add help.steps.length (add help.rules.length help.criteria.length))}}
+<nav class="help-toc" aria-label="{{t "toc_title"}}">
+<p class="help-toc-title">{{t "toc_title"}}</p>
+<ul>
+{{#if help.steps.length}}<li><a href="#{{help_html.how_id}}">{{t "toc_how"}}</a></li>{{/if}}
+{{#if help.rules.length}}<li><a href="#{{help_html.tips_id}}">{{t "toc_tips"}}</a></li>{{/if}}
+{{#if help.criteria.length}}<li><a href="#{{help_html.done_id}}">{{t "toc_done"}}</a></li>{{/if}}
+</ul>
+</nav>
+{{/if}}
+<div class="help-content">
+
 {{#if help.steps.length}}
 <section id="{{help_html.how_id}}" class="help-section help-section--how" aria-labelledby="{{help_html.how_title_id}}" tabindex="-1">
 <{{help_html.section_tag}} id="{{help_html.how_title_id}}" class="help-section-title" tabindex="-1">{{t "section_how"}}</{{help_html.section_tag}}>
@@ -96,4 +109,7 @@
 <p class="help-feedback-body">{{t "feedback_body"}} <a class="help-feedback-cta" href="{{variables.support_url}}">{{t "feedback_cta"}}</a></p>
 </footer>
 {{/if}}
+
+</div>
+</div>
 </article>

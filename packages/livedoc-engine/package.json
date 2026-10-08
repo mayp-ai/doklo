@@ -31,7 +31,6 @@
     "isomorphic-dompurify": "^2.16.0",
     "js-yaml": "^4.1.0",
     "jszip": "^3.10.1",
-    "kordoc": "^2.9.0",
     "marked": "^14.1.0",
     "pptxgenjs": "^3.12.0",
     "simple-git": "^3.27.0",
@@ -39,6 +38,14 @@
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9"
+  },
+  "peerDependencies": {
+    "kordoc": "^2.9.0"
+  },
+  "peerDependenciesMeta": {
+    "kordoc": {
+      "optional": true
+    }
   },
   "license": "Apache-2.0"
 }
