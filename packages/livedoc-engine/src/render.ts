@@ -237,6 +237,8 @@ export interface RenderPublicationInput {
   publication: PublicationV1;
   definition: { path: string; sha256: string };
   overwrite?: boolean;
+  /** Immutable baseline supplied by a host that stores versions outside the filesystem. */
+  previousDokSnapshots?: EvidenceDokSnapshot[];
   dryRun?: boolean;
   signal?: AbortSignal;
   onPlan?: (plan: RenderOutputPlan) => void;
@@ -727,6 +729,7 @@ export async function renderPublication(
       selectedDokIds: selection.selectedDokIds,
       hub,
       resolvedTemplate,
+      previousDokSnapshots: input.previousDokSnapshots,
     });
     const audience = await loadWorkspaceAudienceDictionary(
       workspaceRoot,
@@ -738,9 +741,9 @@ export async function renderPublication(
       input.publication.output_dir,
     );
     const priorEvidence = await readPriorEvidence(workspaceRoot, outDir);
-    const baseline = Array.isArray(priorEvidence?.dok_snapshots)
+    const baseline = input.previousDokSnapshots ?? (Array.isArray(priorEvidence?.dok_snapshots)
       ? priorEvidence.dok_snapshots as EvidenceDokSnapshot[]
-      : undefined;
+      : undefined);
     const dokById = new Map(hub.doks.map((dok) => [dok.dok_id, dok]));
     const selectedDoks = selection.selectedDokIds
       .map((dokId) => dokById.get(dokId))
@@ -869,6 +872,7 @@ export async function renderPublication(
       workspaceRoot,
       publication: input.publication,
       expected: renderInputSha256,
+      previousDokSnapshots: input.previousDokSnapshots,
     });
     const ledger = await publicationOutputLedger(
       workspaceRoot,
@@ -1022,6 +1026,7 @@ export async function renderPublication(
       workspaceRoot,
       publication: input.publication,
       expected: renderInputSha256,
+      previousDokSnapshots: input.previousDokSnapshots,
     });
     await publishDirectoryContained(
       workspaceRoot,
@@ -1619,6 +1624,7 @@ async function assertEffectiveRenderInputDigest(input: {
   workspaceRoot: string;
   publication: PublicationV1;
   expected: string;
+  previousDokSnapshots?: EvidenceDokSnapshot[];
 }): Promise<void> {
   const hub = await loadHubModel(input.workspaceRoot);
   const resolvedTemplate = await resolveTemplate(input.publication.template, {
@@ -1643,6 +1649,7 @@ async function assertEffectiveRenderInputDigest(input: {
     selectedDokIds: selection.selectedDokIds,
     hub,
     resolvedTemplate,
+    previousDokSnapshots: input.previousDokSnapshots,
   });
   if (actual !== input.expected) {
     throw Object.assign(

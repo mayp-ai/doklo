@@ -177,6 +177,19 @@ export function prepareStableHelpCopy(args: {
   };
 }
 
+/**
+ * Rewrites that remove a phrase together with the whitespace before it. Each
+ * starts only where that whitespace starts: begun inside a run, the leading
+ * \s+ read the rest of the run before failing, so a long run of spaces that
+ * led to none of the phrases was quadratic. A match begun inside a run can
+ * always begin at the run's start too, so the matches are unchanged.
+ */
+export const LEADING_WHITESPACE_REWRITES = [
+  /(?<!\s)\s+via\s+(?:an?\s+)?server[- ]side\s+authenticated\s+form\b/giu,
+  /(?<!\s)\s*\(pending\)/giu,
+  /(?<!\s)\s+without a session\b/giu,
+] as const;
+
 function normalizePublicCopy(source: string, mode: 'label' | 'prose'): {
   text?: string;
   category?: StableHelpCopyChange['category'];
@@ -191,12 +204,12 @@ function normalizePublicCopy(source: string, mode: 'label' | 'prose'): {
 
   // Reviewed source-preserving rewrites: each one keeps meaning already stated
   // in the input while removing storage or request-state vocabulary.
-  replace(/\s+via\s+(?:an?\s+)?server[- ]side\s+authenticated\s+form\b/giu, '');
+  replace(LEADING_WHITESPACE_REWRITES[0], '');
   replace(/\bForm data is sent to the server[- ]side sign-in action and\s+/giu, '');
   replace(/\b(?:the\s+)?submit button enters a pending\/loading state\b/giu,
     'the submit button shows that processing is in progress');
   replace(/\bwhen the request is pending\b/giu, 'while the request is being processed');
-  replace(/\s*\(pending\)/giu, '');
+  replace(LEADING_WHITESPACE_REWRITES[1], '');
   replace(/\ba user record exists for the given email\b/giu, 'an account exists for the given email');
   replace(
     /\bthe provided password matches the stored bcrypt-hashed password\b/giu,
@@ -205,7 +218,7 @@ function normalizePublicCopy(source: string, mode: 'label' | 'prose'): {
   replace(/\bEmail exists in the user database\b/giu, 'Email belongs to a registered account');
   replace(/\bPassword matches the stored hashed password\b/giu, 'Password is correct for that account');
   replace(/\bAuthenticated session is established and (?:the )?user\b/giu, 'The user');
-  replace(/\s+without a session\b/giu, '');
+  replace(LEADING_WHITESPACE_REWRITES[2], '');
   replace(/\band no session is created\b/giu, 'and the user remains signed out');
   replace(
     /(?<![A-Za-z0-9._:/-])(?:(?:a|an|the)\s+)?\/protected\b(?:\s+route)?/giu,

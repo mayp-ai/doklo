@@ -133,7 +133,7 @@ async function renderTemplatePreview(input: {
   const format = input.format;
   const engine = await loadEngine();
   if (input.template.scope === 'per_dok') {
-    let lastStableLintError: Error | undefined;
+    let lastCandidateError: Error | undefined;
     for (const dokId of input.dokIds) {
       try {
         return await renderTextTemplatePreview({
@@ -143,11 +143,14 @@ async function renderTemplatePreview(input: {
           format,
         });
       } catch (error) {
-        if (!(error instanceof engine.StableLintError)) throw error;
-        lastStableLintError = error;
+        const writingPolicyFailure = error instanceof engine.EngineError
+          && (error.code === 'KOREAN_TONE_CONFLICT'
+            || error.code === 'KOREAN_WRITING_POLICY_CHANGED');
+        if (!(error instanceof engine.StableLintError) && !writingPolicyFailure) throw error;
+        lastCandidateError = error;
       }
     }
-    if (lastStableLintError) throw lastStableLintError;
+    if (lastCandidateError) throw lastCandidateError;
     throw new Error(
       `Template '${input.template.name}' has no eligible Dok to preview.`,
     );

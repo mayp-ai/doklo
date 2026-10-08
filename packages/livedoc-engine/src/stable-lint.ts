@@ -1,7 +1,7 @@
 import { marked } from 'marked';
 import type { TemplateManifest } from './template-manifest.js';
 import { EngineError } from './errors.js';
-import { SOURCE_PATH_PATTERN_SOURCE } from './public-copy-patterns.js';
+import { findSourcePaths, type PatternMatch } from './public-copy-patterns.js';
 
 export type StableLintViolation = {
   code: 'INCOMPLETE_COPY' | 'INTERNAL_IDENTIFIER' | 'SOURCE_PATH' | 'FALSE_FRESHNESS' | 'STRUCTURAL_RAW_HTML' | 'IMPLEMENTATION_DETAIL';
@@ -22,9 +22,33 @@ export class StableLintError extends EngineError {
 type LintRule = {
   code: StableLintViolation['code'];
   message: string;
-  pattern: RegExp;
+  find: (source: string) => Iterable<PatternMatch>;
 };
 
+function matching(pattern: RegExp): (source: string) => Iterable<PatternMatch> {
+  return (source) => [...source.matchAll(pattern)].map((match) => ({ index: match.index ?? 0, text: match[0] }));
+}
+
+/**
+ * Developer-only terms that must not reach a stable artifact.
+ *
+ * The CamelCase alternative is `[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*`: a capitalised
+ * word, a second capital, then the rest of the word. It was once written with
+ * the tail repeated — `(?:[A-Z][A-Za-z0-9]*)+` — which names the same strings,
+ * because the tail's own class already admits capitals. That form let the
+ * engine split a run of capitals in every possible way before giving up, so a
+ * publication name such as "Aa" + forty capitals + "_" did not finish.
+ *
+ * The "auto-suggested from … scan" alternative had the same kind of fault on a
+ * smaller scale: an optional word between two whitespace repetitions left them
+ * adjacent when the word was absent, so a long whitespace run after "from" was
+ * split every possible way (quadratic; template metadata is not whitespace-
+ * collapsed). The word now carries its own trailing whitespace.
+ *
+ * Keep every repeated group here unambiguous — one way to match — because the
+ * text it reads is written by a workspace.
+ */
+export const INTERNAL_IDENTIFIER_PATTERN = /\b(?:user_actions(?:\.steps)?|business_rules|acceptance_criteria|source_anchors|topology\.edges|editingBanner|sourceAnchors?|dokId|termRef|userActions|businessRules|acceptanceCriteria|TermRef|Handlebars|DOM|null|Doks?|ROLE-[A-Z0-9_-]+|[Aa]uto[- ]suggested(?:\s+from\s+(?:a\s+)?(?:(?:code|repository|workspace)\s*)?scan)?|[Gg]enerated\s+from\s+(?:a\s+)?(?:code|repository|workspace)\s+scan|(?:high|medium|low)\s+confidence|[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*|(?:use|has|is)[A-Z][A-Za-z0-9]*|[a-z][A-Za-z0-9]*(?:Id|Email))\b|_meta\b/gu;
 // Public file-format names are customer vocabulary. Keep exact matching: an
 // implementation symbol such as WebPEncoder must still be checked below.
 const PUBLIC_FILE_FORMATS = ['JPEG', 'PNG', 'WebP', 'HEIC', 'HEIF'] as const;
@@ -33,27 +57,28 @@ const RULES: LintRule[] = [
   {
     code: 'IMPLEMENTATION_DETAIL',
     message: 'Customer output describes internal invitation-address implementation details.',
-    pattern: /내부\s*초대용\s*(?:이메일\s*)?주소|\b(?:synthetic\s+e-?mail(?:\s+address)?|internal\s+(?:invitation|invite)\s+(?:e-?mail\s+)?address)\b/giu,
+    find: matching(/내부\s*초대용\s*(?:이메일\s*)?주소|\b(?:synthetic\s+e-?mail(?:\s+address)?|internal\s+(?:invitation|invite)\s+(?:e-?mail\s+)?address)\b/giu),
   },
   {
     code: 'INCOMPLETE_COPY',
     message: 'Stable output contains unfinished or placeholder copy.',
-    pattern: /\b(?:screenshot\s+coming\s+soon|coming\s+soon|not\s+ready(?:\s+yet)?|todo|tbd|placeholder|lorem\s+ipsum)\b|(?:스크린샷\s*)?준비\s*중|아직\s+준비되지|채워\s*주세요/giu,
+    find: matching(/\b(?:screenshot\s+coming\s+soon|coming\s+soon|not\s+ready(?:\s+yet)?|todo|tbd|placeholder|lorem\s+ipsum)\b|(?:스크린샷\s*)?준비\s*중|아직\s+준비되지|채워\s*주세요/giu),
   },
   {
     code: 'INTERNAL_IDENTIFIER',
     message: 'Stable output exposes an internal identifier or developer-only term. Rewrite implementation terms for readers; for a public name, add an exact match to stable_public_terms in workspace.json. This only exempts identifier patterns, not selected Dok IDs or other copy checks.',
-    pattern: /\b(?:user_actions(?:\.steps)?|business_rules|acceptance_criteria|source_anchors|topology\.edges|editingBanner|sourceAnchors?|dokId|termRef|userActions|businessRules|acceptanceCriteria|TermRef|Handlebars|DOM|null|Doks?|ROLE-[A-Z0-9_-]+|[Aa]uto[- ]suggested(?:\s+from\s+(?:a\s+)?(?:code|repository|workspace)?\s*scan)?|[Gg]enerated\s+from\s+(?:a\s+)?(?:code|repository|workspace)\s+scan|(?:high|medium|low)\s+confidence|[A-Z][a-z0-9]+(?:[A-Z][A-Za-z0-9]*)+|(?:use|has|is)[A-Z][A-Za-z0-9]*|[a-z][A-Za-z0-9]*(?:Id|Email))\b|_meta\b/gu,
+    find: matching(INTERNAL_IDENTIFIER_PATTERN),
   },
   {
     code: 'SOURCE_PATH',
     message: 'Stable output exposes an implementation or repository path.',
-    pattern: new RegExp(SOURCE_PATH_PATTERN_SOURCE, 'gimu'),
+    // Runs the source-path expression through its linear matcher.
+    find: findSourcePaths,
   },
   {
     code: 'FALSE_FRESHNESS',
     message: 'Stable output makes an unsupported continuous-freshness claim.',
-    pattern: /\balways\s+up(?:-|\s)to(?:-|\s)date\b|\bupdates?\s+automatically\b|\bautomatically\s+(?:updates?|refreshes?)\b|\b(?:updates?|refreshes?|regenerates?)\s+(?:as|when|whenever)\s+(?:the\s+)?(?:product|code)\s+changes\b|자동(?:으로)?\s*(?:갱신|업데이트)|(?:제품|코드)(?:이|가)?\s*바뀌면\s*(?:함께\s*)?(?:갱신|업데이트)/giu,
+    find: matching(/\balways\s+up(?:-|\s)to(?:-|\s)date\b|\bupdates?\s+automatically\b|\bautomatically\s+(?:updates?|refreshes?)\b|\b(?:updates?|refreshes?|regenerates?)\s+(?:as|when|whenever)\s+(?:the\s+)?(?:product|code)\s+changes\b|자동(?:으로)?\s*(?:갱신|업데이트)|(?:제품|코드)(?:이|가)?\s*바뀌면\s*(?:함께\s*)?(?:갱신|업데이트)/giu),
   },
 ];
 
@@ -92,6 +117,16 @@ const ALLOWED_INLINE_HTML_TAGS = new Set([
   'wbr',
 ]);
 
+/**
+ * The tags {@link RAW_HTML_TAG_PATTERN} finds in one html token. Every match
+ * ends at a ">", so nothing after the last one can match; reading only up to
+ * it stops each unterminated opener from scanning the rest of the token, which
+ * made a long token of openers quadratic. Indexes are unchanged.
+ */
+export function rawHtmlTags(raw: string): RegExpMatchArray[] {
+  return [...raw.slice(0, raw.lastIndexOf('>') + 1).matchAll(RAW_HTML_TAG_PATTERN)];
+}
+
 export function lintStableMarkdown(markdown: string): StableLintViolation[] {
   const violations: StableLintViolation[] = [];
   for (const match of markdown.matchAll(/<(?:[A-Za-z][A-Za-z0-9_]*-[A-Za-z0-9_-]+|[A-Z][A-Z0-9_]*)>/gu)) {
@@ -103,7 +138,7 @@ export function lintStableMarkdown(markdown: string): StableLintViolation[] {
   }
   marked.walkTokens(marked.lexer(markdown), (token) => {
     if (token.type !== 'html') return;
-    for (const match of token.raw.matchAll(RAW_HTML_TAG_PATTERN)) {
+    for (const match of rawHtmlTags(token.raw)) {
       const tag = match[1]!.toLowerCase();
       if (ALLOWED_INLINE_HTML_TAGS.has(tag)) continue;
       const index = match.index ?? 0;
@@ -136,11 +171,9 @@ export function lintStableArtifact(input: {
 
   for (const rule of RULES) {
     for (const source of sources) {
-      rule.pattern.lastIndex = 0;
-      for (const match of source.matchAll(rule.pattern)) {
-        if (rule.code === 'INTERNAL_IDENTIFIER' && allowTerms.has(match[0])) continue;
-        const index = match.index ?? 0;
-        const excerpt = makeExcerpt(source, index, match[0].length);
+      for (const match of rule.find(source)) {
+        if (rule.code === 'INTERNAL_IDENTIFIER' && allowTerms.has(match.text)) continue;
+        const excerpt = makeExcerpt(source, match.index, match.text.length);
         const key = `${rule.code}\0${excerpt}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -191,13 +224,69 @@ function publicationMetadata(manifest: TemplateManifest): string {
   ].join('\n');
 }
 
-function visibleText(html: string): string {
+/**
+ * The page's text for the lint: comments, style and script elements, then
+ * tags removed, entities decoded, whitespace collapsed.
+ *
+ * The removals were three replacements whose lazy or negated scans each began
+ * at every unclosed opener ("<!--", "<style", "<") and read to the end of the
+ * page: quadratic in text a document can carry, since the lint reads the page
+ * before it is sanitised. They are linear scans now with the same results: the
+ * nearest closer ends each element, and once an opener has no closer after it
+ * no later opener can have one either.
+ */
+export function visibleText(html: string): string {
   return decodeEntities(
-    html
-      .replace(/<!--[\s\S]*?-->/g, ' ')
-      .replace(/<(?:style|script)\b[^>]*>[\s\S]*?<\/(?:style|script)>/gi, ' ')
-      .replace(/<[^>]*>/g, ' '),
+    stripTags(stripStyleAndScript(stripComments(html))),
   ).replace(/\s+/g, ' ').trim();
+}
+
+/** `replace(/<!--[\s\S]*?-->/g, ' ')` */
+function stripComments(html: string): string {
+  let result = '';
+  let position = 0;
+  for (let open = html.indexOf('<!--'); open >= 0; open = html.indexOf('<!--', position)) {
+    const close = html.indexOf('-->', open + 4);
+    if (close < 0) break;
+    result += `${html.slice(position, open)} `;
+    position = close + 3;
+  }
+  return result + html.slice(position);
+}
+
+const STYLE_OR_SCRIPT_OPEN = /<(?:style|script)\b/gi;
+const STYLE_OR_SCRIPT_CLOSE = /<\/(?:style|script)>/gi;
+
+/** `replace(/<(?:style|script)\b[^>]*>[\s\S]*?<\/(?:style|script)>/gi, ' ')` */
+function stripStyleAndScript(html: string): string {
+  let result = '';
+  let position = 0;
+  for (;;) {
+    STYLE_OR_SCRIPT_OPEN.lastIndex = position;
+    const open = STYLE_OR_SCRIPT_OPEN.exec(html);
+    if (!open) break;
+    const openEnd = html.indexOf('>', STYLE_OR_SCRIPT_OPEN.lastIndex);
+    if (openEnd < 0) break;
+    STYLE_OR_SCRIPT_CLOSE.lastIndex = openEnd + 1;
+    const close = STYLE_OR_SCRIPT_CLOSE.exec(html);
+    if (!close) break;
+    result += `${html.slice(position, open.index)} `;
+    position = close.index + close[0].length;
+  }
+  return result + html.slice(position);
+}
+
+/** `replace(/<[^>]*>/g, ' ')` */
+function stripTags(html: string): string {
+  let result = '';
+  let position = 0;
+  for (let open = html.indexOf('<'); open >= 0; open = html.indexOf('<', position)) {
+    const close = html.indexOf('>', open + 1);
+    if (close < 0) break;
+    result += `${html.slice(position, open)} `;
+    position = close + 1;
+  }
+  return result + html.slice(position);
 }
 
 function decodeEntities(value: string): string {
