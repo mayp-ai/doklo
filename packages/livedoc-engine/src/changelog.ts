@@ -7,6 +7,13 @@ export interface ChangelogItem {
   category: DokHistoryCategory;
   /** A `status` entry back to active from deprecated/archived — rendered under Changed with the "restored" string. */
   restored: boolean;
+  /**
+   * The sentence a person wrote (`entry.change` of an edited / regenerated /
+   * kind-less entry), rendered after the name in whichever section it lands.
+   * `null` for `status` entries, restored ones included: their `change` is only
+   * the engine's canonical marker ("Activated"), never copy to publish.
+   */
+  note: string | null;
 }
 
 export interface ChangelogGroup {
@@ -49,12 +56,14 @@ export function classifyDokHistory(dok: Dok): ChangelogItem[] {
 
   for (const entry of dok._meta?.history ?? []) {
     const kind = entry.kind ?? 'edited';
+    const note = kind === 'status' ? null : entry.change;
     const item = (category: DokHistoryCategory, restored = false): ChangelogItem => ({
       dok_id: dok.dok_id,
       name: dok.name,
       entry,
       category,
       restored,
+      note,
     });
 
     if (kind === 'baseline') {

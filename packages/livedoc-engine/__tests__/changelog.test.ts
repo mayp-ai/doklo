@@ -20,8 +20,11 @@ describe('classifyDokHistory', () => {
       { version: 4, date: '2026-08-12', change: 'Added CSV export', kind: 'edited', from: 'active', to: 'draft', category: 'added' },
       { version: 5, date: '2026-08-12', change: 'Activated', kind: 'status', from: 'draft', to: 'active' },
     ]));
-    expect(items.map((i) => [i.category, i.entry.version, i.restored])).toEqual([
-      ['added', 3, false], ['added', 4, false],
+    expect(items.map((i) => [i.category, i.entry.version, i.restored, i.note])).toEqual([
+      // The first activation carries only the canonical marker — nothing a person wrote.
+      ['added', 3, false, null],
+      // A note a person filed under Added keeps its sentence.
+      ['added', 4, false, 'Added CSV export'],
     ]);
     expect(items[0]!.dok_id).toBe('A');
     expect(items[0]!.name).toBe('Name A');
@@ -36,8 +39,11 @@ describe('classifyDokHistory', () => {
       { version: 5, date: '2026-08-18', change: 'Activated', kind: 'status', from: 'deprecated', to: 'active' },
       { version: 6, date: '2026-08-19', change: 'Archived', kind: 'status', from: 'active', to: 'archived' },
     ]));
-    expect(items.map((i) => [i.category, i.entry.version, i.restored])).toEqual([
-      ['changed', 2, false], ['deprecated', 4, false], ['changed', 5, true], ['removed', 6, false],
+    expect(items.map((i) => [i.category, i.entry.version, i.restored, i.note])).toEqual([
+      ['changed', 2, false, 'Reworded'],
+      ['deprecated', 4, false, null],
+      ['changed', 5, true, null],
+      ['removed', 6, false, null],
     ]);
   });
 
@@ -46,14 +52,16 @@ describe('classifyDokHistory', () => {
       { version: 1, date: '2026-08-16', change: 'Active before history tracking began', kind: 'baseline' },
       { version: 2, date: '2026-08-16', change: 'Export now includes archived rows', kind: 'regenerated', from: 'draft', to: 'active' },
     ]));
-    expect(legacy.map((i) => [i.category, i.entry.change])).toEqual([
-      ['changed', 'Export now includes archived rows'],
+    expect(legacy.map((i) => [i.category, i.entry.change, i.note])).toEqual([
+      ['changed', 'Export now includes archived rows', 'Export now includes archived rows'],
     ]);
 
     const fresh = classifyDokHistory(dok('D', 'active', [
       { version: 2, date: '2026-08-16', change: 'Export now includes archived rows', kind: 'regenerated', from: 'draft', to: 'active' },
     ]));
-    expect(fresh.map((i) => i.category)).toEqual(['added']);
+    expect(fresh.map((i) => [i.category, i.restored, i.note])).toEqual([
+      ['added', false, 'Export now includes archived rows'],
+    ]);
   });
 
   it('treats legacy hand-written entries (no kind) as edited on an active Dok and hides workflow-only transitions', () => {
@@ -63,7 +71,22 @@ describe('classifyDokHistory', () => {
       { version: 3, date: '2026-08-16', change: 'Sent to review', kind: 'status', from: 'active', to: 'review' },
       { version: 4, date: '2026-08-16', change: 'Note while in review' },
     ]));
-    expect(items.map((i) => [i.category, i.entry.version])).toEqual([['changed', 2]]);
+    expect(items.map((i) => [i.category, i.entry.version, i.note])).toEqual([['changed', 2, 'Old note']]);
+  });
+
+  it('keeps the sentence of a note filed under Added, Deprecated or Removed while the Dok stays active', () => {
+    const items = classifyDokHistory(dok('G', 'active', [
+      { version: 1, date: '2026-08-16', change: 'Active before history tracking began', kind: 'baseline' },
+      { version: 2, date: '2026-08-17', change: 'Paper invoices will be retired at year end', kind: 'edited', category: 'deprecated' },
+      { version: 3, date: '2026-08-18', change: 'The printable summary view is gone', kind: 'edited', category: 'removed' },
+      // A legacy hand-written entry (no kind) reads as edited in any section.
+      { version: 4, date: '2026-08-19', change: 'Invoices can be imported from a spreadsheet', category: 'added' },
+    ]));
+    expect(items.map((i) => [i.category, i.entry.version, i.restored, i.note])).toEqual([
+      ['deprecated', 2, false, 'Paper invoices will be retired at year end'],
+      ['removed', 3, false, 'The printable summary view is gone'],
+      ['added', 4, false, 'Invoices can be imported from a spreadsheet'],
+    ]);
   });
 
   it('renders nothing for a Dok with no recorded history', () => {
@@ -82,8 +105,9 @@ describe('buildChangelog', () => {
     ]);
     expect(cl.total).toBe(3);
     expect(cl.groups.map((g) => g.date)).toEqual(['2026-08-12', '2026-08-10']);
-    expect(cl.groups[1]!.added.map((i) => i.dok_id)).toEqual(['A', 'B']);
+    expect(cl.groups[1]!.added.map((i) => [i.dok_id, i.note])).toEqual([['A', null], ['B', null]]);
     expect(cl.groups[0]!.fixed[0]!.entry.change).toBe('Fix typo');
+    expect(cl.groups[0]!.fixed[0]!.note).toBe('Fix typo');
     expect(cl.groups[0]!.added).toEqual([]);
   });
 

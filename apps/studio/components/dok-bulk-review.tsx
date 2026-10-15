@@ -264,9 +264,12 @@ export function useDokBulkReviewController(input: {
 export function DokBulkReviewBar({
   controller,
   draftCount,
+  entryAccessory,
 }: {
   controller: DokBulkReviewController;
   draftCount: number;
+  /** Another bulk mode's entry control, shown beside "Review Doks" while review is closed. */
+  entryAccessory?: ReactNode;
 }): ReactNode {
   const selectedCount = controller.selectedIds.size;
   const dialog = controller.allDraftDialog;
@@ -358,15 +361,18 @@ export function DokBulkReviewBar({
             </p>
           ) : null}
         </section>
-      ) : draftCount > 0 ? (
-        <div className="border-b border-border bg-canvas px-8 py-2.5">
-          <button
-            type="button"
-            onClick={controller.enterReviewMode}
-            className="inline-flex items-center rounded-full border border-status-draft-fg/35 bg-status-draft-bg px-3 py-1 text-[12.5px] font-medium text-status-draft-fg hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            {controller.copy.entry}
-          </button>
+      ) : draftCount > 0 || entryAccessory ? (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-canvas px-8 py-2.5">
+          {draftCount > 0 ? (
+            <button
+              type="button"
+              onClick={controller.enterReviewMode}
+              className="inline-flex items-center rounded-full border border-status-draft-fg/35 bg-status-draft-bg px-3 py-1 text-[12.5px] font-medium text-status-draft-fg hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {controller.copy.entry}
+            </button>
+          ) : null}
+          {entryAccessory}
         </div>
       ) : null}
 

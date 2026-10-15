@@ -152,7 +152,7 @@ export function registerModelCommand(program: Command, ctx: CliContext): void {
   program
     .command('model')
     .description('Pick the model for a task (writes ~/.config/doklo/config.json)')
-    .option('--task <role>', 'Task role (default|generate|consolidate|lexicon|evaluate)', 'default')
+    .option('--task <role>', 'Task role (default|generate|consolidate|lexicon|evaluate|judge)', 'default')
     .option('--set <ref>', 'Set "provider/model-id" non-interactively')
     .option('--provider <id>', 'Pre-pick the provider (skips the provider prompt)')
     .action(async (opts) => {

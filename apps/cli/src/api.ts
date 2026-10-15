@@ -69,6 +69,22 @@ export type {
   DokLoadProblem,
 } from './commands/evaluate.js';
 
+// Judge-gated sync, for Studio's "Still accurate" confirmation: the CLI's
+// drift entry point computes the baseline a confirmation re-stamps (the same
+// read, hashes and normaliser as generation and staleness; never logic_hash),
+// and the judge cache holds the unconfirmed verdict to show beside a stale Dok.
+// Neither touches the keychain or a model.
+export { computeDriftConfirmation } from './lib/drift.js';
+export type { DriftConfirmation } from './lib/drift.js';
+export {
+  JUDGE_CACHE_DIR,
+  judgeCacheFile,
+  readCurrentJudgeVerdict,
+  readJudgeCache,
+  removeJudgeCache,
+} from './lib/judge/cache.js';
+export type { JudgeCacheRecord } from './lib/judge/cache.js';
+
 export function consolidatedCachePath(cacheDir: string, serviceId: string): string {
   return join(cacheDir, `${serviceId}.consolidated.json`);
 }

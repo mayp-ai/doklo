@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Command } from 'commander';
 import { createContext } from '../src/lib/context.js';
-import { takeCommandResult } from '../src/lib/command-result.js';
+import { takeCommandResult, type CommandResult } from '../src/lib/command-result.js';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -21,8 +21,9 @@ import {
   type RunSyncResult,
 } from '../src/commands/sync.js';
 import { runScan } from '../src/commands/scan.js';
-import { computeLogicHash } from '@doklo-beta/core';
+import { appendHistoryEntry, computeLogicHash, type Dok } from '@doklo-beta/core';
 import { resolveContainedOutputPath } from '@doklo-beta/generator';
+import { classifyDokHistory } from '@doklo-beta/livedoc-engine';
 import {
   authorizeLlmRun,
   buildLlmRunPlan,
@@ -885,6 +886,7 @@ describe('sync drift severity', () => {
       stale,
       unknown: [],
       regenerated: [],
+      returnedToDraft: [],
       skippedHumanEdit: [],
       notInPlan: [],
       planOutdated: [],
@@ -892,6 +894,7 @@ describe('sync drift severity', () => {
       criticalReasons: {},
       failures: [],
       plannedRegeneration: [],
+      plannedReturnToDraft: [],
       transmissions: [],
     };
   }
@@ -1049,10 +1052,623 @@ describe('runSync change proposals (pending_change)', () => {
     expect(raw).not.toContain('"date"');
   });
 
+  // A regeneration nobody has approved leaves a draft and its proposal on disk.
+  // Regenerating that draft again must keep the approved state the proposal
+  // remembers, because approval decides the lazy baseline from it.
+  describe('a Dok regenerated again before anyone approves it', () => {
+    type WrittenAuth = {
+      status: string;
+      _meta: { version: number; history: unknown[]; pending_change?: Record<string, unknown> };
+    };
+
+    const readAuth = async (authPath: string): Promise<WrittenAuth> =>
+      JSON.parse(await readFile(authPath, 'utf-8')) as WrittenAuth;
+
+    function regeneratedAs(content: Record<string, unknown>): Partial<GenerateDeps> {
+      return {
+        generateDokForFeature: async (_f, ctx) => ({
+          success: true,
+          dok: { ...(makeDok(ctx.dokId) as Record<string, unknown>), ...content } as never,
+          prompt: '',
+          rawResponse: '',
+          usage: null,
+        }),
+        runLexiconSuggest: noLexiconSuggest,
+      };
+    }
+
+    // A Dok reviewed before history tracking began (active, version 1, empty
+    // history, as in any workspace older than history tracking) is regenerated
+    // once — annotated with `firstNote` when given — nobody approves the draft,
+    // and the code drifts again.
+    async function regenerateOnceUnapproved(
+      root: string,
+      firstNote?: RunSyncOptions['proposalNote'],
+    ): Promise<{ authPath: string; first: WrittenAuth }> {
+      await seedStaleAuth(root);
+      const authPath = join(root, '.doklo/hub/doks/AUTH.json');
+      const legacy = await readAuth(authPath);
+      legacy.status = 'active';
+      await writeFile(authPath, JSON.stringify(legacy, null, 2) + '\n', 'utf-8');
+
+      await runSync(
+        { root, ...(firstNote !== undefined ? { proposalNote: firstNote } : {}) },
+        regeneratedAs({ description: 'Now supports passkeys.' }),
+      );
+      const first = await readAuth(authPath);
+      expect(first.status).toBe('draft');
+      expect(first._meta.pending_change).toEqual(
+        firstNote === undefined
+          ? { summary: 'Updated the description.', source: 'diff', base_version: 1, previous_status: 'active' }
+          : {
+              summary: firstNote.change,
+              source: 'human',
+              base_version: 1,
+              previous_status: 'active',
+              category: firstNote.category,
+            },
+      );
+
+      await writeSource(root, 'src/auth.ts', 'export const a = 3; // changed again');
+      return { authPath, first };
+    }
+
+    it('keeps the approved base and proposes the new comparison when the content changes further', async () => {
+      const root = await tmpInit();
+      const { authPath } = await regenerateOnceUnapproved(root);
+
+      await runSync(
+        { root },
+        regeneratedAs({ description: 'Now supports passkeys.', name: 'Passkey sign-in' }),
+      );
+
+      const second = await readAuth(authPath);
+      expect(second._meta.version).toBe(3);
+      expect(second._meta.history).toEqual([]);
+      expect(second._meta.pending_change).toEqual({
+        // Describes this step only: the approved content is no longer on disk.
+        summary: 'Renamed the feature.',
+        source: 'diff',
+        base_version: 1,
+        previous_status: 'active',
+      });
+    });
+
+    it('keeps the first proposal byte for byte when the content changes no further', async () => {
+      const root = await tmpInit();
+      const { authPath, first } = await regenerateOnceUnapproved(root);
+
+      await runSync({ root }, regeneratedAs({ description: 'Now supports passkeys.' }));
+
+      const second = await readAuth(authPath);
+      expect(second._meta.version).toBe(3);
+      expect(second._meta.history).toEqual([]);
+      expect(JSON.stringify(second._meta.pending_change, null, 2))
+        .toBe(JSON.stringify(first._meta.pending_change, null, 2));
+    });
+
+    it('takes a --note as the sentence and keeps the approved base', async () => {
+      const root = await tmpInit();
+      const { authPath } = await regenerateOnceUnapproved(root);
+
+      await runSync(
+        { root, proposalNote: { change: 'Passkeys replace passwords (PR #9)', category: 'changed' } },
+        regeneratedAs({ description: 'Now supports passkeys.', name: 'Passkey sign-in' }),
+      );
+
+      const second = await readAuth(authPath);
+      expect(second._meta.history).toEqual([]);
+      expect(second._meta.pending_change).toEqual({
+        summary: 'Passkeys replace passwords (PR #9)',
+        source: 'human',
+        base_version: 1,
+        previous_status: 'active',
+        category: 'changed',
+      });
+    });
+
+    it("keeps a person's unapproved note over a later comparison until a new --note replaces it", async () => {
+      const root = await tmpInit();
+      const { authPath, first } = await regenerateOnceUnapproved(
+        root,
+        { change: 'Passkeys replace passwords (PR #9)', category: 'changed' },
+      );
+
+      // A plain sync that changes the content further leaves the note as it is.
+      await runSync(
+        { root },
+        regeneratedAs({ description: 'Now supports passkeys.', name: 'Passkey sign-in' }),
+      );
+      const second = await readAuth(authPath);
+      expect(second._meta.version).toBe(3);
+      expect(second._meta.history).toEqual([]);
+      expect(JSON.stringify(second._meta.pending_change, null, 2))
+        .toBe(JSON.stringify(first._meta.pending_change, null, 2));
+
+      // A new note replaces it — sentence and category — on the same approved base.
+      await writeSource(root, 'src/auth.ts', 'export const a = 4; // and again');
+      await runSync(
+        { root, proposalNote: { change: 'Passkeys are now the only way to sign in (PR #12)' } },
+        regeneratedAs({ description: 'Now supports passkeys.', name: 'Passkey sign-in' }),
+      );
+      const third = await readAuth(authPath);
+      expect(third._meta.history).toEqual([]);
+      expect(third._meta.pending_change).toEqual({
+        summary: 'Passkeys are now the only way to sign in (PR #12)',
+        source: 'human',
+        base_version: 1,
+        previous_status: 'active',
+      });
+    });
+
+    it('lets approval record a baseline before the change, so the changelog reads Changed rather than Added', async () => {
+      const root = await tmpInit();
+      const { authPath } = await regenerateOnceUnapproved(root);
+      await runSync(
+        { root },
+        regeneratedAs({ description: 'Now supports passkeys.', name: 'Passkey sign-in' }),
+      );
+      const draft = JSON.parse(await readFile(authPath, 'utf-8')) as Dok;
+      const pending = draft._meta.pending_change!;
+
+      // Approve the way Studio's activation does (apps/studio/lib/actions.ts
+      // planDokHistory → applyHistoryPlan): the proposal's base tells the core
+      // helper what the Dok was before the regenerations demoted it.
+      const approved = appendHistoryEntry({
+        meta: draft._meta,
+        persisted: { status: draft.status, version: draft._meta.version },
+        nextStatus: 'active',
+        entry: { kind: 'regenerated', change: pending.summary, category: pending.category },
+        versionPolicy: 'bump',
+        now: () => new Date(2026, 9, 5, 12),
+        baselineFrom: { status: pending.previous_status, version: pending.base_version },
+      });
+
+      expect(approved.meta.history).toEqual([
+        { version: 1, date: '2026-10-05', change: 'Active before history tracking began', kind: 'baseline' },
+        {
+          version: 4, date: '2026-10-05', change: 'Renamed the feature.',
+          kind: 'regenerated', from: 'draft', to: 'active',
+        },
+      ]);
+      const items = classifyDokHistory({ ...draft, status: 'active', _meta: approved.meta });
+      expect(items.map((item) => [item.category, item.note])).toEqual([
+        ['changed', 'Renamed the feature.'],
+      ]);
+    });
+  });
+
   it('rejects --note together with --check before touching the workspace', async () => {
     const root = await tmpInit();
     await expect(
       runSync({ root, check: true, proposalNote: { change: 'x' } }, spyDeps().deps),
     ).rejects.toMatchObject({ code: 'SYNC_NOTE_WITH_CHECK' });
+  });
+});
+
+// ── The review loop after a Studio approval ──
+//
+// Studio's approval writes `status: active` plus a `status` history entry and
+// leaves `_meta.edited_by_human` alone; only a prose or lifecycle edit sets it
+// (pinned in apps/studio/__tests__/actions.test.ts). The two apps meet at the
+// Dok file, so these fixtures write that file as Studio leaves it.
+describe('runSync after a Studio approval', () => {
+  const approval = {
+    version: 2,
+    date: '2026-10-05',
+    change: 'Activated',
+    author: 'tester',
+    kind: 'status',
+    from: 'draft',
+    to: 'active',
+  };
+
+  // Generate AUTH from content A, apply the approval, then drift the source.
+  async function seedApprovedStaleAuth(root: string, meta: Record<string, unknown> = {}): Promise<string> {
+    await writeConsolidatedWithFiles(root, 'web', 'AUTH', ['src/auth.ts']);
+    await writeSource(root, 'src/auth.ts', 'export const a = 1;');
+    await runGenerate({ root, ...isolatedGenerateOptions }, stubDeps);
+    const authPath = join(root, '.doklo/hub/doks/AUTH.json');
+    const auth = JSON.parse(await readFile(authPath, 'utf-8')) as Record<string, unknown> & {
+      _meta: Record<string, unknown>;
+    };
+    auth.status = 'active';
+    auth._meta = { ...auth._meta, version: 2, history: [approval], ...meta };
+    await writeFile(authPath, JSON.stringify(auth, null, 2) + '\n', 'utf-8');
+    await writeSource(root, 'src/auth.ts', 'export const a = 2; // changed');
+    return authPath;
+  }
+
+  it('regenerates an approved Dok without --force and stages a proposal for the next approval', async () => {
+    const root = await tmpInit();
+    const authPath = await seedApprovedStaleAuth(root);
+    const calls: string[] = [];
+    const changedDeps: Partial<GenerateDeps> = {
+      generateDokForFeature: async (_f, ctx) => {
+        calls.push(ctx.dokId);
+        return {
+          success: true,
+          dok: {
+            ...(makeDok(ctx.dokId) as Record<string, unknown>),
+            description: 'Now supports passkeys.',
+          } as never,
+          prompt: '',
+          rawResponse: '',
+          usage: null,
+        };
+      },
+      runLexiconSuggest: noLexiconSuggest,
+    };
+
+    const result = await runSync({ root }, changedDeps);
+
+    expect(result.stale).toEqual([
+      { dokId: 'AUTH', reason: 'changed', humanEdited: false, tier: 'standard' },
+    ]);
+    expect(result.skippedHumanEdit).toEqual([]);
+    expect(result.regenerated).toEqual(['AUTH']);
+    expect(calls).toEqual(['AUTH']);
+    const written = JSON.parse(await readFile(authPath, 'utf-8')) as {
+      status: string;
+      description: string;
+      _meta: {
+        version: number;
+        edited_by_human?: boolean;
+        history: unknown[];
+        pending_change?: Record<string, unknown>;
+      };
+    };
+    expect(written.status).toBe('draft');
+    expect(written.description).toBe('Now supports passkeys.');
+    expect(written._meta.version).toBe(3);
+    expect(written._meta.history).toEqual([approval]); // the approval survives regeneration
+    expect(written._meta.pending_change).toEqual({
+      summary: 'Updated the description.',
+      source: 'diff',
+      base_version: 2,
+      previous_status: 'active',
+    });
+    expect(written._meta.edited_by_human).toBeUndefined();
+  });
+
+  it('still skips an approved Dok whose prose a person edited', async () => {
+    const root = await tmpInit();
+    const authPath = await seedApprovedStaleAuth(root, { edited_by_human: true });
+    const before = await readFile(authPath, 'utf-8');
+    const { deps, calls } = spyDeps();
+
+    const result = await runSync({ root }, deps);
+
+    expect(result.stale).toEqual([
+      { dokId: 'AUTH', reason: 'changed', humanEdited: true, tier: 'standard' },
+    ]);
+    expect(result.skippedHumanEdit).toEqual(['AUTH']);
+    expect(result.regenerated).toEqual([]);
+    expect(calls).toEqual([]);
+    expect(await readFile(authPath, 'utf-8')).toBe(before);
+  });
+
+  // Regeneration always writes `draft`, so an approved Dok a plain sync
+  // regenerates drops out of stable Live Docs (and fails a saved Publication
+  // that names it) until someone approves it again. The person hears it before
+  // consent and in the summary; `--json` consumers read it from the result.
+  describe('naming the approved Doks a sync returns to draft', () => {
+    // AUTH is approved the way Studio leaves it; USER was generated and never
+    // approved. Both drift, so one plain sync regenerates both.
+    async function seedApprovedAndDraftStale(root: string): Promise<void> {
+      await writeConsolidatedMulti(root, 'web', [
+        { prefix: 'AUTH', sourceFiles: ['src/auth.ts'] },
+        { prefix: 'USER', sourceFiles: ['src/user.ts'] },
+      ]);
+      await writeSource(root, 'src/auth.ts', 'export const a = 1;');
+      await writeSource(root, 'src/user.ts', 'export const u = 1;');
+      await runGenerate({ root, ...isolatedGenerateOptions }, stubDeps);
+      const authPath = join(root, '.doklo/hub/doks/AUTH.json');
+      const auth = JSON.parse(await readFile(authPath, 'utf-8')) as Record<string, unknown> & {
+        _meta: Record<string, unknown>;
+      };
+      auth.status = 'active';
+      auth._meta = { ...auth._meta, version: 2, history: [approval] };
+      await writeFile(authPath, JSON.stringify(auth, null, 2) + '\n', 'utf-8');
+      await writeSource(root, 'src/auth.ts', 'export const a = 2; // changed');
+      await writeSource(root, 'src/user.ts', 'export const u = 2; // changed');
+    }
+
+    const readStatus = async (root: string, dokId: string): Promise<string> =>
+      (JSON.parse(
+        await readFile(join(root, `.doklo/hub/doks/${dokId}.json`), 'utf-8'),
+      ) as { status: string }).status;
+
+    // The real command, with the stubbed generator and a stubbed credential
+    // lookup. Consent is the real gate (approved by --yes), wrapped only to
+    // mark the moment it is asked for in the captured output.
+    async function syncThroughCommander(root: string, args: string[]): Promise<{
+      lines: string[];
+      result: CommandResult<RunSyncResult> | undefined;
+    }> {
+      const output: string[] = [];
+      const program = new Command();
+      registerSyncCommand(program, createContext('en'), {
+        runSync: (options) => runSyncDirect(options, stubDeps),
+        resolveLlmForRole: async () => ({
+          model: 'anthropic/claude-sonnet-5',
+          providerKind: 'anthropic',
+          authSource: 'keychain',
+          apiKey: 'test-key',
+        }),
+        authorizeLlmRun: async (...consent: Parameters<typeof authorizeLlmRun>) => {
+          output.push('<consent>');
+          return authorizeLlmRun(...consent);
+        },
+      });
+      const capture = (...parts: unknown[]): void => {
+        output.push(parts.map(String).join(' '));
+      };
+      const log = vi.spyOn(console, 'log').mockImplementation(capture);
+      const error = vi.spyOn(console, 'error').mockImplementation(capture);
+      const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: unknown) => {
+        output.push(String(chunk));
+        return true;
+      }) as never);
+      try {
+        await program.parseAsync(['sync', '--root', root, ...args], { from: 'user' });
+      } finally {
+        stdout.mockRestore();
+        error.mockRestore();
+        log.mockRestore();
+      }
+      return {
+        // eslint-disable-next-line no-control-regex
+        lines: output.join('\n').replace(/\u001b\[[0-9;]*m/g, '').split('\n'),
+        result: takeCommandResult(program) as CommandResult<RunSyncResult> | undefined,
+      };
+    }
+
+    const lineWith = (lines: string[], text: string): number =>
+      lines.findIndex((line) => line.includes(text));
+
+    const FORECAST = '1 approved Dok(s) in this plan will return to draft until re-approved.';
+    const SUMMARY = '1 approved Dok(s) returned to draft — approve them in the web app to publish them again.';
+
+    it('lists only the approved Dok a plain sync regenerated, not the never-approved draft beside it', async () => {
+      const root = await tmpInit();
+      await seedApprovedAndDraftStale(root);
+
+      // The preview behind the consent step forecasts it; nothing has run yet.
+      const preview = await runSyncDirect({ root, previewOnly: true }, stubDeps);
+      expect([...preview.plannedRegeneration].sort()).toEqual(['AUTH', 'USER']);
+      expect(preview.plannedReturnToDraft).toEqual(['AUTH']);
+      expect(preview.returnedToDraft).toEqual([]);
+
+      const { deps, calls } = spyDeps();
+      const result = await runSync({ root }, deps);
+
+      expect([...calls].sort()).toEqual(['AUTH', 'USER']);
+      expect([...result.regenerated].sort()).toEqual(['AUTH', 'USER']);
+      expect(result.plannedReturnToDraft).toEqual(['AUTH']);
+      expect(result.returnedToDraft).toEqual(['AUTH']); // USER was a draft before the run
+      expect(await readStatus(root, 'AUTH')).toBe('draft');
+      expect(await readStatus(root, 'USER')).toBe('draft');
+    });
+
+    it('scopes the list to the one Dok --dok judged', async () => {
+      const root = await tmpInit();
+      await seedApprovedAndDraftStale(root);
+
+      const user = await runSync({ root, dokId: 'USER' }, spyDeps().deps);
+      expect(user.regenerated).toEqual(['USER']);
+      expect(user.returnedToDraft).toEqual([]);
+      expect(await readStatus(root, 'AUTH')).toBe('active'); // not judged, not touched
+
+      const auth = await runSync({ root, dokId: 'auth' }, spyDeps().deps);
+      expect(auth.regenerated).toEqual(['AUTH']);
+      expect(auth.returnedToDraft).toEqual(['AUTH']);
+    });
+
+    it('says so before consent and in the summary, counting only the approved Dok', async () => {
+      const root = await tmpInit();
+      await seedApprovedAndDraftStale(root);
+
+      const { lines, result } = await syncThroughCommander(root, ['--yes']);
+
+      const plan = lineWith(lines, 'LLM consent plan');
+      const forecast = lineWith(lines, FORECAST);
+      const consent = lines.indexOf('<consent>');
+      expect(plan).toBeGreaterThanOrEqual(0);
+      expect(forecast).toBeGreaterThan(plan);
+      expect(consent).toBeGreaterThan(forecast);
+      expect(lineWith(lines, 'Regenerated 2 Dok(s).')).toBeGreaterThan(consent);
+      expect(lineWith(lines, SUMMARY)).toBeGreaterThan(lineWith(lines, 'Regenerated 2 Dok(s).'));
+      expect(result?.status).toBe('success');
+      expect(result?.data?.returnedToDraft).toEqual(['AUTH']);
+      expect(await readStatus(root, 'AUTH')).toBe('draft');
+    });
+
+    it('--check prints the stale list but neither line, and its result lists nothing', async () => {
+      const root = await tmpInit();
+      await seedApprovedAndDraftStale(root);
+
+      const { lines, result } = await syncThroughCommander(root, ['--check']);
+
+      expect(lineWith(lines, '2 stale Dok(s):')).toBeGreaterThanOrEqual(0);
+      expect(lines.join('\n')).not.toMatch(/to draft/);
+      expect(lines).not.toContain('<consent>');
+      expect(result?.status).toBe('partial');
+      expect(result?.data).toMatchObject({ plannedReturnToDraft: [], returnedToDraft: [] });
+      expect(await readStatus(root, 'AUTH')).toBe('active');
+    });
+
+    it('--json keeps stdout machine-readable and carries the lists in the result envelope', async () => {
+      const root = await tmpInit();
+      await seedApprovedAndDraftStale(root);
+
+      const { lines, result } = await syncThroughCommander(root, ['--yes', '--json']);
+
+      const printed = lines.filter((line) => line !== '' && line !== '<consent>');
+      expect(printed.map((line) => (JSON.parse(line) as { stage: string }).stage))
+        .toEqual(['consent-plan']);
+      expect(result?.data).toMatchObject({
+        plannedReturnToDraft: ['AUTH'],
+        returnedToDraft: ['AUTH'],
+      });
+    });
+  });
+});
+
+// ── Format-only edits (judge-gated sync design §4.2, layer 1) ─────────────
+//
+// generate stamps `_meta.logic_hash_normalized`; a later edit that only touches
+// comments, whitespace or line endings leaves it equal, so the Dok is not stale
+// — sync never regenerates it, and --check says how many there were.
+describe('sync — format-only edits', () => {
+  async function seedTwoFresh(root: string): Promise<void> {
+    await writeConsolidatedMulti(root, 'web', [
+      { prefix: 'AUTH', sourceFiles: ['src/auth.ts'] },
+      { prefix: 'USER', sourceFiles: ['src/user.ts'] },
+    ]);
+    await writeSource(root, 'src/auth.ts', 'export const a = 1;\n');
+    await writeSource(root, 'src/user.ts', 'export const u = 1;\n');
+    await runGenerate({ root, ...isolatedGenerateOptions }, stubDeps);
+  }
+
+  async function syncLines(root: string, args: string[], locale: 'en' | 'ko' = 'en'): Promise<{
+    lines: string[];
+    result: CommandResult<RunSyncResult> | undefined;
+  }> {
+    const output: string[] = [];
+    const program = new Command();
+    registerSyncCommand(program, createContext(locale), {
+      runSync: (options) => runSyncDirect(options, stubDeps),
+    });
+    const capture = (...parts: unknown[]): void => { output.push(parts.map(String).join(' ')); };
+    const log = vi.spyOn(console, 'log').mockImplementation(capture);
+    try {
+      await program.parseAsync(['sync', '--root', root, ...args], { from: 'user' });
+    } finally {
+      log.mockRestore();
+    }
+    return {
+      // eslint-disable-next-line no-control-regex
+      lines: output.join('\n').replace(/\u001b\[[0-9;]*m/g, '').split('\n'),
+      result: takeCommandResult(program) as CommandResult<RunSyncResult> | undefined,
+    };
+  }
+
+  it('--check: a comments-only edit is fresh (format-only); a real edit is stale', async () => {
+    const root = await tmpInit();
+    try {
+      await seedTwoFresh(root);
+      await writeSource(root, 'src/auth.ts', '// Auth flag.\nexport const a = 1; // one\n');
+      await writeSource(root, 'src/user.ts', 'export const u = 2;\n');
+
+      const { deps, calls } = spyDeps();
+      const result = await runSync({ root, check: true }, deps);
+
+      expect(result.formatOnly).toEqual(['AUTH']);
+      expect(result.stale).toEqual([
+        { dokId: 'USER', reason: 'changed', humanEdited: false, tier: 'standard' },
+      ]);
+      expect(result.unknown).toEqual([]);
+      expect(calls).toEqual([]);
+      expect(buildSyncDiagnostics(result, true).map((d) => d.message).join('\n')).not.toContain('AUTH');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('never regenerates a format-only Dok and leaves its file untouched', async () => {
+    const root = await tmpInit();
+    try {
+      await seedTwoFresh(root);
+      const authPath = join(root, '.doklo/hub/doks/AUTH.json');
+      const before = await readFile(authPath, 'utf-8');
+      await writeSource(root, 'src/auth.ts', 'export   const a = 1;\r\n/* trailing note */\n');
+
+      const { deps, calls } = spyDeps();
+      const result = await runSync({ root }, deps);
+
+      expect(result.stale).toEqual([]);
+      expect(result.formatOnly).toEqual(['AUTH']);
+      expect(result.regenerated).toEqual([]);
+      expect(calls).toEqual([]);
+      expect(await readFile(authPath, 'utf-8')).toBe(before);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('a Dok without logic_hash_normalized (generated before layer 1) keeps the raw comparison', async () => {
+    const root = await tmpInit();
+    try {
+      await seedTwoFresh(root);
+      const authPath = join(root, '.doklo/hub/doks/AUTH.json');
+      const auth = JSON.parse(await readFile(authPath, 'utf-8')) as { _meta: Record<string, unknown> };
+      delete auth._meta['logic_hash_normalized'];
+      await writeFile(authPath, JSON.stringify(auth, null, 2) + '\n', 'utf-8');
+      await writeSource(root, 'src/auth.ts', '// Auth flag.\nexport const a = 1;\n');
+
+      const result = await runSync({ root, check: true }, spyDeps().deps);
+
+      expect(result.formatOnly).toEqual([]);
+      expect(result.stale).toEqual([
+        { dokId: 'AUTH', reason: 'changed', humanEdited: false, tier: 'standard' },
+      ]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('a hash stamped by another normaliser version is never compared', async () => {
+    const root = await tmpInit();
+    try {
+      await seedTwoFresh(root);
+      const authPath = join(root, '.doklo/hub/doks/AUTH.json');
+      const auth = JSON.parse(await readFile(authPath, 'utf-8')) as { _meta: Record<string, string> };
+      auth._meta['logic_hash_normalized'] = auth._meta['logic_hash_normalized']!.replace(/^[^:]+:/, 'ts-tree-v0+ts0.0.0:');
+      await writeFile(authPath, JSON.stringify(auth, null, 2) + '\n', 'utf-8');
+      await writeSource(root, 'src/auth.ts', '// Auth flag.\nexport const a = 1;\n');
+
+      const result = await runSync({ root, check: true }, spyDeps().deps);
+
+      expect(result.formatOnly).toEqual([]);
+      expect(result.stale.map((s) => [s.dokId, s.reason])).toEqual([['AUTH', 'changed']]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('--check prints the form-only count beside the stale list', async () => {
+    const root = await tmpInit();
+    try {
+      await seedTwoFresh(root);
+      await writeSource(root, 'src/auth.ts', '// Auth flag.\nexport const a = 1;\n');
+      await writeSource(root, 'src/user.ts', 'export const u = 2;\n');
+
+      const { lines, result } = await syncLines(root, ['--check']);
+
+      expect(lines).toContain('  1 stale Dok(s):');
+      expect(lines).toContain('  1 Dok(s) changed in form only (comments, whitespace) — still fresh.');
+      expect(result?.status).toBe('partial');
+      expect(result?.data?.formatOnly).toEqual(['AUTH']);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('when nothing is stale, the all-fresh line is followed by the form-only count (en and ko)', async () => {
+    const root = await tmpInit();
+    try {
+      await seedTwoFresh(root);
+      await writeSource(root, 'src/auth.ts', '// Auth flag.\nexport const a = 1;\n');
+
+      const en = await syncLines(root, ['--check']);
+      const fresh = en.lines.indexOf('  All 2 Dok(s) are fresh — nothing to sync.');
+      expect(fresh).toBeGreaterThanOrEqual(0);
+      expect(en.lines[fresh + 1]).toBe('  1 Dok(s) changed in form only (comments, whitespace) — still fresh.');
+      expect(en.result?.status).toBe('success');
+
+      const ko = await syncLines(root, ['--check'], 'ko');
+      expect(ko.lines).toContain('  1개 Dok은 형태만 바뀌었습니다 (주석, 공백) — 여전히 최신 상태입니다.');
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('prints no form-only line when there is none', async () => {
+    const root = await tmpInit();
+    try {
+      await seedTwoFresh(root);
+      const { lines, result } = await syncLines(root, ['--check']);
+      expect(lines.join('\n')).not.toContain('form only');
+      expect(result?.data?.formatOnly).toEqual([]);
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
 });

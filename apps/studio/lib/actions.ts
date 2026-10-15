@@ -24,6 +24,7 @@ import {
   appendHistoryEntry,
   bumpVersion,
   canonicalStatusChange,
+  dokProjectRoot,
   resolveHistoryAuthor,
   type Dok,
   type DokHistoryCategory,
@@ -33,9 +34,26 @@ import {
   type LexiconTerm,
   type Role,
   type RolesFile,
+  type Workspace,
 } from '@doklo-beta/core';
+import type { DriftConfirmation } from '@doklo-beta/cli/api';
 import { z } from 'zod';
-import { findWorkspaceFile, loadDoksState, workspaceRoot } from './data';
+import {
+  findWorkspaceFile,
+  loadDoksState,
+  loadWorkspaceState,
+  workspaceRoot,
+} from './data';
+import {
+  applyDriftConfirmation,
+  driftRefusalMessage,
+  inspectDokDrift,
+  removeConfirmedJudgeVerdict,
+  viewDokDrift,
+  type DokDriftRefusal,
+  type DokDriftState,
+  type DokDriftView,
+} from './dok-drift';
 import { historyClock } from './history-clock';
 import {
   ConsolidatedFeatureConfigSchema,
@@ -59,16 +77,41 @@ export type DokEditPatch = Partial<
 >;
 
 /**
- * The patch fields that count as authoring. Touching one of these marks the Dok
- * `_meta.edited_by_human`, which makes `doklo sync` skip it entirely.
+ * The patch fields that count as authoring. Touching one of these revises the
+ * Dok: the save bumps `_meta.version` even when it records no history entry
+ * (D5). Whether it also marks the Dok `_meta.edited_by_human` is a narrower
+ * question — see `marksHumanEdit`.
  *
- * `priority` is deliberately NOT here. It is a field a person edits across
- * dozens of Doks at a time, and flagging each one would quietly freeze most of
- * the Hub out of regeneration. The per-axis pins in `priority.curated` already
- * protect that judgment, at the granularity the judgment was actually made —
- * so a priority-only save leaves the Dok fully regenerable.
+ * `priority` is deliberately NOT here, and `marksHumanEdit` ignores it too. It
+ * is a field a person edits across dozens of Doks at a time, and flagging or
+ * versioning each one would churn `_meta` and quietly freeze most of the Hub
+ * out of regeneration. The per-axis pins in `priority.curated` already protect
+ * that judgment, at the granularity the judgment was actually made — so a
+ * priority-only save leaves the Dok fully regenerable.
  */
 const AUTHORED_PATCH_FIELDS = ['name', 'description', 'status'] as const;
+
+/**
+ * The statuses a Dok moves through while a person reviews generated content.
+ * Regeneration sends a Dok back to `draft`, so the loop expects a reviewed Dok
+ * to pass through these again. `planned`, `deprecated` and `archived` are
+ * lifecycle judgments a regenerated draft cannot reproduce.
+ */
+const REVIEW_STATUSES: ReadonlySet<DokStatus> = new Set(['draft', 'review', 'active']);
+
+/**
+ * Whether a save marks the Dok `_meta.edited_by_human`, which makes `doklo sync`
+ * skip it entirely. The flag means a person changed what a regeneration would
+ * silently overwrite: the prose, or a lifecycle status. Moving a Dok through
+ * review is neither — approval is recorded in `_meta.history`, and an approved
+ * Dok has to stay regenerable for the next code change to reach it as a
+ * proposal.
+ */
+function marksHumanEdit(patch: DokEditPatch, persistedStatus: DokStatus): boolean {
+  if (patch.name !== undefined || patch.description !== undefined) return true;
+  if (patch.status === undefined) return false;
+  return !REVIEW_STATUSES.has(persistedStatus) || !REVIEW_STATUSES.has(patch.status);
+}
 
 export type RoleEditPatch = Partial<
   Pick<Role, 'name' | 'description' | 'kind' | 'scope'>
@@ -100,12 +143,13 @@ const BulkActivateTargetSchema = z.strictObject({
   dokId: DokIdSchema,
   expectedRevision: RevisionSchema,
 });
-const BulkActivateDoksInputSchema = z.strictObject({
-  mode: z.enum(['selected', 'all_drafts']),
-  targets: z.array(BulkActivateTargetSchema).min(1).max(500),
-}).superRefine((value, ctx) => {
+/** A bulk Dok write names each Dok once: a repeated target is a client bug, not a retry. */
+function rejectDuplicateTargets(
+  targets: ReadonlyArray<{ dokId: string }>,
+  ctx: z.RefinementCtx,
+): void {
   const seen = new Set<string>();
-  value.targets.forEach((target, index) => {
+  targets.forEach((target, index) => {
     if (seen.has(target.dokId)) {
       ctx.addIssue({
         code: 'custom',
@@ -115,7 +159,11 @@ const BulkActivateDoksInputSchema = z.strictObject({
     }
     seen.add(target.dokId);
   });
-});
+}
+const BulkActivateDoksInputSchema = z.strictObject({
+  mode: z.enum(['selected', 'all_drafts']),
+  targets: z.array(BulkActivateTargetSchema).min(1).max(500),
+}).superRefine((value, ctx) => rejectDuplicateTargets(value.targets, ctx));
 const RoleEditPatchSchema = z.strictObject({
   name: RoleNameSchema.optional(),
   description: z.string().optional(),
@@ -218,7 +266,6 @@ type HistoryPlan =
       kind: 'regenerated';
       change: string;
       category?: DokHistoryCategory;
-      baselineFrom: { status: DokStatus; version: number };
     }
   | { kind: 'edited'; change: string; category?: DokHistoryCategory }
   | { kind: 'status'; change: string }
@@ -249,10 +296,6 @@ function planDokHistory(input: {
       kind: 'regenerated',
       change: input.note ?? pending.summary,
       category: input.category ?? pending.category,
-      baselineFrom: {
-        status: pending.previous_status,
-        version: pending.base_version,
-      },
     };
   }
   if (input.note !== undefined) {
@@ -276,6 +319,12 @@ function applyHistoryPlan(input: {
   if (plan.kind === 'bump') {
     return { ...input.meta, version: bumpVersion(input.meta) };
   }
+  // While a proposal is staged the file holds the draft its regeneration
+  // demoted; the state before that is what the proposal remembers. Every entry
+  // recorded meanwhile — a note or a review move before approval, and the
+  // approval itself — judges the lazy baseline from that state, so a legacy
+  // Dok keeps its baseline whichever entry comes first.
+  const staged = input.meta.pending_change;
   const appended = appendHistoryEntry({
     meta: input.meta,
     persisted: input.persisted,
@@ -288,7 +337,9 @@ function applyHistoryPlan(input: {
     },
     versionPolicy: 'bump',
     now: historyClock.now,
-    ...(plan.kind === 'regenerated' ? { baselineFrom: plan.baselineFrom } : {}),
+    ...(staged === undefined
+      ? {}
+      : { baselineFrom: { status: staged.previous_status, version: staged.base_version } }),
   });
   if (plan.kind !== 'regenerated') return appended.meta;
   // The proposal has been recorded, so it is no longer pending. Rebuild the
@@ -375,6 +426,16 @@ export type BulkActivateDoksResult =
       failures: BulkActivateDokFailure[];
     };
 
+/** Whether a catalog path, taken relative to the workspace root, leaves it. */
+function escapesWorkspace(relativePath: string): boolean {
+  return (
+    relativePath === '' ||
+    relativePath === '..' ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  );
+}
+
 /**
  * Resolve the on-disk target for a Dok write: catalog lookup, revision CAS,
  * and workspace containment. Shared by every Dok write path so the containment
@@ -383,7 +444,7 @@ export type BulkActivateDoksResult =
 async function resolveDokWriteTarget(
   dokId: string,
   expectedRevision: string,
-): Promise<{ target: WorkspaceTarget } | SaveResult> {
+): Promise<{ target: WorkspaceTarget } | Extract<SaveResult, { ok: false }>> {
   const catalog = await loadDoksState();
   if (catalog.kind === 'invalid' || catalog.kind === 'unreadable') {
     return saveFailure(
@@ -423,12 +484,7 @@ async function resolveDokWriteTarget(
   const workspace = await workspaceTarget('.doklo/hub/doks');
   if (!('root' in workspace)) return workspace;
   const relativePath = relative(workspace.root, exactPath);
-  if (
-    relativePath === '' ||
-    relativePath === '..' ||
-    relativePath.startsWith(`..${sep}`) ||
-    isAbsolute(relativePath)
-  ) {
+  if (escapesWorkspace(relativePath)) {
     return saveFailure(
       'INVALID',
       exactPath,
@@ -500,10 +556,11 @@ export async function saveDokAction(input: SaveDokInput | Dok): Promise<SaveResu
   const authored = AUTHORED_PATCH_FIELDS.some((field) => patch[field] !== undefined);
   const persisted = persistedOf(current.data);
   const nextStatus: DokStatus = patch.status ?? persisted.status;
-  // A note-only save is not authoring: `edited_by_human` makes `doklo sync`
-  // skip the whole Dok, and writing down what a regeneration did must not
-  // freeze that Dok out of the next regeneration.
-  const baseMeta: DokMeta = authored
+  // Neither a note-only save nor a review move is a content edit:
+  // `edited_by_human` makes `doklo sync` skip the whole Dok, and writing down
+  // what a regeneration did, or approving it, must not freeze that Dok out of
+  // the next regeneration. A flag the Dok already carries is kept.
+  const baseMeta: DokMeta = marksHumanEdit(patch, persisted.status)
     ? { ...metaOf(current.data), edited_by_human: true }
     : metaOf(current.data);
   const plan = planDokHistory({
@@ -674,12 +731,7 @@ export async function bulkActivateDoksAction(
     }
 
     const relativePath = relative(workspace.root, exactPath);
-    if (
-      relativePath === '' ||
-      relativePath === '..' ||
-      relativePath.startsWith(`..${sep}`) ||
-      isAbsolute(relativePath)
-    ) {
+    if (escapesWorkspace(relativePath)) {
       failures.push({
         dokId: target.dokId,
         code: 'INVALID',
@@ -750,9 +802,11 @@ export async function bulkActivateDoksAction(
   for (const current of preflighted) {
     const persisted = persistedOf(current.data);
     // Bulk approval confirms every staged proposal it touches: a Dok carrying
-    // one records `regenerated`, the rest record a plain activation.
+    // one records `regenerated`, the rest record a plain activation. Draft →
+    // active is a review move, so each Dok keeps whatever `edited_by_human` it
+    // already had (see `marksHumanEdit`).
     const meta = nextDokMeta({
-      meta: { ...metaOf(current.data), edited_by_human: true },
+      meta: metaOf(current.data),
       persisted,
       nextStatus: 'active',
       authored: true,
@@ -802,6 +856,528 @@ export async function bulkActivateDoksAction(
     };
   }
   return { ok: true, activated };
+}
+
+// ─── Dok drift: "Still accurate" (judge-gated sync design §4.6, §4.7) ─────
+
+// A person's confirmation that a stale Dok still matches the code it tracks.
+// It re-stamps the drift baseline — the normalised hash, the per-file hashes
+// and the diff-base commit, computed by the CLI's drift entry point exactly as
+// generation computes them — and nothing else: no history entry, no version
+// bump, no change to status, `edited_by_human` or `pending_change`, and never
+// `logic_hash`, which stays the release digest's evidence that the code
+// changed. Afterwards `doklo show`, `doklo sync`, MCP and Studio all read the
+// Dok as fresh (reason `format-only`) until its sources change again, and the
+// judge's next diff starts from here. Same meaning as Cloud's `drift_checked`,
+// minus its audit record: locally the re-stamped hashes are the only trace.
+
+const DriftReadInputSchema = z.strictObject({ dokId: DokIdSchema });
+const ConfirmDokInputSchema = z.strictObject({
+  dokId: DokIdSchema,
+  expectedRevision: RevisionSchema,
+});
+const BulkConfirmDoksInputSchema = z.strictObject({
+  targets: z.array(BulkActivateTargetSchema).min(1).max(500),
+}).superRefine((value, ctx) => rejectDuplicateTargets(value.targets, ctx));
+
+export type DokDriftReadFailure = {
+  ok: false;
+  code: SaveErrorCode;
+  path: string;
+  error: string;
+};
+
+export type DokDriftReadResult = ({ ok: true } & DokDriftView) | DokDriftReadFailure;
+
+export type DoksDriftReadResult =
+  | {
+      ok: true;
+      /** Every stale Dok in the catalog, in catalog order. Fresh Doks are left out. */
+      stale: DokDriftView[];
+    }
+  | DokDriftReadFailure;
+
+export type DokConfirmErrorCode = SaveErrorCode | DokDriftRefusal;
+
+export type DokConfirmFailure = {
+  ok: false;
+  code: DokConfirmErrorCode;
+  path: string;
+  error: string;
+  preserved: true;
+  /** The drift a refusal was decided on, when it got that far. */
+  drift?: DokDriftState;
+};
+
+export type ConfirmDokStillAccurateInput = {
+  dokId: string;
+  expectedRevision: string;
+};
+
+export type ConfirmDokStillAccurateResult =
+  | {
+      ok: true;
+      dokId: string;
+      path: string;
+      revision: string;
+      /**
+       * The Dok as every drift reader now reads it — `{ stale: false, reason:
+       * 'format-only' }` until its tracked sources change again.
+       */
+      drift: DokDriftState;
+      /** What the confirmation re-stamped in `_meta`: the only change it made. */
+      stamped: {
+        logic_hash_normalized: string;
+        /** The diff base now recorded; null when git could not say, and any stored one was removed. */
+        source_commit: string | null;
+        /** How many `logic_files` entries carry a fresh `sha256`. */
+        files: number;
+      };
+      /** False only when the judge's cached verdict could not be removed. */
+      judgeCacheRemoved: boolean;
+    }
+  | DokConfirmFailure;
+
+export type BulkConfirmDoksInput = {
+  targets: Array<{
+    dokId: string;
+    expectedRevision: string;
+  }>;
+};
+
+export type BulkConfirmDokFailure = {
+  dokId: string;
+  code: DokConfirmErrorCode;
+  error: string;
+  preserved: true;
+};
+
+export type BulkConfirmDoksResult =
+  | {
+      ok: true;
+      confirmed: Array<{ dokId: string; revision: string }>;
+    }
+  | {
+      ok: false;
+      code: 'INVALID' | 'PREFLIGHT_FAILED';
+      error: string;
+      confirmed: [];
+      failures: BulkConfirmDokFailure[];
+    }
+  | {
+      ok: false;
+      code: 'PARTIAL_FAILURE';
+      error: string;
+      confirmed: Array<{ dokId: string; revision: string }>;
+      failures: BulkConfirmDokFailure[];
+    };
+
+/** The parsed workspace a drift read resolves each Dok's project root against. */
+async function driftWorkspace(): Promise<
+  { root: string; workspace: Workspace } | Extract<SaveResult, { ok: false }>
+> {
+  const state = await loadWorkspaceState();
+  if (state.kind === 'missing') return saveFailure('MISSING', state.path, 'workspace.json not found');
+  if (state.kind === 'invalid') return saveFailure('INVALID', state.path, state.message);
+  if (state.kind === 'unreadable') return saveFailure('UNREADABLE', state.path, state.message);
+  return { root: dirname(state.path), workspace: state.data };
+}
+
+function driftReadFailure(
+  code: SaveErrorCode,
+  path: string,
+  error: unknown,
+): DokDriftReadFailure {
+  return {
+    ok: false,
+    code,
+    path,
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
+/**
+ * One Dok's drift for the editor: stale or not and why, the judge's
+ * unconfirmed verdict while it holds, and what would block a confirmation.
+ * Reads source files and the judge cache; writes nothing, calls no model.
+ */
+export async function readDokDriftAction(input: { dokId: string }): Promise<DokDriftReadResult> {
+  const parsed = DriftReadInputSchema.safeParse(input);
+  if (!parsed.success) {
+    const target = await workspaceTarget('.doklo/hub/doks');
+    return driftReadFailure(
+      'INVALID',
+      target.path,
+      `Dok drift read is invalid: ${formatZodError(parsed.error)}`,
+    );
+  }
+  const dokId = parsed.data.dokId;
+  const catalog = await loadDoksState();
+  if (catalog.kind === 'invalid' || catalog.kind === 'unreadable') {
+    return driftReadFailure(
+      catalog.kind === 'invalid' ? 'INVALID' : 'UNREADABLE',
+      catalog.path,
+      catalog.message,
+    );
+  }
+  if (catalog.kind === 'missing') {
+    return driftReadFailure('MISSING', catalog.path, 'The Dok catalog is missing.');
+  }
+  const dok = catalog.data.doks.find((item) => item.dok_id === dokId);
+  const revision = catalog.data.revisions[dokId];
+  if (dok === undefined || revision === undefined) {
+    return driftReadFailure(
+      'MISSING',
+      catalog.path,
+      `Dok ${dokId} was not found in the loaded catalog.`,
+    );
+  }
+  const workspace = await driftWorkspace();
+  if (!('root' in workspace)) {
+    return driftReadFailure(workspace.code, workspace.path, workspace.error);
+  }
+  try {
+    return {
+      ok: true,
+      ...(await viewDokDrift({
+        dok,
+        revision,
+        root: workspace.root,
+        workspace: workspace.workspace,
+      })),
+    };
+  } catch (error) {
+    return driftReadFailure('UNREADABLE', catalog.data.paths[dokId] ?? catalog.path, error);
+  }
+}
+
+/**
+ * Every stale Dok in the catalog, for the Doks list's bulk confirmation. The
+ * same read as `readDokDriftAction`, Dok by Dok — each costs what `doklo sync
+ * --check` pays for it, so the list asks only when a person opens the mode.
+ */
+export async function readDoksDriftAction(): Promise<DoksDriftReadResult> {
+  const catalog = await loadDoksState();
+  if (catalog.kind === 'invalid' || catalog.kind === 'unreadable') {
+    return driftReadFailure(
+      catalog.kind === 'invalid' ? 'INVALID' : 'UNREADABLE',
+      catalog.path,
+      catalog.message,
+    );
+  }
+  if (catalog.kind === 'missing') return { ok: true, stale: [] };
+  const workspace = await driftWorkspace();
+  if (!('root' in workspace)) {
+    return driftReadFailure(workspace.code, workspace.path, workspace.error);
+  }
+  const stale: DokDriftView[] = [];
+  for (const dok of catalog.data.doks) {
+    const revision = catalog.data.revisions[dok.dok_id];
+    if (revision === undefined) continue;
+    try {
+      const view = await viewDokDrift({
+        dok,
+        revision,
+        root: workspace.root,
+        workspace: workspace.workspace,
+      });
+      if (view.drift.stale) stale.push(view);
+    } catch {
+      // A Dok whose drift cannot be read is left out of the list — the same
+      // Dok's editor shows no drift panel either.
+    }
+  }
+  return { ok: true, stale };
+}
+
+type PreparedDokConfirmation = {
+  ok: true;
+  dokId: string;
+  root: string;
+  relativePath: string;
+  path: string;
+  revision: string;
+  projectRoot: string;
+  next: Dok;
+  confirmation: DriftConfirmation;
+};
+
+/**
+ * Everything a confirmation decides before anything is written: the exact
+ * revision, the Dok's identity, its staleness as the CLI reads it, and the
+ * baseline to stamp. The single and bulk actions share it, so a refusal reads
+ * the same from both.
+ */
+async function prepareDokConfirmation(input: {
+  dokId: string;
+  root: string;
+  relativePath: string;
+  expectedRevision: string;
+  workspace: Workspace;
+  label: string;
+}): Promise<PreparedDokConfirmation | DokConfirmFailure> {
+  const current = await readJsonForMutation({
+    root: input.root,
+    relativePath: input.relativePath,
+    expectedRevision: input.expectedRevision,
+    schema: DokSchema,
+    label: input.label,
+  });
+  if (!current.ok) return current;
+  if (current.data.dok_id !== input.dokId) {
+    return saveFailure(
+      'INVALID',
+      current.path,
+      `Loaded Dok identity changed to ${current.data.dok_id}.`,
+    );
+  }
+
+  const projectRoot = dokProjectRoot(current.data, input.workspace, input.root);
+  const { drift, confirmation } = await inspectDokDrift(current.data, projectRoot);
+  // In the CLI's order: nothing to confirm on a Dok that is not stale; the
+  // recovered-tracking review gate stays shut (only regeneration clears it);
+  // and no blessing a source nobody could read.
+  const refusal: DokDriftRefusal | null = !drift.stale
+    ? 'NOT_STALE'
+    : drift.reason === 'tracking-expanded'
+      ? 'TRACKING_REVIEW_REQUIRED'
+      : drift.reason !== 'changed' || !confirmation
+        ? 'NOTHING_TO_CONFIRM'
+        : null;
+  if (refusal !== null || !confirmation) {
+    const code = refusal ?? 'NOTHING_TO_CONFIRM';
+    return {
+      ok: false,
+      code,
+      path: current.path,
+      error: driftRefusalMessage(input.dokId, code, drift),
+      preserved: true,
+      drift,
+    };
+  }
+  return {
+    ok: true,
+    dokId: input.dokId,
+    root: input.root,
+    relativePath: input.relativePath,
+    path: current.path,
+    revision: current.revision,
+    projectRoot,
+    next: applyDriftConfirmation(current.data, confirmation),
+    confirmation,
+  };
+}
+
+/**
+ * "Still accurate": a person read the change and the Dok still holds. Writes
+ * the three drift facts the CLI's drift entry point computes now —
+ * `logic_hash_normalized`, `logic_files[].sha256` and `source_commit` — under
+ * the same exact-revision check as every other Dok write, then drops the
+ * judge's cached verdict. Refuses a Dok that is not stale, one whose recovered
+ * source tracking still needs review, and one with a tracked file it cannot
+ * read.
+ */
+export async function confirmDokStillAccurateAction(
+  input: ConfirmDokStillAccurateInput,
+): Promise<ConfirmDokStillAccurateResult> {
+  const parsed = ConfirmDokInputSchema.safeParse(input);
+  if (!parsed.success) {
+    const candidate = isRecord(input) ? input.dokId : undefined;
+    const dokId = DokIdSchema.safeParse(candidate).success ? String(candidate) : 'INVALID';
+    const target = await workspaceTarget(`.doklo/hub/doks/${dokId}.json`);
+    if (!('root' in target)) return target;
+    return invalidInput(target.path, 'Dok confirmation', parsed.error);
+  }
+  const { dokId, expectedRevision } = parsed.data;
+  const resolved = await resolveDokWriteTarget(dokId, expectedRevision);
+  if (!('target' in resolved)) return resolved;
+  const { root, relativePath } = resolved.target;
+  const workspace = await driftWorkspace();
+  if (!('root' in workspace)) return workspace;
+
+  const prepared = await prepareDokConfirmation({
+    dokId,
+    root,
+    relativePath,
+    expectedRevision,
+    workspace: workspace.workspace,
+    label: 'Dok',
+  });
+  if (!prepared.ok) return prepared;
+  const written = await writeJsonForMutation({
+    root,
+    relativePath,
+    expectedRevision: prepared.revision,
+    value: prepared.next,
+    schema: DokSchema,
+    label: 'Dok',
+  });
+  if (!written.ok) return written;
+
+  const judgeCacheRemoved = await removeConfirmedJudgeVerdict(root, dokId);
+  // Read back through the same reader the editor uses, so the UI refreshes
+  // from what was written rather than from what was intended.
+  const { drift } = await inspectDokDrift(prepared.next, prepared.projectRoot);
+  return {
+    ok: true,
+    dokId,
+    path: written.path,
+    revision: written.revision,
+    drift,
+    stamped: {
+      logic_hash_normalized: prepared.confirmation.logic_hash_normalized,
+      source_commit: prepared.confirmation.source_commit ?? null,
+      files: prepared.confirmation.logic_files.filter((entry) => entry.sha256 !== undefined).length,
+    },
+    judgeCacheRemoved,
+  };
+}
+
+/**
+ * "Still accurate" for several stale Doks at once, with the bulk activation's
+ * contract: every target is preflighted — exact revision, identity, staleness,
+ * the baseline to stamp — before any file is written, so a refused target
+ * leaves every Dok untouched; then each Dok is written atomically on its own
+ * and a late write failure is reported Dok by Dok.
+ */
+export async function bulkConfirmDoksStillAccurateAction(
+  input: BulkConfirmDoksInput,
+): Promise<BulkConfirmDoksResult> {
+  const parsed = BulkConfirmDoksInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      code: 'INVALID',
+      error: `Bulk Dok confirmation is invalid: ${formatZodError(parsed.error)}`,
+      confirmed: [],
+      failures: [],
+    };
+  }
+  const targets = parsed.data.targets;
+  const preflightFailed = (
+    error: string,
+    failures: BulkConfirmDokFailure[],
+  ): BulkConfirmDoksResult => ({
+    ok: false,
+    code: 'PREFLIGHT_FAILED',
+    error,
+    confirmed: [],
+    failures,
+  });
+  const everyTarget = (code: DokConfirmErrorCode, error: string): BulkConfirmDokFailure[] =>
+    targets.map((target) => ({ dokId: target.dokId, code, error, preserved: true }));
+
+  const catalog = await loadDoksState();
+  if (catalog.kind === 'invalid' || catalog.kind === 'unreadable') {
+    return preflightFailed(
+      catalog.message,
+      everyTarget(catalog.kind === 'invalid' ? 'INVALID' : 'UNREADABLE', catalog.message),
+    );
+  }
+  if (catalog.kind === 'missing' || catalog.kind === 'empty') {
+    const error = catalog.kind === 'missing'
+      ? 'The Dok catalog is missing.'
+      : 'The Dok catalog is empty.';
+    return preflightFailed(error, everyTarget('MISSING', error));
+  }
+  const hub = await workspaceTarget('.doklo/hub/doks');
+  if (!('root' in hub)) return preflightFailed(hub.error, everyTarget(hub.code, hub.error));
+  const workspace = await driftWorkspace();
+  if (!('root' in workspace)) {
+    return preflightFailed(workspace.error, everyTarget(workspace.code, workspace.error));
+  }
+
+  const prepared: PreparedDokConfirmation[] = [];
+  const failures: BulkConfirmDokFailure[] = [];
+  for (const target of targets) {
+    const exactPath = catalog.data.paths[target.dokId];
+    const catalogRevision = catalog.data.revisions[target.dokId];
+    if (exactPath === undefined || catalogRevision === undefined) {
+      failures.push({
+        dokId: target.dokId,
+        code: 'MISSING',
+        error: `Dok ${target.dokId} was not found in the loaded catalog.`,
+        preserved: true,
+      });
+      continue;
+    }
+    if (catalogRevision !== target.expectedRevision) {
+      failures.push({
+        dokId: target.dokId,
+        code: 'CONFLICT',
+        error: `Dok ${target.dokId} changed outside this selection.`,
+        preserved: true,
+      });
+      continue;
+    }
+    const relativePath = relative(hub.root, exactPath);
+    if (escapesWorkspace(relativePath)) {
+      failures.push({
+        dokId: target.dokId,
+        code: 'INVALID',
+        error: `Loaded Dok path escapes the workspace: ${exactPath}`,
+        preserved: true,
+      });
+      continue;
+    }
+    const result = await prepareDokConfirmation({
+      dokId: target.dokId,
+      root: hub.root,
+      relativePath,
+      expectedRevision: target.expectedRevision,
+      workspace: workspace.workspace,
+      label: `Dok ${target.dokId}`,
+    });
+    if (!result.ok) {
+      failures.push({
+        dokId: target.dokId,
+        code: result.code,
+        error: result.error,
+        preserved: true,
+      });
+      continue;
+    }
+    prepared.push(result);
+  }
+  if (failures.length > 0) {
+    return preflightFailed(
+      `${failures.length} Dok(s) failed confirmation preflight.`,
+      failures,
+    );
+  }
+
+  const confirmed: Array<{ dokId: string; revision: string }> = [];
+  for (const item of prepared) {
+    const written = await writeJsonForMutation({
+      root: item.root,
+      relativePath: item.relativePath,
+      expectedRevision: item.revision,
+      value: item.next,
+      schema: DokSchema,
+      label: `Dok ${item.dokId}`,
+    });
+    if (!written.ok) {
+      failures.push({
+        dokId: item.dokId,
+        code: written.code,
+        error: written.error,
+        preserved: true,
+      });
+      continue;
+    }
+    await removeConfirmedJudgeVerdict(item.root, item.dokId);
+    confirmed.push({ dokId: item.dokId, revision: written.revision });
+  }
+  if (failures.length > 0) {
+    return {
+      ok: false,
+      code: 'PARTIAL_FAILURE',
+      error: `${failures.length} Dok(s) could not be confirmed.`,
+      confirmed,
+      failures,
+    };
+  }
+  return { ok: true, confirmed };
 }
 
 // ─── Lexicon ──────────────────────────────────────────────────

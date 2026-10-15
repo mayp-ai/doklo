@@ -4,6 +4,58 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-15
+
+### Added
+- Judge-gated sync: `doklo sync --judge [--judge-max <n>]` asks a model, before
+  regenerating a stale description, whether it still holds. A description judged
+  still accurate is kept and reported as judged but unconfirmed by
+  `doklo sync --check`, `doklo show`, and MCP until a person confirms it; one that
+  needs an update is regenerated with the judge's one sentence staged as the
+  change proposal that approval records; an unsure answer or a failed call
+  regenerates as before. The run asks for consent twice (judge calls, then
+  regenerations); `--yes` approves both. Verdicts are cached under
+  `.doklo/cache/judge/` while the code, base commit, and text are unchanged.
+- Judge models: Claude Sonnet 5 on an Anthropic API key (the default), or
+  GPT-6 Luna with an OpenAI API key or a ChatGPT (Codex) login, for judge calls
+  only. Pin one with `doklo model --task judge --set <provider/model>`.
+- Generation records the facts the judge needs: the base commit
+  (`_meta.source_commit`), per-file content hashes in `logic_files`, and a
+  normalized logic hash.
+- Studio: **Still accurate** confirms a judged description without changing its
+  text, status, or history, with a bulk action for stale descriptions; the drift
+  panel shows the judge's verdict.
+- `doklo sync` names the approved descriptions a run returns to draft.
+
+### Changed
+- Changes to comments, whitespace, or line endings in a description's tracked
+  JavaScript and TypeScript files no longer make it stale. `doklo sync`,
+  `doklo show`, and MCP report such changes as form-only; no model call is made.
+  The original logic hash is never re-stamped, so release digests are unaffected.
+- Approving a description in Studio no longer marks it as edited by a person, so
+  `doklo sync` keeps regenerating it after later code changes. Text edits,
+  renames, description edits, and the planned, deprecated, and archived statuses
+  still protect a description without `--force`.
+- Judge calls on the OpenAI API-key route are sent with `store: false`, as on
+  the Codex route.
+
+### Fixed
+- A draft regenerated again before approval keeps the approved baseline of its
+  pending proposal, and every history entry measures from the right baseline.
+- The keep-a-changelog Live Docs template renders a recorded note in every
+  section.
+
+### Upgrade notes
+- Descriptions generated before 0.4.0 lack the judge's facts. Until each one is
+  regenerated once, form-only edits still make it stale and `doklo sync --judge`
+  regenerates it without asking the judge (reported as skipped). Descriptions
+  whose tracking predates 0.3.2 still need `doklo scan --repair-tracking` first.
+- Descriptions approved with an earlier version are still marked as edited; the
+  first time each one goes stale it needs `doklo sync --force` (or
+  `doklo sync --dok <ID> --force`). After that the loop runs without it.
+- The package remains an Apache-2.0 developer preview. This update does not
+  enable Cloud hosting, automatic publication, or document approval.
+
 ## [0.3.2] - 2026-10-08
 
 ### Changed
@@ -193,6 +245,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `doklo scan` — extract a deterministic intermediate representation (IR) of every service (routes, components, state, roles).
 - `doklo consolidate` — group scattered code into coherent business features.
 - `doklo generate` — write one source-grounded `draft` Dok per feature; previews cost before running and auto-runs scan + consolidate when needed. The current production route accepts `anthropic/claude-sonnet-5` through direct Anthropic or an explicitly selected local Claude Code backend.
+- `doklo sync` change proposals — regenerating an existing Dok stages a short summary of what changed in `_meta.pending_change` (for example, `Updated the description; added 2 steps.`), produced by a rule-based comparison rather than a model. `--note <text>`, with an optional `--category <category>`, stages your own sentence instead on every Dok the run regenerates; it cannot be combined with `--check`. A proposal becomes history only when a person approves the Dok in Studio: `doklo generate` and `doklo sync` never write history entries.
 - `doklo show` — pretty-print a Dok by id, or list every Dok in the Hub.
 - `doklo roles` — suggest RBAC role candidates from the scan.
 - `doklo lexicon-suggest` — have the LLM nominate domain terms for review from the automatically selected Dok or code corpus.
@@ -202,6 +255,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 **Studio**
 
 - `doklo serve` — launch Doklo Studio, a local web workbench to review and edit Doks, roles, and lexicon; runs the packaged build or a dev server, with `--open` to jump straight into onboarding.
+- Dok change history in Studio — the editor shows a staged proposal as `Proposed: …`, and activating the Dok, individually or through bulk approval, records it in `_meta.history`. A note typed in `What changed? (optional)` is recorded on save under the chosen Keep a Changelog category (Changed by default) and replaces the proposal at activation. Status changes are recorded without a note; text edits saved without one are not.
 
 **MCP**
 
@@ -211,6 +265,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `doklo live-docs render` — render Live Docs from the Hub. The stable public contract now covers `feature-matrix`, `github-onboarding`, `help-index`, `help-page`, `keep-a-changelog`, `permission-gap`, and `release-digest`. Stable templates accept only `active` Doks; explicitly selecting a non-active Dok fails with `UNREVIEWED_DOK`. Stable workspace renders skip an unsafe Dok with `SKIPPED_STABLE_DOK` and continue with the remaining safe Doks, but fail when none are safe. The other nine templates and all binary formats remain experimental.
 - Stable Publication evidence now distinguishes the requested `selected_dok_ids` from the `rendered_dok_ids` that survived public-copy checks. Only rendered Doks become the next change-classification baseline, and unsafe retired snapshots are skipped before a stable release document is written.
+- `keep-a-changelog` renders the recorded history of the Doks it includes, grouped by date under Keep a Changelog categories; a Dok's first activation is Added, and Doks with nothing recorded are omitted. `release-digest` states, for each Dok whose tracked source changed since the previous render, the notes and approved proposals recorded since then, or a generic line when there are none.
 - Stable public-copy checks now reject angle-bracket placeholders, raw role identifiers, and generator-confidence provenance. Repository onboarding omits guessed setup commands and exposes localized role names without internal IDs or scan metadata.
 - `doklo live-docs capture` is experimental and currently unavailable. Its hidden direct command fails closed before browser or filesystem access until output publication is race-safe and an app → capture → stable document E2E is release-gated.
 - `doklo template` — list, inspect, validate, scaffold, add, and remove Live Doc templates across built-in, user, and workspace sources.

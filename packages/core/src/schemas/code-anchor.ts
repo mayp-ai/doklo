@@ -36,6 +36,12 @@ export const SourceAnchorSchema = z
     symbol: z.string().min(1).optional(),                  // "validateEmail"
     start_line: z.number().int().positive().optional(),    // 1-based
     end_line: z.number().int().positive().optional(),      // 1-based, inclusive
+    // Content hash of the file when the drift baseline was stamped: sha256 hex
+    // of its text as the drift read returns it (`computeSourceFileSha256`).
+    // Stamped on `_meta.logic_files[]` entries at generation (judge-gated sync
+    // design §4.3, §6) so a later diff can name which tracked file changed and
+    // confirm its base; display `source_anchors` do not carry it.
+    sha256: z.string().optional(),
   })
   .passthrough()
   .superRefine((a, ctx) => {

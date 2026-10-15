@@ -15,6 +15,24 @@ Interactive `doklo init` records and authenticates a picker choice; it does not 
 doklo generate --llm-backend claude-code --model anthropic/claude-sonnet-5
 ```
 
+## The sync judge (`judge` role)
+
+`doklo sync --judge` asks a judge model whether a stale description still holds before regenerating it (see [Let a judge decide what to regenerate](../../README.md#let-a-judge-decide-what-to-regenerate)). The judge resolves under its own task role, `judge`, and accepts exactly two models:
+
+| Model | Route | Used when |
+| --- | --- | --- |
+| `anthropic/claude-sonnet-5` | Direct Anthropic, with an Anthropic API credential from the keychain or environment | The default: your regeneration model is not an OpenAI model |
+| `openai/gpt-6-luna` | An OpenAI API key (`doklo auth --provider openai`, API-key method, or `OPENAI_API_KEY`) on the default OpenAI endpoint, or the OpenAI Codex route through a ChatGPT login (`doklo auth`) | Your regeneration model is an OpenAI model, which runs only through a ChatGPT login. To use GPT-6 Luna with an API key, pin it (below): generation never runs on an OpenAI API key, so the default never reaches GPT-6 Luna there. GPT-6 Luna is accepted for judge calls only, never for generation |
+
+Unless you pin one, the judge follows the provider of the regeneration model: the `--model` you pass to `doklo sync`, else the `generate` role, else `default`. To pin it:
+
+```bash
+doklo model --task judge --set anthropic/claude-sonnet-5
+doklo model --task judge --set openai/gpt-6-luna
+```
+
+Any other judge model fails with `RUNTIME_TRUST_MODEL_REQUIRED` before any judge call, and the local Claude Code route is refused with `RUNTIME_TRUST_ROUTE_REQUIRED`. Judge calls on the OpenAI API-key route are sent with `store: false`, as on the Codex route. In the 2026-10-14 benchmark both models caught every change that needed an update; GPT-6 Luna raised a few false alarms on unrelated descriptions and was less consistent between runs, while Sonnet 5 raised none. That benchmark measured GPT-6 Luna on the Codex route; the API-key endpoint was only smoke-tested, not benchmarked.
+
 ## Picker guidance tiers
 
 In `doklo init` or `doklo model`, benchmark labels describe research evidence, not the current runtime support matrix:

@@ -11,7 +11,6 @@ import {
   DokSchema,
   derivePriorityTier,
   dokProjectRoot,
-  isDokStale,
   type Actor,
   type Dok,
   type PriorityTier,
@@ -19,6 +18,8 @@ import {
   type Translatable,
 } from '@doklo-beta/core';
 import { loadWorkspaceWithPaths } from '../lib/workspace.js';
+import { isDokStale } from '../lib/drift.js';
+import { readCurrentJudgeVerdict, type JudgeCacheRecord } from '../lib/judge/cache.js';
 import type { CliContext } from '../lib/context.js';
 import { recordCommandResult } from '../lib/command-result.js';
 
@@ -56,12 +57,24 @@ export async function loadDok(opts: LoadDokOptions): Promise<Dok> {
  * relative to the owning service's `code_root`, so `dokProjectRoot` must map the
  * Dok back to that base before the stored `logic_hash` can be compared with a
  * hash recomputed from the source files. Synchronous drift judgment lives in
- * core; this only wires the workspace context in. Read-only, safe on the show
- * path (`no-hash` ⇒ undecidable ⇒ reported as not stale).
+ * core, reached through the CLI's drift entry point so the format-only layer
+ * judges exactly as sync and MCP do; this only wires the workspace context in.
+ * Read-only, safe on the show path (`no-hash` ⇒ undecidable ⇒ reported as not
+ * stale; `format-only` ⇒ fresh).
  */
 export async function dokStaleness(root: string, dok: Dok): Promise<StaleResult> {
   const { workspace, paths } = await loadWorkspaceWithPaths(root);
   return isDokStale(dok, dokProjectRoot(dok, workspace, paths.root));
+}
+
+/**
+ * The sync judge's unconfirmed `accurate` verdict for a stale Dok, when it
+ * still holds for the Dok's code, base and text (`doklo sync --judge` cached
+ * it; nobody has confirmed the Dok since). Read-only; no model.
+ */
+export async function dokJudgeVerdict(root: string, dok: Dok): Promise<JudgeCacheRecord | null> {
+  const { workspace, paths } = await loadWorkspaceWithPaths(root);
+  return readCurrentJudgeVerdict(paths.root, dok, dokProjectRoot(dok, workspace, paths.root));
 }
 
 export interface DokSummary {
@@ -151,7 +164,10 @@ export function registerShowCommand(program: Command, ctx: CliContext): void {
       const dok = await loadDok({ root, dokId });
       if (!machine) {
         const staleness = await dokStaleness(root, dok);
-        printDok(dok, chalk, staleness);
+        const judged = staleness.stale && staleness.reason === 'changed'
+          ? await dokJudgeVerdict(root, dok)
+          : null;
+        printDok(dok, chalk, staleness, judged);
       }
       recordShowResult(program, dok);
       void ctx;
@@ -173,6 +189,7 @@ export function printDok(
   dok: Dok,
   chalk: typeof import('chalk').default,
   staleness: StaleResult,
+  judged: Pick<JudgeCacheRecord, 'model' | 'summary'> | null = null,
 ): void {
   const w = (label: string, value: string): string =>
     `${chalk.dim(label)} ${value}`;
@@ -185,6 +202,15 @@ export function printDok(
   console.log(
     `  ${w('freshness', formatFreshness(staleness, derivePriorityTier(dok.priority), chalk))}`,
   );
+  if (judged !== null && staleness.stale) {
+    // The judge's opinion, never a freshness claim: the Dok stays stale until a
+    // person confirms it (judge-gated sync design §4.7).
+    const summary = judged.summary.trim();
+    console.log(
+      `  ${w('judge', `stale, judged accurate (unconfirmed) · ${judged.model}${summary ? ` — ${summary}` : ''}`)}`
+      + chalk.dim(' — confirm it in the web app (`doklo serve`), or run `doklo sync` to regenerate'),
+    );
+  }
   if (dok.surfaces && dok.surfaces.length > 0) {
     console.log(`  ${w('surfaces', dok.surfaces.join(', '))}`);
   }
@@ -239,8 +265,9 @@ export function printDok(
 // Freshness (drift) one-liner — drift-spec §4.5.
 //
 // The icon alone invites the wrong reading — that 🟢 fresh means "this doc is
-// correct". It does not: drift only compares the bytes of the tracked source
-// files against what they were at generation time. Each state therefore carries
+// correct". It does not: drift only compares the tracked source files against
+// what they were at generation time (their bytes, or — for a form-only change —
+// their parse trees). Each state therefore carries
 // a dim clause spelling out what it does and does not claim, and (when stale or
 // untracked) what to do next.
 function formatFreshness(
@@ -268,6 +295,14 @@ function formatFreshness(
         staleness.reason === 'tracking-expanded'
           ? ' — recovered source tracking needs review; trust the code over this doc, or run `doklo sync`'
           : ' — tracked sources changed since generation; trust the code over this doc, or run `doklo sync`',
+      )
+    );
+  }
+  if (staleness.reason === 'format-only') {
+    return (
+      '🟢 fresh' +
+      chalk.dim(
+        ' — tracked sources changed in form only (comments, whitespace) since generation or confirmation (not a proof the doc is correct)',
       )
     );
   }

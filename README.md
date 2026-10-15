@@ -30,7 +30,7 @@ Doklo reads AI-built software and turns it into product docs people can read, re
 
 - **Drafts from code.** Doklo reads your code and writes a description of each feature: what it does, the steps a user takes, the rules, and the checks. Every description links to the source files it came from.
 - **People approve, not the model.** A generated description stays `draft` until a person reviews it in Studio and marks it `active`. Stable help pages are built from active descriptions only.
-- **Ships as help pages and team docs.** Approved descriptions become customer help pages, a help index, onboarding notes, a changelog, and more, published into your own app or repository.
+- **Ships as help pages and team docs.** Approved descriptions become customer help pages, a help index, onboarding notes, a [changelog](#record-what-changed), and more, published into your own app or repository.
 - **Your coding agent reads the same thing.** Claude Code, Cursor, and Claude Desktop query the descriptions over MCP, with each one's review status and freshness. `doklo sync --check` lists the descriptions whose source files changed; `doklo sync` regenerates them.
 
 ## Install
@@ -153,6 +153,58 @@ After each `render`, check the generated files and exclusion warnings: a `SKIPPE
   Selecting the index by status instead would also list a Dok the article render skipped (`SKIPPED_STABLE_DOK`), and that entry would be a dead link. When the set of rendered articles changes, refresh the index definition and its render: `publication create help-index --overwrite ...` replaces the saved definition, `publication render help-index --overwrite` replaces this Publication's own files under `.doklo/output/`, and `publish` then applies the usual rules to the destination (it still never touches files it did not write).
 - A `doklo-publish.json` ledger (publication name, definition hash, published file paths with hashes, and the publish time) is written next to the outputs so the next publish can tell its own files from yours. Under `public/` that ledger is served with your site, so keep that in mind when you name Publications.
 
+## Record what changed
+
+Each description keeps a change history in its Dok file (`_meta.history`), versioned with your repository. Doklo adds an entry only when a person acts in Studio; `doklo generate` and `doklo sync` never write one. Each entry carries a date and, when available, the author's name from `DOKLO_AUTHOR` or your git `user.name`.
+
+- **Regeneration stages a proposal.** When `doklo sync` regenerates a description that already exists, the description returns to `draft` with a short summary of what changed, such as `Updated the description; added 2 steps.` The summary is a rule-based comparison, not a model's output: it reports a rename and changes to the description, steps, rules, and acceptance criteria, and nothing is staged when the content is unchanged. `doklo sync --judge` can stage the judge's sentence instead ([see below](#let-a-judge-decide-what-to-regenerate)). A staged proposal is not history yet and appears in no Live Doc.
+- **Approval records it.** Studio shows the proposal as `Proposed: …`. Activating the description, one at a time or in bulk, records it in the history and clears it.
+- **Notes and status changes are recorded too.** A note typed in `What changed? (optional)` is recorded when you save, under Changed unless you pick another category; typed when you activate, it replaces the proposal. Status changes such as activate, deprecate, or archive are recorded without a note; text edits are recorded only with one.
+
+Approving a description, one at a time or in bulk, does not stop `doklo sync` from regenerating it: after a code change, it returns to `draft` with a new proposal to approve. Without `--force`, `doklo sync` skips a description whose text you edited in Studio, or whose status you moved to or from planned, deprecated, or archived; `--force` regenerates it as a new draft and overwrites those changes. Descriptions approved with an earlier version of Doklo are still marked as edited, so the first time each one goes stale it needs `doklo sync --force`, or `doklo sync --dok <ID> --force` to leave descriptions you really edited alone; after that, the loop runs without it. Descriptions whose tracking predates 0.3.2 show as `unknown` and never go stale: run `doklo scan --repair-tracking` first, which rebuilds their tracking and marks them stale for review, so the next `doklo sync` regenerates them (with `--force` for those still marked as edited). To stage your own sentence instead of the comparison:
+
+```bash
+# Applies to every description this run regenerates. --category requires --note,
+# and --note cannot be combined with --check.
+doklo sync --note "Checkout accepts gift cards" --category added
+```
+
+`keep-a-changelog` lists the recorded changes of the active descriptions it includes, grouped by date and Keep a Changelog category; a description's first activation appears under Added, and a description with nothing recorded is not listed. `release-digest` counts a description as changed only when its tracked source changed since the previous render, then states the notes and approved proposals recorded since that render, or a generic line when there are none. The MCP tools do not return history.
+
+## Let a judge decide what to regenerate
+
+Not every code change makes a description wrong. Two checks keep changes that do not matter from sending a description back to `draft`.
+
+**Form-only changes are not drift.** If the only change in a description's tracked JavaScript or TypeScript files is to comments, whitespace, or line endings, the description is not stale. There is nothing to turn on, and there is no model call or cost: `doklo sync` reports how many descriptions changed in form only, `doklo show <ID>` says so on its freshness line, and MCP returns `is_stale: false`. Other files, and files that do not parse, are still compared byte for byte.
+
+**Ask a judge before regenerating.** For descriptions that are still stale, `doklo sync --judge` asks a model whether each one still holds before regenerating it:
+
+```bash
+doklo sync --judge                 # ask about every stale description first
+doklo sync --judge --judge-max 10  # ask about at most 10; the rest regenerate as usual
+```
+
+The judge reads the description, what changed in its tracked files since the commit the description was generated from (a git diff, or the whole file when a reliable diff cannot be built), and the description's source anchors, up to 240,000 characters per check. Files Doklo never sends to a model, such as credentials, are named but not sent. It answers one of three ways:
+
+- **Still accurate:** the description is not regenerated and keeps its status. The verdict is cached under `.doklo/cache/judge/`, so while the code, the base commit, and the text stay the same, the next `doklo sync --judge` reuses it without a call.
+- **Needs an update:** the description is regenerated, and the judge's one sentence on what the description must now say is staged as the change proposal that approval records. A `--note`, or a proposal you wrote and have not approved yet, takes precedence. If the regeneration comes out unchanged, nothing is staged and sync names the description so you can edit it yourself.
+- **Unsure:** the description is regenerated as it would be without `--judge`. A failed call, an answer not in the required form, evidence from a file the judge was not given, and a "still accurate" without evidence all count as unsure.
+
+A verdict is an opinion with cited evidence, never an approval. The judge writes in the workspace's default language (Korean for `ko`, English otherwise). `doklo sync --judge` asks for consent twice: first for the judge's calls, then for the regenerations that are still needed; `--yes` approves both. `--judge` cannot be combined with `--check`, which never calls a model.
+
+**Which model judges.** The judge follows the provider of your regeneration model: Claude Sonnet 5 with an Anthropic API key (the default), GPT-6 Luna with a ChatGPT (Codex) login. To pin one, run `doklo model --task judge --set anthropic/claude-sonnet-5` or `doklo model --task judge --set openai/gpt-6-luna`; no other model is accepted. GPT-6 Luna also judges with an OpenAI API key (`doklo auth --provider openai` with the API-key method, or `OPENAI_API_KEY`); to use it that way, pin it with the second command. The default reaches GPT-6 Luna only from a ChatGPT login, because generation never runs on an OpenAI API key. Calls with the API key are sent with `store: false`. In our benchmark both caught every change that needed an update; GPT-6 Luna was much cheaper and faster but raised a few false alarms on unrelated descriptions and changed some verdicts between runs, while Sonnet 5 raised none. The benchmark measured GPT-6 Luna through the ChatGPT (Codex) login; the API-key endpoint was only smoke-tested.
+
+**Cost.** A check sends about as much as one regeneration, and its tokens count toward the same limits as generation (`DOKLO_MAX_TOKENS_PER_RUN`, `DOKLO_MAX_TOKENS_TOTAL`; see [Token limits](#token-limits-and-agent-skills)). A description that does need an update pays for a check and a regeneration: the judge saves review work, not model spend.
+
+**Confirm what the judge kept.** A description the judge called still accurate stays stale until a person confirms it in the web app with **Still accurate**. Until then, `doklo sync --check` still lists it (and exits 1) with a note that it was judged accurate and is unconfirmed, `doklo show <ID>` prints the same note, MCP keeps returning `is_stale: true`, and the `doklo sync --judge` run that kept it ends as partial (exit code 1). Confirming changes neither the text nor the status and records no history entry; the description then reads fresh until its tracked files change again. A plain `doklo sync` regenerates it instead.
+
+**Limits.**
+
+- Both checks need facts that generation now records: a normalized hash for the form-only check, and per-file hashes and a base commit for the judge, so the judge needs a git repository. Descriptions generated by an earlier version of Doklo do not have them: until they are regenerated once, form-only edits still make them stale and `--judge` sends them to regeneration without asking.
+- Descriptions that show `unknown` after upgrading to 0.3.2 never go stale; run `doklo scan --repair-tracking` to rebuild their tracking.
+- Descriptions a person edited are still skipped without `--force`.
+- Drafts, descriptions with a tracked file that is gone or unreadable, and descriptions whose tracking was repaired regenerate without the judge, as do descriptions beyond `--judge-max`, over the 240,000-character input, or whose changes cannot be shown to the judge.
+
 ## Use it from your AI agent (MCP)
 
 Doklo exposes the Hub to AI agents (Claude Code, Claude Desktop, Cursor, etc.) as a read-only stdio MCP server. The server runs locally and makes no model-provider or Doklo-cloud calls; it returns requested Hub data to the MCP client you connect. Generation is a separate, explicit operation: after approval, selected source excerpts are sent through direct Anthropic or your local Claude Code session.
@@ -177,7 +229,7 @@ MCP clients don't guarantee a working directory, so pass your project root expli
 
 These tools can return Doks in any lifecycle state. Inspect `status`: `draft` is AI-generated and pending human review; only `active` means it has crossed the explicit review transition. Freshness is a separate signal and never certifies semantic correctness.
 
-`is_stale` is tri-state on all three successful payloads: `true` means a tracked source file is missing or its recomputed hash differs; `false` means the stored hash still matches; `"unknown"` means the Dok has no stored hash or its tracking was generated by an unverified older extractor. Recovered tracking that still needs document review is stale. If the workspace cannot be resolved, read, or parsed, the tool call returns an MCP error instead of a successful `unknown` payload. This detects source drift only — `false` does not verify that a Dok is factually correct or complete.
+`is_stale` is tri-state on all three successful payloads: `true` means a tracked source file is missing or its recomputed hash differs; `false` means the stored hash still matches, or the tracked sources changed in form only (comments, whitespace, line endings); `"unknown"` means the Dok has no stored hash or its tracking was generated by an unverified older extractor. Recovered tracking that still needs document review is stale. If the workspace cannot be resolved, read, or parsed, the tool call returns an MCP error instead of a successful `unknown` payload. This detects source drift only — `false` does not verify that a Dok is factually correct or complete.
 
 ### For coding agents
 
@@ -215,7 +267,7 @@ The Hub is written to `.doklo/hub/`; tracked workspace state also includes root 
 
 ## Notes
 
-Installing needs network access: the published package declares its runtime dependencies (23 direct, 349 packages resolved) instead of bundling them, so npm has to reach the registry. Once installed, `init`, `scan`, `serve`, `mcp`, `live-docs render`, and `sync --check` run with no network at all. Only `generate` and a regenerating `sync` call a model provider.
+Installing needs network access: the published package declares its runtime dependencies (23 direct, 349 packages resolved) instead of bundling them, so npm has to reach the registry. Once installed, `init`, `scan`, `serve`, `mcp`, `live-docs render`, and `sync --check` run with no network at all. Only `generate` and a regenerating `sync` (which, with `--judge`, first asks a judge model) call a model provider.
 
 `npx @mayp/doklo` re-checks its cache on every invocation and costs roughly 5-8 seconds each time; install globally if you are going to keep using it.
 
@@ -263,4 +315,4 @@ doklo agent setup --target claude-code
 doklo agent remove --target claude-code
 ```
 
-Start a new client session to discover the skill. Automatic selection depends on the client and must be checked in a real session. Existing or modified skill files are preserved. Read-only Dok use is available before review; draft is not human approval, and active does not guarantee freshness. Review and approval currently use `doklo serve --open`; there is no CLI approval command. Drafts do not need approval before `sync --check` or regeneration. Human-edited Doks are protected from ordinary sync, including those marked by bulk web approval.
+Start a new client session to discover the skill. Automatic selection depends on the client and must be checked in a real session. Existing or modified skill files are preserved. Read-only Dok use is available before review; draft is not human approval, and active does not guarantee freshness. Review and approval currently use `doklo serve --open`; there is no CLI approval command. Drafts do not need approval before `sync --check` or regeneration. Human-edited Doks are protected from ordinary sync; approval, including bulk web approval, does not mark a Dok as edited.

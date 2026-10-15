@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { chmod, link, mkdtemp, mkdir, readFile, writeFile, readdir, rename, rm, stat, symlink } from 'node:fs/promises';
 import { chmodSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -38,6 +39,8 @@ import {
 } from '../src/commands/generate.js';
 import {
   computeLogicHash,
+  computeNormalizedLogicHash,
+  computeSourceFileSha256,
   IaFileV2Schema,
   isDokStale,
   ServiceCodeMappingFileSchema,
@@ -48,6 +51,7 @@ import {
 import type { ConsolidatedFeatureConfig } from '@doklo-beta/generator';
 import { resolveContainedOutputPath, ROUTE_HIERARCHY_PRODUCER } from '@doklo-beta/generator';
 import { createContext } from '../src/lib/context.js';
+import { DRIFT_NORMALIZER, isDokStale as isDokStaleCli } from '../src/lib/drift.js';
 import * as generationGate from '../src/lib/generate-gate.js';
 import { runConsolidate } from '../src/commands/consolidate.js';
 import {
@@ -2312,6 +2316,149 @@ describe('runGenerate', () => {
     );
   });
 
+  // Judge-gated sync design §4.2–4.3: one read, two hashes, plus the commit the
+  // baseline belongs to. All three are evidence recomputed on every run.
+  describe('drift baseline facts', () => {
+    const PAGE = 'export default function P(){ return null } // auth page';
+    const gitIn = (cwd: string, ...args: string[]): string =>
+      execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
+    const commitAll = (cwd: string): string => {
+      gitIn(cwd, 'add', '-A');
+      gitIn(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+        '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'fixture');
+      return gitIn(cwd, 'rev-parse', 'HEAD');
+    };
+    const readAuth = async (root: string): Promise<{ _meta: Record<string, unknown> }> =>
+      JSON.parse(await readFile(join(root, '.doklo/hub/doks/AUTH.json'), 'utf-8'));
+
+    async function authWorkspace(): Promise<string> {
+      const root = await tmpInit();
+      await writeConsolidatedWithFiles(root, 'web', 'AUTH', ['app/auth/page.tsx']);
+      await mkdir(join(root, 'app/auth'), { recursive: true });
+      await writeFile(join(root, 'app/auth/page.tsx'), PAGE, 'utf-8');
+      return root;
+    }
+
+    it('stamps logic_hash_normalized and per-file sha256 from the same read as logic_hash', async () => {
+      const root = await authWorkspace();
+      await runGenerate({ root, noLexicon: true }, stubDeps);
+
+      const { _meta } = await readAuth(root);
+      const contents = [{ file: 'app/auth/page.tsx', content: PAGE }];
+      expect(_meta.logic_hash).toBe(computeLogicHash(contents));
+      expect(_meta.logic_hash_normalized).toBe(computeNormalizedLogicHash(contents, DRIFT_NORMALIZER));
+      expect(String(_meta.logic_hash_normalized)).toMatch(/^ts-tree-v1\+ts\d+\.\d+\.\d+:[0-9a-f]{64}$/);
+      expect(_meta.logic_files).toEqual([
+        { file: 'app/auth/page.tsx', sha256: computeSourceFileSha256(PAGE) },
+      ]);
+      // The temp directory is no git repository: no commit to record.
+      expect(_meta).not.toHaveProperty('source_commit');
+      // Evidence about the input, never a clock: a second identical run writes the same facts.
+      await runGenerate({ root, noLexicon: true, force: true }, stubDeps);
+      const again = (await readAuth(root))._meta;
+      for (const key of ['logic_hash', 'logic_hash_normalized', 'logic_files'] as const) {
+        expect(again[key]).toEqual(_meta[key]);
+      }
+    });
+
+    it('stamps source_commit as the git HEAD of the project root', async () => {
+      const root = await authWorkspace();
+      execFileSync('git', ['init', '-q', '-b', 'main', root]);
+      const head = commitAll(root);
+
+      await runGenerate({ root, noLexicon: true }, stubDeps);
+
+      expect((await readAuth(root))._meta.source_commit).toBe(head);
+      expect(head).toMatch(/^[0-9a-f]{40}$/);
+    });
+
+    it("reads source_commit from the Dok's own project root, not the workspace repository", async () => {
+      const root = await tmpInit();
+      execFileSync('git', ['init', '-q', '-b', 'main', root]);
+      const workspaceHead = commitAll(root);
+      // The service lives in its own repository under code_root `service`.
+      const serviceRoot = join(root, 'service');
+      await writeSupportedNextProject(serviceRoot);
+      await writeFile(join(root, 'workspace.json'), JSON.stringify({
+        workspace_id: 'demo',
+        name: 'Demo',
+        services: [{ service_id: 'web', type: 'frontend', framework: 'nextjs', code_root: 'service' }],
+        default_locale: 'en',
+        supported_locales: ['en'],
+      }), 'utf-8');
+      execFileSync('git', ['init', '-q', '-b', 'main', serviceRoot]);
+      const serviceHead = commitAll(serviceRoot);
+      await writeConsolidated(root, 'web', ['AUTH']);
+
+      const result = await runGenerate({ root, noLexicon: true, noRoles: true, noIa: true, noCodeMapping: true }, stubDeps);
+
+      expect(result.failures).toEqual([]);
+      const { _meta } = await readAuth(root);
+      expect(_meta.anchor_service_id).toBe('web');
+      expect(_meta.source_commit).toBe(serviceHead);
+      expect(serviceHead).not.toBe(workspaceHead);
+    });
+
+    it('never takes the facts from the model or carries them over from the previous file', async () => {
+      const root = await authWorkspace();
+      await writeFile(join(root, '.doklo/hub/doks/AUTH.json'), JSON.stringify({
+        ...(makeDok('AUTH') as Record<string, unknown>),
+        _meta: {
+          version: 1,
+          history: [],
+          anchor_service_id: 'web',
+          source_anchors: [{ file: 'app/auth/page.tsx' }],
+          source_commit: 'e'.repeat(40),
+          logic_hash_normalized: `ts-tree-v1+ts0.0.0:${'e'.repeat(64)}`,
+        },
+      }), 'utf-8');
+      const forging: Partial<GenerateDeps> = {
+        generateDokForFeature: async (_f, ctx) => ({
+          success: true,
+          dok: {
+            ...(makeDok(ctx.dokId) as Record<string, unknown>),
+            _meta: {
+              version: 1,
+              history: [],
+              source_commit: 'f'.repeat(40),
+              logic_hash_normalized: `ts-tree-v1+ts0.0.0:${'f'.repeat(64)}`,
+              logic_files: [{ file: 'app/auth/page.tsx', sha256: 'f'.repeat(64) }],
+            },
+          } as never,
+          prompt: '',
+          rawResponse: '',
+          usage: null,
+        }),
+      };
+
+      await runGenerate({ root, noLexicon: true, force: true }, forging);
+
+      const { _meta } = await readAuth(root);
+      expect(_meta).not.toHaveProperty('source_commit');
+      expect(_meta.logic_hash_normalized).toBe(
+        computeNormalizedLogicHash([{ file: 'app/auth/page.tsx', content: PAGE }], DRIFT_NORMALIZER),
+      );
+      expect(_meta.logic_files).toEqual([{ file: 'app/auth/page.tsx', sha256: computeSourceFileSha256(PAGE) }]);
+      expect(_meta.version).toBe(2);
+    });
+
+    it('a comments-only edit after generation leaves the Dok fresh (format-only); a real one makes it stale', async () => {
+      const root = await authWorkspace();
+      await runGenerate({ root, noLexicon: true }, stubDeps);
+      const dok = JSON.parse(await readFile(join(root, '.doklo/hub/doks/AUTH.json'), 'utf-8'));
+      // This fixture's scan IR carries no validated tracking evidence, so the
+      // tracking gate would answer before the hashes are compared; the sync
+      // tests cover the same check end to end through a real scan.
+      expect(dok._meta.tracking_version).toBeUndefined();
+      dok._meta.tracking_version = 2;
+
+      await writeFile(join(root, 'app/auth/page.tsx'), `/** Auth page. */\n${PAGE.replace(' // auth page', '')}\n`, 'utf-8');
+      expect(isDokStaleCli(dok, root)).toEqual({ stale: false, reason: 'format-only' });
+      await writeFile(join(root, 'app/auth/page.tsx'), PAGE.replace('null', 'undefined'), 'utf-8');
+      expect(isDokStaleCli(dok, root)).toEqual({ stale: true, reason: 'changed' });
+    });
+  });
+
   it('omits _meta.logic_hash when the Dok has no source anchors', async () => {
     const root = await tmpInit();
     // Legacy cache, no source_files, no scan → empty anchors → nothing to hash.
@@ -3073,8 +3220,8 @@ describe('runGenerate — B1: logic_files cover shared infra beyond display anch
 
     // The drift set additionally carries the shared util drift actually hashed.
     expect(dokA._meta.logic_files).toEqual([
-      { file: 'src/signup.tsx' },
-      { file: 'src/shared/validation.ts' },
+      { file: 'src/signup.tsx', sha256: computeSourceFileSha256(signupContent) },
+      { file: 'src/shared/validation.ts', sha256: computeSourceFileSha256(validationV1) },
     ]);
 
     // logic_hash covers the full closure (shared incl.), not just the anchor.
@@ -5749,7 +5896,10 @@ describe('generation tracking trust', () => {
     await writeFile(join(root, '.doklo/hub/doks/UPLOAD.json'), JSON.stringify(old));
     await runGenerate({ root, force: true }, stubDeps);
     const dok = JSON.parse(await readFile(join(root, '.doklo/hub/doks/UPLOAD.json'), 'utf8'));
-    expect(dok._meta.logic_files).toEqual([{ file: 'app/page.tsx' }, { file: 'app/Child.tsx' }]);
+    expect(dok._meta.logic_files).toEqual([
+      { file: 'app/page.tsx', sha256: computeSourceFileSha256('export default function Page(){ return null }') },
+      { file: 'app/Child.tsx', sha256: computeSourceFileSha256('export default function Child(){ return null; }') },
+    ]);
     expect(dok._meta.tracking_version).toBe(2);
     expect(dok._meta.tracking_review_required).toBeUndefined();
   });
@@ -5806,7 +5956,9 @@ it('keeps sensitive cached logic files out of generated tracking metadata', asyn
   }]);
   await runGenerate({ root, noLexicon: true }, stubDeps);
   const dok = JSON.parse(await readFile(join(root, '.doklo/hub/doks/NOTICE.json'), 'utf8'));
-  expect(dok._meta.logic_files).toEqual([{ file: 'src/notices.ts' }]);
+  expect(dok._meta.logic_files).toEqual([
+    { file: 'src/notices.ts', sha256: computeSourceFileSha256('export default function Fixture() { return null; }\n') },
+  ]);
 });
 
 describe('bounded generation recovery', () => {

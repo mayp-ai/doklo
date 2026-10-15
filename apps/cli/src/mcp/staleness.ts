@@ -3,7 +3,10 @@
 // Staleness is a trust signal: an agent needs to know whether a Dok still
 // reflects the code it was derived from. The real judgement lives in the drift
 // module of @doklo-beta/core: `isDokStale` re-hashes the Dok's on-disk source
-// anchors and compares that against the stored `_meta.logic_hash`.
+// anchors and compares that against the stored `_meta.logic_hash`, then lets a
+// form-only change (comments, whitespace, line endings) through as fresh. It is
+// reached via the CLI's drift entry point, the same one sync and show use, so
+// every surface gives the same verdict.
 //
 // This wrapper adapts that core result into the tri-state the MCP tools expose:
 //   - undecidable (Dok has no stored hash or verified tracking) → 'unknown', an honest "we can't say"
@@ -16,11 +19,11 @@ import { join } from 'node:path';
 import {
   derivePriorityTier,
   dokProjectRoot,
-  isDokStale,
   type Dok,
   type PriorityTier,
   type Workspace,
 } from '@doklo-beta/core';
+import { isDokStale } from '../lib/drift.js';
 
 /**
  * Tri-state drift verdict, surfaced to agents as `is_stale`.
@@ -29,10 +32,11 @@ import {
  *   - `true`      — the tracked source files changed after the Dok was
  *                   generated, or recovered tracking needs review. Treat the Dok as possibly outdated and prefer
  *                   the current code; `doklo sync` regenerates it.
- *   - `false`     — those sources are byte-identical to what the Dok was
- *                   generated from. This is *not* a claim that the Dok is
- *                   correct: a Dok that was wrong when written stays `false`
- *                   for as long as the code sits still.
+ *   - `false`     — those sources are unchanged since the Dok was generated
+ *                   apart from form (comments, whitespace, line endings).
+ *                   This is *not* a claim that the Dok is correct: a Dok that
+ *                   was wrong when written stays `false` for as long as the
+ *                   code sits still.
  *   - `'unknown'` — no drift hash was recorded (or the workspace could not be
  *                   read, or source tracking is unverified), so the check could not decide either way.
  */
@@ -55,7 +59,8 @@ export function resolveDokStaleness(dok: Dok, workspaceRoot: string): Staleness 
 
   const projectRoot = dokProjectRoot(dok, workspace, workspaceRoot);
   const r = isDokStale(dok, projectRoot);
-  // Missing hashes and unverified dependency tracking are undecidable.
+  // Missing hashes and unverified dependency tracking are undecidable. A
+  // form-only change is fresh (`stale: false`), so it reads as `false`.
   return r.reason === 'no-hash' || r.reason === 'unverified-tracking' ? 'unknown' : r.stale;
 }
 

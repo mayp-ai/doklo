@@ -179,3 +179,6 @@ export const ADAPTER_VERSION = '0.1.0';
 
 export * from './generic.js';
 export * from './registry.js';
+
+// Format-only normaliser behind `_meta.logic_hash_normalized` (drift layer 1).
+export * from './drift/normalize.js';

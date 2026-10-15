@@ -93,9 +93,11 @@ export interface AppendHistoryInput {
   /** Injected clock — the deterministic pipeline never calls this because it never appends. */
   now: () => Date;
   /**
-   * Overrides the baseline judgment when a regeneration already demoted the
-   * file: pass `pending_change`'s previous_status/base_version so a legacy
-   * active Dok still gets its baseline at approval time.
+   * Overrides the baseline judgment while a regeneration's proposal is staged
+   * and the file only shows the draft it demoted: pass `pending_change`'s
+   * previous_status/base_version for any entry recorded meanwhile — a note or
+   * a review move before approval, or the approval itself — so a legacy
+   * active Dok gets its baseline whichever entry comes first.
    */
   baselineFrom?: { status: DokStatus; version: number };
 }
