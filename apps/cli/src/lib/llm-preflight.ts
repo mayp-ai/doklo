@@ -20,11 +20,25 @@ export type RuntimeTrustModel =
   | typeof RUNTIME_TRUST_MODEL
   | typeof OPENAI_CODEX_RUNTIME_MODEL;
 
+/**
+ * The sync judge's second model (judge-gated sync; benchmark report §11.8):
+ * the strong judge follows the user's provider — Sonnet 5 on the Anthropic
+ * route (the default), GPT-6 Luna on an OpenAI route (Codex OAuth, or an API
+ * key on the default endpoint). Luna is admitted only for a plan whose every
+ * call is a judge call; it never generates.
+ */
+export const OPENAI_JUDGE_MODEL = 'openai/gpt-6-luna' as const;
+export type JudgeModel = typeof RUNTIME_TRUST_MODEL | typeof OPENAI_JUDGE_MODEL;
+/** Any model a runtime-trust plan may bind: a generation model, or a judge model for a judge-only plan. */
+export type LlmPlanModel = RuntimeTrustModel | JudgeModel;
+
 
 export type LlmRuntimeRoute =
   | 'anthropic-default'
   | 'claude-code-local'
-  | 'openai-codex-oauth';
+  | 'openai-codex-oauth'
+  /** Judge-only plans: GPT-6 Luna on an OpenAI API key over the default transport. */
+  | 'openai-api-key';
 
 export type LlmAuthSource =
   | 'keychain'
@@ -52,7 +66,7 @@ export interface LlmRunPlan {
   readonly schema_version: 1;
   readonly providerKind: string;
   readonly route: LlmRuntimeRoute;
-  readonly model: RuntimeTrustModel;
+  readonly model: LlmPlanModel;
   readonly authSource: LlmAuthSource;
   readonly calls: Readonly<{
     consolidate: number;
@@ -195,10 +209,19 @@ type AuthorizedRuntimeLlm = Readonly<
     }
   | {
       providerKind: 'openai';
-      model: typeof OPENAI_CODEX_RUNTIME_MODEL;
+      model: typeof OPENAI_CODEX_RUNTIME_MODEL | typeof OPENAI_JUDGE_MODEL;
       baseURL: typeof OPENAI_CODEX_BASE_URL;
       fetch: typeof fetch;
       apiKey?: undefined;
+    }
+  | {
+      // The judge-only OpenAI API-key route: no baseURL and no fetch, so the
+      // generator uses the default api.openai.com endpoint.
+      providerKind: 'openai';
+      model: typeof OPENAI_JUDGE_MODEL;
+      apiKey: string;
+      baseURL?: undefined;
+      fetch?: undefined;
     }
 >;
 
@@ -220,8 +243,10 @@ export interface LlmActualTransmission extends Omit<LlmTransmission, 'maxChars'>
 }
 
 export function buildLlmRunPlan(input: LlmPlanInput): LlmRunPlan {
-  assertRuntimeTrustModel(input.llm.model);
-  const route = runtimeTrustRoute(input.llm);
+  const judgeOnly = isJudgeOnlyCallList(input.preparedCalls ?? []);
+  if (judgeOnly) assertJudgeTrustModel(input.llm.model);
+  else assertRuntimeTrustModel(input.llm.model);
+  const route = judgeOnly ? judgeTrustRoute(input.llm) : runtimeTrustRoute(input.llm);
   const limits = resolveLlmTokenLimits(input);
 
   const previews = input.previews ?? [];
@@ -398,9 +423,12 @@ export async function authorizeLlmRun(
   },
   approval: ApprovalInput,
 ): Promise<AuthorizedLlmRun> {
-  assertRuntimeTrustModel(llm.model);
-  const route = runtimeTrustRoute(llm);
-  assertRuntimeTrustCredential(llm);
+  const judgeOnly = isJudgeOnlyCallList(plan.preparedCalls);
+  if (judgeOnly) assertJudgeTrustModel(llm.model);
+  else assertRuntimeTrustModel(llm.model);
+  const route = judgeOnly ? judgeTrustRoute(llm) : runtimeTrustRoute(llm);
+  if (judgeOnly) assertJudgeTrustCredential(llm);
+  else assertRuntimeTrustCredential(llm);
   if (
     plan.providerKind !== llm.providerKind
     || plan.route !== route
@@ -426,24 +454,39 @@ export async function authorizeLlmRun(
     maxTokensTotal: plan.maxTokensTotal,
   });
   let authorizedLlm: AuthorizedRuntimeLlm;
-  if (route === 'claude-code-local') {
-    authorizedLlm = Object.freeze({
-      providerKind: 'claude-code' as const,
-      model: RUNTIME_TRUST_MODEL,
-    });
-  } else if (route === 'openai-codex-oauth') {
-    authorizedLlm = Object.freeze({
-      providerKind: 'openai' as const,
-      model: OPENAI_CODEX_RUNTIME_MODEL,
-      baseURL: OPENAI_CODEX_BASE_URL,
-      fetch: llm.fetch!,
-    });
-  } else {
-    authorizedLlm = Object.freeze({
-      providerKind: 'anthropic' as const,
-      model: RUNTIME_TRUST_MODEL,
-      apiKey: llm.apiKey!,
-    });
+  switch (route) {
+    case 'claude-code-local':
+      authorizedLlm = Object.freeze({
+        providerKind: 'claude-code' as const,
+        model: RUNTIME_TRUST_MODEL,
+      });
+      break;
+    case 'openai-codex-oauth':
+      authorizedLlm = Object.freeze({
+        providerKind: 'openai' as const,
+        // Terra for generation; GPT-6 Luna only in a judge-only plan (checked above).
+        model: llm.model === OPENAI_JUDGE_MODEL ? OPENAI_JUDGE_MODEL : OPENAI_CODEX_RUNTIME_MODEL,
+        baseURL: OPENAI_CODEX_BASE_URL,
+        fetch: llm.fetch!,
+      });
+      break;
+    case 'openai-api-key':
+      // Only judgeTrustRoute yields this route, so the plan is judge-only and
+      // the model is GPT-6 Luna. No baseURL or fetch: the generator calls the
+      // default api.openai.com endpoint on its non-streaming path.
+      authorizedLlm = Object.freeze({
+        providerKind: 'openai' as const,
+        model: OPENAI_JUDGE_MODEL,
+        apiKey: llm.apiKey!,
+      });
+      break;
+    case 'anthropic-default':
+      authorizedLlm = Object.freeze({
+        providerKind: 'anthropic' as const,
+        model: RUNTIME_TRUST_MODEL,
+        apiKey: llm.apiKey!,
+      });
+      break;
   }
   const capability = new AuthorizedRunCapability();
   authorizedRuns.set(capability, {
@@ -477,7 +520,23 @@ export async function getAuthorizedLlmRunModel(
   run: AuthorizedLlmRun | undefined,
   root: string,
 ): Promise<RuntimeTrustModel> {
-  return (await authorizedRunState(run, root)).plan.model;
+  const model = (await authorizedRunState(run, root)).plan.model;
+  // A judge-only run's GPT-6 Luna never drives generation.
+  assertRuntimeTrustModel(model);
+  return model;
+}
+
+/** Return the judge model bound to an authorized judge-only capability. */
+export async function getAuthorizedJudgeRunModel(
+  run: AuthorizedLlmRun | undefined,
+  root: string,
+): Promise<JudgeModel> {
+  const { plan } = await authorizedRunState(run, root);
+  if (!isJudgeOnlyCallList(plan.preparedCalls)) {
+    throw contractFailure('LLM_OPERATION_NOT_AUTHORIZED', 'The authorized LLM run is not a judge run.');
+  }
+  assertJudgeTrustModel(plan.model);
+  return plan.model;
 }
 
 export async function beginAuthorizedLlmCall(
@@ -644,6 +703,123 @@ export function assertRuntimeTrustModel(model: string): asserts model is Runtime
   }
 }
 
+/**
+ * The sync judge's model allowlist: Sonnet 5 (the default, Anthropic route) or
+ * GPT-6 Luna (an OpenAI API key or the Codex route). Anything else fails with
+ * a message naming the two.
+ */
+export function assertJudgeTrustModel(model: string): asserts model is JudgeModel {
+  if (model !== RUNTIME_TRUST_MODEL && model !== OPENAI_JUDGE_MODEL) {
+    throw contractFailure(
+      'RUNTIME_TRUST_MODEL_REQUIRED',
+      `The sync judge requires model "${RUNTIME_TRUST_MODEL}" (default) or "${OPENAI_JUDGE_MODEL}"; resolved "${model}".`,
+    );
+  }
+}
+
+/**
+ * The judge's routes: direct Anthropic (Sonnet 5), an OpenAI API key on the
+ * default endpoint (GPT-6 Luna), or exact OpenAI Codex OAuth (GPT-6 Luna). The
+ * benchmark measured the Anthropic and Codex routes; the API-key route serves
+ * runners that hold API keys but no ChatGPT login (the Doklo cloud runner).
+ * The local Claude Code route, which `doklo sync` never uses, is refused.
+ */
+export function assertJudgeTrustRoute(llm: {
+  providerKind: string;
+  model: string;
+  authSource?: LlmAuthSource;
+  apiKey?: string;
+  baseURL?: string;
+  fetch?: typeof fetch;
+}): void {
+  judgeTrustRoute(llm);
+}
+
+/**
+ * The judge's credential check: the Codex OAuth route carries its own login;
+ * the two API-key routes (Anthropic, OpenAI) need a non-empty key.
+ */
+export function assertJudgeTrustCredential(llm: {
+  providerKind: string;
+  model: string;
+  authSource?: LlmAuthSource;
+  apiKey?: string;
+  baseURL?: string;
+  fetch?: typeof fetch;
+}): void {
+  const route = judgeTrustRoute(llm);
+  if (route === 'openai-codex-oauth') return;
+  if (!hasApiKey(llm)) throw judgeCredentialRefusal();
+}
+
+function judgeTrustRoute(llm: {
+  providerKind: string;
+  model: string;
+  authSource?: LlmAuthSource;
+  apiKey?: string;
+  baseURL?: string;
+  fetch?: typeof fetch;
+}): LlmRuntimeRoute {
+  if (isOpenAiApiKeyJudgeTransport(llm)) {
+    // The API-key transport without a key is a missing credential, not a wrong route.
+    if (!hasApiKey(llm)) throw judgeCredentialRefusal();
+    return 'openai-api-key';
+  }
+  // Any transport runtime trust refuses is refused here too, but named for the
+  // judge: a near miss of the API-key route (a custom baseURL or fetch, an OAuth
+  // record with a key) should read as "not a judge route", not as a generation error.
+  let route: LlmRuntimeRoute;
+  try {
+    route = runtimeTrustRoute(llm);
+  } catch {
+    throw judgeRouteRefusal();
+  }
+  if (route === 'claude-code-local') throw judgeRouteRefusal();
+  return route;
+}
+
+function judgeRouteRefusal(): CommandContractError {
+  return contractFailure(
+    'RUNTIME_TRUST_ROUTE_REQUIRED',
+    'The sync judge requires direct Anthropic (Sonnet 5), an OpenAI API key (GPT-6 Luna), or exact OpenAI Codex OAuth (GPT-6 Luna).',
+  );
+}
+
+/**
+ * GPT-6 Luna over the default OpenAI transport (no baseURL, no fetch) with a
+ * keychain or environment credential. Only judgeTrustRoute admits it, so
+ * generation never runs on an OpenAI API key.
+ */
+function isOpenAiApiKeyJudgeTransport(llm: {
+  providerKind: string;
+  model: string;
+  authSource?: LlmAuthSource;
+  baseURL?: string;
+  fetch?: typeof fetch;
+}): boolean {
+  return llm.providerKind === 'openai'
+    && llm.model === OPENAI_JUDGE_MODEL
+    && (llm.authSource === 'keychain' || llm.authSource === 'environment')
+    && llm.baseURL === undefined
+    && llm.fetch === undefined;
+}
+
+function hasApiKey(llm: { apiKey?: string }): boolean {
+  return typeof llm.apiKey === 'string' && llm.apiKey.length > 0;
+}
+
+function judgeCredentialRefusal(): CommandContractError {
+  return contractFailure(
+    'RUNTIME_TRUST_CREDENTIAL_REQUIRED',
+    'The sync judge requires an Anthropic or OpenAI API credential from the keychain or environment.',
+  );
+}
+
+/** A plan whose every prepared call is a judge call — the only plan a judge model may bind. */
+function isJudgeOnlyCallList(calls: readonly { readonly phase: LlmPhase }[]): boolean {
+  return calls.length > 0 && calls.every((call) => call.phase === 'judge');
+}
+
 export function assertRuntimeTrustRoute(llm: {
   providerKind: string;
   model: string;
@@ -703,9 +879,11 @@ function runtimeTrustRoute(llm: {
   ) {
     return 'claude-code-local';
   }
+  // The route is about transport; which model a plan may bind is checked
+  // before (assertRuntimeTrustModel, or assertJudgeTrustModel for a judge plan).
   if (
     llm.providerKind === 'openai'
-    && llm.model === OPENAI_CODEX_RUNTIME_MODEL
+    && (llm.model === OPENAI_CODEX_RUNTIME_MODEL || llm.model === OPENAI_JUDGE_MODEL)
     && llm.authSource === 'oauth'
     && llm.apiKey === undefined
     && llm.baseURL === OPENAI_CODEX_BASE_URL

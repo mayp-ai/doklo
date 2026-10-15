@@ -504,6 +504,38 @@ describe('carryForwardMeta', () => {
     expect(merged.generation_confidence).toBe(0.9);
   });
 
+  // Judge-gated sync design §4.2–4.3: the drift baseline facts describe the
+  // code read by *this* run. A run that could not establish one (no git, a
+  // failed read) must not inherit the replaced file's value.
+  it('treats the drift baseline facts as evidence: fresh values win, absent ones stay absent', () => {
+    const existing: DokMeta = {
+      version: 2,
+      history: [],
+      logic_hash: 'stale',
+      logic_hash_normalized: `ts-tree-v1+ts5.4.2:${'0'.repeat(64)}`,
+      source_commit: 'a'.repeat(40),
+      logic_files: [{ file: 'old.tsx', sha256: '1'.repeat(64) }],
+    };
+
+    const refreshed = carryForwardMeta(existing, {
+      version: 1,
+      history: [],
+      logic_hash: 'fresh',
+      logic_hash_normalized: `ts-tree-v1+ts5.4.2:${'2'.repeat(64)}`,
+      source_commit: 'b'.repeat(40),
+      logic_files: [{ file: 'new.tsx', sha256: '3'.repeat(64) }],
+    });
+    expect(refreshed.logic_hash_normalized).toBe(`ts-tree-v1+ts5.4.2:${'2'.repeat(64)}`);
+    expect(refreshed.source_commit).toBe('b'.repeat(40));
+    expect(refreshed.logic_files).toEqual([{ file: 'new.tsx', sha256: '3'.repeat(64) }]);
+
+    const withoutFacts = carryForwardMeta(existing, { version: 1, history: [], logic_hash: 'fresh' });
+    expect(withoutFacts).not.toHaveProperty('source_commit');
+    expect(withoutFacts).not.toHaveProperty('logic_hash_normalized');
+    expect(withoutFacts).not.toHaveProperty('logic_files');
+    expect(withoutFacts.version).toBe(3);
+  });
+
   it('drops the human-edit marker — regeneration replaces human prose', () => {
     const merged = carryForwardMeta(
       { version: 1, history: [], edited_by_human: true },

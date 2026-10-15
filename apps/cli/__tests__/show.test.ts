@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { computeLogicHash } from '@doklo-beta/core';
+import { computeDriftEvidence } from '../src/lib/drift.js';
 import {
   loadDok,
   listDoks,
@@ -197,6 +198,27 @@ describe('dokStaleness (freshness on `show`)', () => {
     // Stale must say which side wins and what to do about it.
     expect(out).toContain('trust the code over this doc');
     expect(out).toContain('doklo sync');
+  });
+
+  it('is fresh (format-only) when only comments and whitespace changed since generation', async () => {
+    const original = 'export function signup() {\n  return true;\n}\n';
+    const contents = [{ file: 'src/auth.ts', content: original }];
+    const stamped = dokWithAnchors('AUTH', 'Sign in', ['src/auth.ts'], computeLogicHash(contents));
+    Object.assign(stamped._meta, {
+      logic_hash_normalized: computeDriftEvidence(['src/auth.ts'], contents).logic_hash_normalized,
+    });
+    const root = await tmpHubWith({ 'AUTH': stamped });
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(join(root, 'src/auth.ts'), `// Sign-in.\n${original.replace(/\n/g, '\r\n')}// edited\n`, 'utf-8');
+
+    const dok = await loadDok({ root, dokId: 'AUTH' });
+    const staleness = await dokStaleness(root, dok);
+    expect(staleness).toEqual({ stale: false, reason: 'format-only' });
+    const out = capture(() => printDok(dok, chalk, staleness));
+    expect(out).toContain('🟢 fresh');
+    expect(out).toContain('changed in form only (comments, whitespace) since generation');
+    expect(out).toContain('not a proof the doc is correct');
+    expect(out).not.toContain('stale');
   });
 
   it('prints unknown instead of fresh for legacy source tracking', async () => {

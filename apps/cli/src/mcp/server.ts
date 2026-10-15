@@ -103,8 +103,8 @@ export function buildMcpServer(opts: McpServerOptions): McpServer {
         'Each result includes its human-review status and freshness. ' +
         'Deterministic case-insensitive substring match. Returns summaries only. ' +
         'is_stale: true = tracked sources changed or recovered tracking needs review, so prefer ' +
-        'the current code; false = sources unchanged, which is not a claim the ' +
-        'Dok is correct; "unknown" = no drift hash or unverified source tracking.',
+        'the current code; false = sources unchanged apart from form (comments, whitespace), ' +
+        'which is not a claim the Dok is correct; "unknown" = no drift hash or unverified source tracking.',
       inputSchema: { query: z.string().min(1) },
     },
     async ({ query }) => {
@@ -128,7 +128,8 @@ export function buildMcpServer(opts: McpServerOptions): McpServer {
         'is_stale: true = tracked source files changed after this Dok was ' +
         'generated, or recovered tracking needs review — treat the Dok as possibly outdated and prefer the current ' +
         'code (`doklo sync` regenerates it). false = tracked sources are ' +
-        'byte-identical since generation (not a claim the doc is correct). ' +
+        'unchanged since generation apart from form (comments, whitespace) ' +
+        '(not a claim the doc is correct). ' +
         '"unknown" = no drift hash or unverified source tracking, so drift could not be decided.',
       inputSchema: { dok_id: z.string().min(1) },
     },
@@ -152,9 +153,9 @@ export function buildMcpServer(opts: McpServerOptions): McpServer {
         'List Dok summaries, optionally filtered by status, surfacing service, ' +
         'or staleness. Sorted by id. A cheap way to enumerate available context. ' +
         'is_stale: true = tracked sources changed or recovered tracking needs review, so prefer ' +
-        'the current code; false = sources unchanged, which is not a claim the ' +
-        'Dok is correct; "unknown" = no drift hash or unverified source tracking (matches neither ' +
-        'value of the `stale` filter).',
+        'the current code; false = sources unchanged apart from form (comments, whitespace), ' +
+        'which is not a claim the Dok is correct; "unknown" = no drift hash or unverified source ' +
+        'tracking (matches neither value of the `stale` filter).',
       inputSchema: {
         status: z.string().optional(),
         service: z.string().optional(),

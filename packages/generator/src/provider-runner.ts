@@ -201,6 +201,10 @@ export async function runViaAiSdk(
       maxOutputTokens: config.maxTokens,
       maxRetries: 0,
       allowSystemInMessages: true,
+      // Privacy parity with the Codex route (its fetch forces store:false): the
+      // plain OpenAI API-key route sends store:false too, so OpenAI does not
+      // store the response for later retrieval.
+      ...(kind === 'openai' ? { providerOptions: { openai: { store: false } } } : {}),
     });
     return {
       success: true,

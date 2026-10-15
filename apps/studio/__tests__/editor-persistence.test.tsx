@@ -335,6 +335,29 @@ describe('durable editor bindings', () => {
     });
   });
 
+  // saveDokAction tells a review move from a content edit by which fields the
+  // patch carries, so approval must not round-trip the unchanged prose.
+  it('approves a draft with a status-only patch', async () => {
+    const draftDok = { ...dok, status: 'draft' as const };
+    const container = render(<SeedDok value={draftDok} />);
+
+    await act(async () => {
+      button(container, 'Mark reviewed → active').click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      button(container, 'Save').click();
+      await Promise.resolve();
+    });
+
+    expect(actions.saveDok).toHaveBeenCalledOnce();
+    expect(actions.saveDok).toHaveBeenCalledWith({
+      dokId: 'AUTH-SOCIAL',
+      patch: { status: 'active' },
+      expectedRevision: 'dok-revision',
+    });
+  });
+
   it('does not offer an in-place save retry after Studio restarts', async () => {
     actions.saveDok.mockRejectedValueOnce(
       new Error('Server Action "abc123" was not found on the server.'),

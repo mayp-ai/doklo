@@ -92,6 +92,7 @@ import {
   type Service,
 } from '@doklo-beta/core';
 import { loadWorkspaceWithPaths } from '../lib/workspace.js';
+import { computeDriftEvidence, readSourceCommit } from '../lib/drift.js';
 import { addLlmOptions, resolveLlmForRole } from '../lib/llm-options.js';
 import {
   consolidatedCachePath,
@@ -362,6 +363,15 @@ export interface RunGenerateOptions {
    * clock — see the propose-and-approve model in the history pipeline spec.
    */
   proposalNote?: ProposalNote;
+  /**
+   * Per-Dok model proposals (`doklo sync --judge`): the sync judge's sentence
+   * for a Dok it said needs an update, staged as `source: 'model'` in place of
+   * the structural comparison. A `proposalNote` and a person's unapproved
+   * proposal still outrank it, the approved base is kept as for any proposal,
+   * and when the regenerated content is identical nothing is proposed (the
+   * Dok is listed in `unappliedModelProposals`).
+   */
+  modelProposals?: Readonly<Record<string, string>>;
   preparedGeneration?: PreparedGenerationPayload;
 }
 
@@ -524,6 +534,12 @@ export interface RunGenerateResult {
   generationLedgerFailure?: GenerationLedgerFailure;
   /** True when generation stopped at a provider boundary after cancellation. */
   interrupted?: boolean;
+  /**
+   * Doks written this run whose `modelProposals` sentence was not staged
+   * because the regenerated content came out identical: no proposal can
+   * describe a change the Dok does not show, so a person has to edit them.
+   */
+  unappliedModelProposals?: string[];
 }
 
 export interface GenerationLedgerFailure {
@@ -1032,6 +1048,7 @@ export async function runGenerate(
 
   const tokenUsage = createGenerateTokenUsage();
   const retryTokenUsage = createGenerateTokenUsage();
+  const unappliedModelProposalIds = new Set<string>();
   let tokenCapFailure: { code: 'LLM_RUN_TOKEN_CAP' | 'LLM_TOTAL_TOKEN_CAP'; message: string } | undefined;
   const retainTokenCapFailure = (error: unknown): boolean => {
     if (!(error instanceof CommandContractError)) return false;
@@ -1296,9 +1313,22 @@ export async function runGenerate(
       continue;
     }
     const logicHash = computeLogicHash(anchorContents);
+    // The format-only layer and a diff-aware review need two more facts about
+    // this baseline (judge-gated sync design §4.2–4.3), taken from the same
+    // read as logic_hash — one read, two hashes — plus the commit it belongs
+    // to. Evidence, never identity: recomputed on every run, never accepted
+    // from the model's `_meta` nor carried from the file being replaced
+    // (carryForwardMeta keeps the fresh half), and absent when nothing is
+    // hashed or git cannot say.
+    delete dok._meta.logic_hash_normalized;
+    delete dok._meta.source_commit;
     if (logicHash) {
       dok._meta.logic_hash = logicHash;
-      dok._meta.logic_files = driftFiles.map((file) => ({ file }));
+      const evidence = computeDriftEvidence(driftFiles, anchorContents);
+      dok._meta.logic_files = evidence.logic_files;
+      dok._meta.logic_hash_normalized = evidence.logic_hash_normalized;
+      const sourceCommit = await readSourceCommit(projectRoot);
+      if (sourceCommit !== undefined) dok._meta.source_commit = sourceCommit;
     }
 
     // Priority evidence — deterministic, over the exact contents the drift
@@ -1340,25 +1370,51 @@ export async function runGenerate(
 
     // Propose-and-approve (§0b): a regeneration of an existing Dok stages a
     // change proposal for the person who will approve the draft. A human note
-    // (sync --note) wins; otherwise a deterministic structural comparison
-    // proposes — or stays silent when the regenerated content is identical.
-    // Never an entry and never a clock: recording happens at approval.
+    // (sync --note) wins; then the sync judge's sentence for a Dok it said
+    // needs an update (sync --judge, source 'model'); otherwise a deterministic
+    // structural comparison proposes — or stays silent when the regenerated
+    // content is identical. Never an entry and never a clock: recording
+    // happens at approval.
+    //
+    // A file that still carries a proposal is a draft nobody has approved since
+    // an earlier regeneration. That proposal remembers the approved state
+    // (base_version / previous_status) approval needs for the lazy baseline, so
+    // a new proposal keeps that base rather than the draft's, and a run that
+    // proposes nothing new keeps the earlier proposal as it is. A person's
+    // sentence (source 'human') outranks the comparison and the judge: without
+    // a new note, it stays even when the content changed again.
+    //
+    // The judge's sentence is staged only when the content changed: a
+    // regeneration that came out identical shows no change for it to describe
+    // (judge-gated sync design §4.5), so it proposes nothing and the Dok is
+    // reported for a person to edit.
     const existingForProposal = existingDokByPlannedId.get(p.dokId);
     delete dok._meta.pending_change;
     if (existingForProposal !== undefined) {
+      const unapproved = existingForProposal._meta.pending_change;
       const note = opts.proposalNote;
+      const modelSummary = opts.modelProposals?.[p.dokId]?.trim() ?? '';
       const proposed = note !== undefined
         ? { summary: note.change, source: 'human' as const, ...(note.category !== undefined ? { category: note.category } : {}) }
         : (() => {
+            if (unapproved?.source === 'human') return undefined;
             const diff = computeChangeProposal(existingForProposal, dok);
-            return diff === null ? undefined : { summary: diff.summary, source: 'diff' as const };
+            if (diff === null) {
+              if (modelSummary.length > 0) unappliedModelProposalIds.add(p.dokId);
+              return undefined;
+            }
+            return modelSummary.length > 0
+              ? { summary: modelSummary, source: 'model' as const }
+              : { summary: diff.summary, source: 'diff' as const };
           })();
       if (proposed !== undefined) {
         dok._meta.pending_change = {
           ...proposed,
-          base_version: existingForProposal._meta.version,
-          previous_status: existingForProposal.status,
+          base_version: unapproved?.base_version ?? existingForProposal._meta.version,
+          previous_status: unapproved?.previous_status ?? existingForProposal.status,
         };
+      } else if (unapproved !== undefined) {
+        dok._meta.pending_change = unapproved;
       }
     }
 
@@ -1669,6 +1725,11 @@ export async function runGenerate(
     ...(tokenCapFailure === undefined ? {} : { tokenCapFailure }),
     ...(generationLedgerFailure === undefined ? {} : { generationLedgerFailure }),
     ...(interrupted ? { interrupted: true } : {}),
+    ...(() => {
+      // Only Doks actually written: a regeneration that failed proposed nothing.
+      const unapplied = results.map((r) => r.dokId).filter((dokId) => unappliedModelProposalIds.has(dokId));
+      return unapplied.length > 0 ? { unappliedModelProposals: unapplied } : {};
+    })(),
   };
 }
 

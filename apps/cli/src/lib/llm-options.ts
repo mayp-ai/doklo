@@ -11,6 +11,11 @@ export interface LlmCliOverrides {
   model?: string;
   profile?: string;
   backend?: string;
+  /**
+   * Role `judge` only: the regeneration model whose provider the judge follows
+   * when no judge model is set (GPT-6 Luna for OpenAI, Sonnet 5 otherwise).
+   */
+  followModel?: string;
 }
 
 export function addLlmOptions(cmd: Command): Command {
@@ -38,5 +43,6 @@ export async function resolveLlmForRole(
     ...(o.backend === 'claude-code' || o.backend === 'anthropic-api'
       ? { backendOverride: o.backend }
       : {}),
+    ...(o.followModel !== undefined ? { followModel: o.followModel } : {}),
   });
 }

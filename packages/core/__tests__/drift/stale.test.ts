@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { computeLogicHash } from '../../src/drift/logic-hash.js';
+import {
+  computeLogicHash,
+  computeNormalizedLogicHash,
+  type LogicHashInput,
+  type LogicHashNormalizer,
+} from '../../src/drift/logic-hash.js';
 import { isDokStale, dokProjectRoot } from '../../src/drift/stale.js';
 import { DokMetaSchema, type Dok } from '../../src/schemas/dok.js';
 import type { Workspace } from '../../src/schemas/workspace.js';
@@ -198,6 +203,139 @@ describe('isDokStale', () => {
     expect(isDokStale(legacy, dokProjectRoot(legacy, ws, root))).toEqual({
       stale: true,
       reason: 'missing-file',
+    });
+  });
+});
+
+// ── Format-only layer (judge-gated sync design §4.2) ──────────────────
+//
+// The normaliser is injected (core never parses source). This fake drops `//`
+// comments and collapses whitespace in `.ts` files and declines everything
+// else, which is all the comparison order needs.
+const fakeNormalizer: LogicHashNormalizer = {
+  version: 'fake-v1',
+  normalizeForHash: (file, content) =>
+    file.endsWith('.ts') ? content.replace(/\/\/[^\n]*/g, '').replace(/\s+/g, ' ').trim() : null,
+};
+
+describe('isDokStale — format-only layer', () => {
+  let root: string;
+  const base: LogicHashInput[] = [
+    { file: 'a.ts', content: 'export const a = 1;\n' },
+    { file: 'schema.prisma', content: 'model A { id Int @id }\n' },
+  ];
+
+  // A Dok stamped the way generate stamps it: the raw hash plus the normalised
+  // hash over the same contents, with the same injected normaliser.
+  function stampedDok(normalizer: LogicHashNormalizer = fakeNormalizer): Dok {
+    const dok = makeDok({
+      logic_hash: computeLogicHash(base),
+      logic_files: base.map(({ file }) => ({ file })),
+    });
+    dok._meta.logic_hash_normalized = computeNormalizedLogicHash(base, normalizer);
+    return dok;
+  }
+
+  function writeBase(): void {
+    for (const { file, content } of base) writeFileSync(join(root, file), content);
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'doklo-stale-format-'));
+    writeBase();
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('a comment/whitespace-only edit is not stale: format-only', () => {
+    writeFileSync(join(root, 'a.ts'), '// why\nexport   const a = 1; // tail\n');
+    expect(isDokStale(stampedDok(), root, { normalize: fakeNormalizer })).toEqual({
+      stale: false,
+      reason: 'format-only',
+    });
+  });
+
+  it('a real edit is still stale (changed)', () => {
+    writeFileSync(join(root, 'a.ts'), '// why\nexport const a = 2;\n');
+    expect(isDokStale(stampedDok(), root, { normalize: fakeNormalizer })).toEqual({
+      stale: true,
+      reason: 'changed',
+    });
+  });
+
+  it('an edit to a file the normaliser declines is a real change', () => {
+    writeFileSync(join(root, 'schema.prisma'), '// models\nmodel A { id Int @id }\n');
+    expect(isDokStale(stampedDok(), root, { normalize: fakeNormalizer })).toEqual({
+      stale: true,
+      reason: 'changed',
+    });
+  });
+
+  it('unchanged bytes are plainly fresh — no reason, raw hash decides first', () => {
+    expect(isDokStale(stampedDok(), root, { normalize: fakeNormalizer })).toEqual({ stale: false });
+    // Even a corrupt normalised hash cannot make byte-identical sources stale:
+    // the layer only ever turns a raw mismatch into format-only.
+    const corrupt = stampedDok();
+    corrupt._meta.logic_hash_normalized = `fake-v1:${'0'.repeat(64)}`;
+    expect(isDokStale(corrupt, root, { normalize: fakeNormalizer })).toEqual({ stale: false });
+  });
+
+  it('a different normaliser version falls back to the raw logic_hash comparison', () => {
+    writeFileSync(join(root, 'a.ts'), '// why\nexport const a = 1;\n');
+    const old = stampedDok({ ...fakeNormalizer, version: 'fake-v0' });
+    expect(isDokStale(old, root, { normalize: fakeNormalizer })).toEqual({ stale: true, reason: 'changed' });
+  });
+
+  it('a legacy Dok without logic_hash_normalized keeps the raw comparison', () => {
+    writeFileSync(join(root, 'a.ts'), '// why\nexport const a = 1;\n');
+    const legacy = stampedDok();
+    delete legacy._meta.logic_hash_normalized;
+    expect(isDokStale(legacy, root, { normalize: fakeNormalizer })).toEqual({ stale: true, reason: 'changed' });
+  });
+
+  it('without an injected normaliser the stored normalised hash is never consulted', () => {
+    writeFileSync(join(root, 'a.ts'), '// why\nexport const a = 1;\n');
+    expect(isDokStale(stampedDok(), root)).toEqual({ stale: true, reason: 'changed' });
+  });
+
+  it('an unreadable file is missing-file, never format-only', () => {
+    rmSync(join(root, 'schema.prisma'));
+    const dok = stampedDok();
+    // Even a normalised hash that would match the files still readable must not
+    // rescue a Dok whose source set is incomplete.
+    dok._meta.logic_hash_normalized = computeNormalizedLogicHash([base[0]!], fakeNormalizer);
+    expect(isDokStale(dok, root, { normalize: fakeNormalizer })).toEqual({ stale: true, reason: 'missing-file' });
+  });
+
+  it('a normaliser that throws reads as a real change', () => {
+    const throwing: LogicHashNormalizer = { version: 'fake-v1', normalizeForHash: () => { throw new Error('boom'); } };
+    writeFileSync(join(root, 'a.ts'), '// why\nexport const a = 1;\n');
+    expect(isDokStale(stampedDok(), root, { normalize: throwing })).toEqual({ stale: true, reason: 'changed' });
+  });
+
+  describe('the 0.3.2 gates run first and are untouched by the layer', () => {
+    beforeEach(() => {
+      writeFileSync(join(root, 'a.ts'), '// why\nexport const a = 1;\n'); // format-only edit
+    });
+
+    it('no stored logic_hash → no-hash', () => {
+      const dok = stampedDok();
+      delete dok._meta.logic_hash;
+      expect(isDokStale(dok, root, { normalize: fakeNormalizer })).toEqual({ stale: false, reason: 'no-hash' });
+    });
+
+    it('tracking_review_required → tracking-expanded, even for a format-only edit', () => {
+      const dok = stampedDok();
+      dok._meta.tracking_review_required = true;
+      expect(isDokStale(dok, root, { normalize: fakeNormalizer })).toEqual({ stale: true, reason: 'tracking-expanded' });
+    });
+
+    it.each([undefined, 1, 3])('tracking_version %s → unverified-tracking', (version) => {
+      const dok = stampedDok();
+      dok._meta.tracking_version = version;
+      expect(isDokStale(dok, root, { normalize: fakeNormalizer })).toEqual({ stale: false, reason: 'unverified-tracking' });
     });
   });
 });

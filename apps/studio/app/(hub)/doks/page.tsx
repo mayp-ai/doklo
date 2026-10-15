@@ -22,6 +22,11 @@ import {
   DokBulkReviewBar,
   useDokBulkReviewController,
 } from '../../../components/dok-bulk-review';
+import {
+  DokDriftConfirmBar,
+  DokDriftConfirmEntry,
+  useDokDriftConfirmController,
+} from '../../../components/dok-drift-confirm';
 
 // ──────────────────────────────────────────────────────────────────────
 // Presentation tokens — kept inline because they're catalog-specific.
@@ -119,24 +124,64 @@ function DokCatalogReady() {
     workspaceState.kind === 'ready' || workspaceState.kind === 'empty'
       ? workspaceState.data.default_locale
       : 'en';
-  const preReviewFilterRef = useRef<DokFilter | null>(null);
+  // Two bulk modes share the list: review (drafts) and confirm (stale Doks).
+  // Each narrows the status filter while it is open — drafts only, or every
+  // status, since a stale Dok can be any — and closing it restores the filter
+  // from before either mode opened. Opening one closes the other.
+  const preModeFilterRef = useRef<DokFilter | null>(null);
+  const switchingModeRef = useRef(false);
+  const cancelReviewRef = useRef<() => void>(() => {});
+  const cancelDriftRef = useRef<() => void>(() => {});
+  const enterModeFilter = useCallback((modeFilter: DokFilter) => {
+    if (preModeFilterRef.current === null) preModeFilterRef.current = filter;
+    setFilter(modeFilter);
+  }, [filter, setFilter]);
+  const leaveModeFilter = useCallback(() => {
+    // Switching straight to the other mode: it takes the filter over.
+    if (switchingModeRef.current) return;
+    const preModeFilter = preModeFilterRef.current;
+    preModeFilterRef.current = null;
+    if (preModeFilter !== null) setFilter(preModeFilter);
+  }, [setFilter]);
+  const closeOtherMode = useCallback((cancel: () => void) => {
+    switchingModeRef.current = true;
+    try {
+      cancel();
+    } finally {
+      switchingModeRef.current = false;
+    }
+  }, []);
   const handleReviewModeChange = useCallback((reviewMode: boolean) => {
-    if (reviewMode) {
-      preReviewFilterRef.current = filter;
-      setFilter('draft');
+    if (!reviewMode) {
+      leaveModeFilter();
       return;
     }
-
-    const preReviewFilter = preReviewFilterRef.current;
-    preReviewFilterRef.current = null;
-    if (preReviewFilter !== null) setFilter(preReviewFilter);
-  }, [filter, setFilter]);
+    closeOtherMode(cancelDriftRef.current);
+    enterModeFilter('draft');
+  }, [closeOtherMode, enterModeFilter, leaveModeFilter]);
+  const handleDriftModeChange = useCallback((active: boolean) => {
+    if (!active) {
+      leaveModeFilter();
+      return;
+    }
+    closeOtherMode(cancelReviewRef.current);
+    enterModeFilter('all');
+  }, [closeOtherMode, enterModeFilter, leaveModeFilter]);
   const bulkReview = useDokBulkReviewController({
     doks,
     revisions,
     locale,
     onReviewModeChange: handleReviewModeChange,
   });
+  const driftConfirm = useDokDriftConfirmController({
+    doks,
+    revisions,
+    locale,
+    onModeChange: handleDriftModeChange,
+  });
+  cancelReviewRef.current = bulkReview.cancelReviewMode;
+  cancelDriftRef.current = driftConfirm.cancel;
+  const bulkMode = bulkReview.reviewMode || driftConfirm.active;
   // ↑/↓ across the flat filtered list (groups are visual, not logical).
   const listNav = useListKeyboardNav({
     items: flatDoks,
@@ -183,8 +228,8 @@ function DokCatalogReady() {
         </div>
       </header>
 
-      {/* Filters and bulk-review controls */}
-      <div className={bulkReview.reviewMode ? 'sticky top-0 z-20 bg-canvas' : undefined}>
+      {/* Filters and bulk-review / bulk-confirm controls */}
+      <div className={bulkMode ? 'sticky top-0 z-20 bg-canvas' : undefined}>
         <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-canvas px-8 py-2.5">
           {FILTERS.map((f) => (
             <FilterChip
@@ -195,6 +240,8 @@ function DokCatalogReady() {
               onClick={() => {
                 if (bulkReview.reviewMode) {
                   bulkReview.cancelReviewMode();
+                } else if (driftConfirm.active) {
+                  driftConfirm.cancel();
                 } else {
                   bulkReview.clearForFilterChange();
                 }
@@ -208,6 +255,7 @@ function DokCatalogReady() {
               value={impactFilter}
               onChange={(event) => {
                 bulkReview.clearForFilterChange();
+                driftConfirm.clearSelection();
                 setImpactFilter(event.target.value as BusinessImpact | 'all');
               }}
               className="rounded-full border border-border bg-transparent px-3 py-1 text-[12.5px] text-ink-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -221,6 +269,7 @@ function DokCatalogReady() {
               value={blastFilter}
               onChange={(event) => {
                 bulkReview.clearForFilterChange();
+                driftConfirm.clearSelection();
                 setBlastFilter(event.target.value as BlastRadius | 'all');
               }}
               className="rounded-full border border-border bg-transparent px-3 py-1 text-[12.5px] text-ink-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -239,7 +288,16 @@ function DokCatalogReady() {
             </button>
           </div>
         </div>
-        <DokBulkReviewBar controller={bulkReview} draftCount={stats.draft} />
+        <DokBulkReviewBar
+          controller={bulkReview}
+          draftCount={stats.draft}
+          entryAccessory={
+            stats.total > 0 && !driftConfirm.active
+              ? <DokDriftConfirmEntry controller={driftConfirm} />
+              : null
+          }
+        />
+        <DokDriftConfirmBar controller={driftConfirm} />
       </div>
 
       {/* Catalog */}
@@ -257,7 +315,7 @@ function DokCatalogReady() {
               <section key={domain}>
                 <div
                   className={[
-                    bulkReview.reviewMode ? '' : 'sticky top-0 z-10',
+                    bulkMode ? '' : 'sticky top-0 z-10',
                     'flex items-center gap-3 border-b border-border bg-canvas px-8 pb-2.5 pt-[18px]',
                   ].join(' ')}
                 >
@@ -270,18 +328,44 @@ function DokCatalogReady() {
                     {doks.length === 1 ? 'dok' : 'doks'}
                   </span>
                 </div>
-                {doks.map((dok) => (
-                  <CatalogRow
-                    key={dok.dok_id}
-                    dok={dok}
-                    selected={selectedDokId === dok.dok_id}
-                    onClick={() => setSelectedDok(dok.dok_id)}
-                    reviewMode={bulkReview.reviewMode}
-                    reviewSelected={bulkReview.selectedIds.has(dok.dok_id)}
-                    warningId={bulkReview.warningId}
-                    onToggleReview={() => bulkReview.toggleDok(dok.dok_id)}
-                  />
-                ))}
+                {doks.map((dok) => {
+                  const driftEntry = driftConfirm.entries.get(dok.dok_id);
+                  const selection: RowSelection | null =
+                    bulkReview.reviewMode && dok.status === 'draft'
+                      ? {
+                          label: `Select ${dok.dok_id} for review`,
+                          describedBy: bulkReview.warningId,
+                          checked: bulkReview.selectedIds.has(dok.dok_id),
+                          onToggle: () => bulkReview.toggleDok(dok.dok_id),
+                        }
+                      : driftConfirm.confirmableIds.has(dok.dok_id)
+                        ? {
+                            label: driftConfirm.copy.selectToConfirm(dok.dok_id),
+                            describedBy: driftConfirm.warningId,
+                            checked: driftConfirm.selectedIds.has(dok.dok_id),
+                            onToggle: () => driftConfirm.toggleDok(dok.dok_id),
+                          }
+                        : null;
+                  return (
+                    <CatalogRow
+                      key={dok.dok_id}
+                      dok={dok}
+                      selected={selectedDokId === dok.dok_id}
+                      onClick={() => setSelectedDok(dok.dok_id)}
+                      selection={selection}
+                      drift={
+                        driftEntry === undefined
+                          ? null
+                          : {
+                              label: driftConfirm.copy.rowStale(driftEntry.drift.reason),
+                              judged: driftEntry.verdict === null
+                                ? null
+                                : driftConfirm.copy.rowJudged,
+                            }
+                      }
+                    />
+                  );
+                })}
               </section>
             );
           })
@@ -410,22 +494,27 @@ function FilterChip({
   );
 }
 
+/** The checkbox a row shows while a bulk mode can pick it. */
+type RowSelection = {
+  label: string;
+  describedBy: string;
+  checked: boolean;
+  onToggle: () => void;
+};
+
 function CatalogRow({
   dok,
   selected,
   onClick,
-  reviewMode,
-  reviewSelected,
-  warningId,
-  onToggleReview,
+  selection,
+  drift,
 }: {
   dok: Dok;
   selected: boolean;
   onClick: () => void;
-  reviewMode: boolean;
-  reviewSelected: boolean;
-  warningId: string;
-  onToggleReview: () => void;
+  selection: RowSelection | null;
+  /** Stale and (when the judge's verdict holds) judged-accurate tags, in confirm mode. */
+  drift: { label: string; judged: string | null } | null;
 }) {
   const pipClass = STATUS_PIP[dok.status];
   // The selected row already spends the left-edge bar on the accent marker.
@@ -444,14 +533,14 @@ function CatalogRow({
           : `hover:bg-surface ${tier.marker}`,
       ].join(' ')}
     >
-      {reviewMode && dok.status === 'draft' ? (
+      {selection ? (
         <div className="flex shrink-0 items-center pl-8 pr-1">
           <input
             type="checkbox"
-            aria-label={`Select ${dok.dok_id} for review`}
-            aria-describedby={warningId}
-            checked={reviewSelected}
-            onChange={onToggleReview}
+            aria-label={selection.label}
+            aria-describedby={selection.describedBy}
+            checked={selection.checked}
+            onChange={selection.onToggle}
             className="h-4 w-4 rounded border-border text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
           />
         </div>
@@ -463,7 +552,7 @@ function CatalogRow({
         aria-current={selected ? 'true' : undefined}
         className={[
           'min-w-0 flex-1 py-3.5 text-left',
-          reviewMode && dok.status === 'draft' ? 'pl-3 pr-8' : 'px-8',
+          selection ? 'pl-3 pr-8' : 'px-8',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas',
         ].join(' ')}
       >
@@ -479,6 +568,16 @@ function CatalogRow({
           >
             {tText(dok.name)}
           </span>
+          {drift !== null && (
+            <span className="flex-shrink-0 rounded bg-status-draft-bg px-1.5 py-0.5 font-mono text-[10.5px] font-medium text-status-draft-fg">
+              {drift.label}
+            </span>
+          )}
+          {drift?.judged ? (
+            <span className="flex-shrink-0 rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10.5px] text-ink-secondary">
+              {drift.judged}
+            </span>
+          ) : null}
           {critical !== null && (
             <span
               title={`Critical — ${critical}`}

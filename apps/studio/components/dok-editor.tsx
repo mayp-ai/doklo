@@ -14,6 +14,7 @@ import type {
   UserActionStep,
 } from '@doklo-beta/core';
 import { DokPriorityEditor } from './dok-priority-editor';
+import { DokDriftPanel } from './dok-drift-panel';
 import { useStudio } from './studio-store';
 import { saveDokAction, type DokEditPatch } from '../lib/actions';
 import { useFocusContext } from '../lib/hooks/use-focus-context';
@@ -107,6 +108,7 @@ export function DokEditor() {
     setMetaExpanded,
     pendingSave,
     saveStatus,
+    workspaceState,
   } = useStudio();
   const { handlers, clearFocus } = useFocusContext();
   const dokId = editingDok?.dok_id ?? '';
@@ -137,12 +139,17 @@ export function DokEditor() {
   const categoryRef = useRef<'' | DokHistoryCategory>('');
   noteRef.current = note;
   categoryRef.current = category;
+  // The revision this editor last wrote. The catalog keeps the revision
+  // Studio loaded until a reload, so once the person has saved, the drift
+  // panel's confirmation must check against this one instead.
+  const [lastSaved, setLastSaved] = useState<{ identity: string; revision: string } | null>(null);
   const persist = useCallback(
-    (patch: DokEditPatch, expectedRevision: string) => {
+    async (patch: DokEditPatch, expectedRevision: string) => {
       const trimmed = noteRef.current.trim();
+      const identity = saveIdentityRef.current;
       // A whitespace-only note is not a note: send neither it nor the
       // category, so the save records what it would have without the field.
-      return saveDokAction({
+      const result = await saveDokAction({
         dokId,
         patch,
         expectedRevision,
@@ -153,9 +160,19 @@ export function DokEditor() {
             }
           : {}),
       });
+      if (result.ok) setLastSaved({ identity, revision: result.revision });
+      return result;
     },
     [dokId],
   );
+  const currentRevision =
+    lastSaved !== null && lastSaved.identity === saveIdentity
+      ? lastSaved.revision
+      : exactRevision;
+  const locale =
+    workspaceState.kind === 'ready' || workspaceState.kind === 'empty'
+      ? workspaceState.data.default_locale
+      : 'en';
   const durable = useDurableSave<DokEditPatch>({
     key: `dok:${dokId}`,
     path: exactPath,
@@ -295,6 +312,14 @@ export function DokEditor() {
             </button>
           </div>
         )}
+
+        {/* Source drift — renders only while the tracked code has changed. */}
+        <DokDriftPanel
+          dokId={dok.dok_id}
+          revision={currentRevision}
+          locale={locale}
+          editsPending={hasPendingChanges || isSaving}
+        />
 
         {/* Title */}
         <input

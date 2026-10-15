@@ -128,6 +128,34 @@ describe('callModel (AI SDK path, injected generateText)', () => {
     // MAYP-66: the system-role message is Doklo's own prompt; suppress the AI SDK warning.
     expect(capturedArgs['allowSystemInMessages']).toBe(true);
   });
+  // Privacy parity with the Codex route, whose fetch forces store:false: the
+  // plain OpenAI API-key path (no custom fetch) sends store:false too.
+  it('sends store:false on the plain OpenAI API-key path', async () => {
+    let capturedArgs: Record<string, unknown> = {};
+    const fakeGen = async (args: Record<string, unknown>) => {
+      capturedArgs = args;
+      return { text: 'ok', usage: { inputTokens: 1, outputTokens: 1 } };
+    };
+    const res = await callModel(
+      { userPrompt: 'hi', systemPrompt: 'sys' },
+      { model: 'openai/gpt-6-luna', maxTokens: 8, timeout: 100, providerKind: 'openai', apiKey: 'sk-test' },
+      { generateText: fakeGen as never },
+    );
+    expect(res.success).toBe(true);
+    expect(capturedArgs['providerOptions']).toEqual({ openai: { store: false } });
+  });
+  it('sets no call-level provider options on the Anthropic path', async () => {
+    let capturedArgs: Record<string, unknown> = {};
+    const fakeGen = async (args: Record<string, unknown>) => {
+      capturedArgs = args;
+      return { text: 'ok', usage: { inputTokens: 1, outputTokens: 1 } };
+    };
+    const res = await callModel(
+      { userPrompt: 'hi', systemPrompt: 'sys' }, config, { generateText: fakeGen as never },
+    );
+    expect(res.success).toBe(true);
+    expect(capturedArgs).not.toHaveProperty('providerOptions');
+  });
   it('resolves API key from env when config.apiKey is absent', async () => {
     const prevKey = process.env['ANTHROPIC_API_KEY'];
     delete process.env['ANTHROPIC_API_KEY'];

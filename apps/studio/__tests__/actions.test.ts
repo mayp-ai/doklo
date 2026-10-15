@@ -12,7 +12,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { LexiconTerm, Role } from '@doklo-beta/core';
+import type { Dok, LexiconTerm, Role } from '@doklo-beta/core';
+import { classifyDokHistory } from '@doklo-beta/livedoc-engine';
 import { z } from 'zod';
 import { revisionOf } from '../lib/load-state';
 import { writeJsonForMutation } from '../lib/persistence';
@@ -393,8 +394,10 @@ describe('bulkActivateDoksAction', () => {
     ]);
     expect(savedFirst.status).toBe('active');
     expect(savedSecond.status).toBe('active');
-    expect(savedFirst._meta.edited_by_human).toBe(true);
-    expect(savedSecond._meta.edited_by_human).toBe(true);
+    // Approval is a review move, not a content edit: it leaves both Doks
+    // regenerable by a plain `doklo sync`.
+    expect(savedFirst._meta.edited_by_human).toBeUndefined();
+    expect(savedSecond._meta.edited_by_human).toBeUndefined();
     expect(savedFirst.server_extension).toEqual({ retained: true });
     expect(savedFirst._meta.server_meta_extension).toEqual({ retained: true });
   });
@@ -1086,6 +1089,121 @@ describe('saveDokAction pending_change approval', () => {
     });
   });
 
+  // While a proposal is staged, the file holds the draft a regeneration
+  // demoted, so its own status says nothing about the approved state. A note
+  // or a review move recorded before approval is the first history entry and
+  // has to carry the baseline the proposal remembers; the approval that
+  // follows must not add a second one.
+  describe('history recorded before the approval', () => {
+    async function approvePay(path: string): Promise<void> {
+      const approved = await saveDokAction({
+        dokId: 'PAY',
+        patch: { status: 'active' },
+        expectedRevision: (await bytesAndRevision(path)).revision,
+      });
+      expect(approved.ok).toBe(true);
+    }
+
+    it('keeps the baseline when a note-only save comes first', async () => {
+      const dir = await scratchWorkspace();
+      historyClock.now = () => new Date(2026, 9, 5, 12);
+      const path = await seedPending(dir, 'PAY');
+
+      const noted = await saveDokAction({
+        dokId: 'PAY',
+        patch: {},
+        expectedRevision: (await bytesAndRevision(path)).revision,
+        note: 'Checked the new wording with support',
+      });
+      expect(noted.ok).toBe(true);
+      await approvePay(path);
+
+      const saved = await readJson<Dok>(path);
+      expect(saved._meta.pending_change).toBeUndefined();
+      expect(saved._meta.history).toEqual([
+        { version: 1, date: '2026-10-05', change: 'Active before history tracking began', kind: 'baseline' },
+        {
+          version: 3, date: '2026-10-05', change: 'Checked the new wording with support', author: 'tester',
+          kind: 'edited',
+        },
+        {
+          version: 4, date: '2026-10-05', change: 'Updated the description.', author: 'tester',
+          kind: 'regenerated', from: 'draft', to: 'active',
+        },
+      ]);
+      expect(classifyDokHistory(saved).map((item) => [item.category, item.entry.version])).toEqual([
+        ['changed', 3],
+        ['changed', 4],
+      ]);
+    });
+
+    it('keeps the baseline when the draft is sent to review first', async () => {
+      const dir = await scratchWorkspace();
+      historyClock.now = () => new Date(2026, 9, 5, 12);
+      const path = await seedPending(dir, 'PAY');
+
+      const reviewed = await saveDokAction({
+        dokId: 'PAY',
+        patch: { status: 'review' },
+        expectedRevision: (await bytesAndRevision(path)).revision,
+      });
+      expect(reviewed.ok).toBe(true);
+      await approvePay(path);
+
+      const saved = await readJson<Dok>(path);
+      expect(saved._meta.pending_change).toBeUndefined();
+      expect(saved._meta.history).toEqual([
+        { version: 1, date: '2026-10-05', change: 'Active before history tracking began', kind: 'baseline' },
+        {
+          version: 3, date: '2026-10-05', change: 'Sent to review', author: 'tester',
+          kind: 'status', from: 'draft', to: 'review',
+        },
+        {
+          version: 4, date: '2026-10-05', change: 'Updated the description.', author: 'tester',
+          kind: 'regenerated', from: 'review', to: 'active',
+        },
+      ]);
+      expect(classifyDokHistory(saved).map((item) => [item.category, item.entry.version, item.note])).toEqual([
+        ['changed', 4, 'Updated the description.'],
+      ]);
+    });
+
+    it('leaves a draft without a staged proposal as before: no baseline, and its approval reads as Added', async () => {
+      const dir = await scratchWorkspace();
+      historyClock.now = () => new Date(2026, 9, 5, 12);
+      // A generated draft nobody has approved yet: nothing says it ever shipped.
+      const path = join(dir, '.doklo', 'hub', 'doks', 'PAY.json');
+      const fresh = await readJson<Record<string, unknown> & { _meta: Record<string, unknown> }>(path);
+      expect(fresh['status']).toBe('draft');
+      expect(fresh._meta['pending_change']).toBeUndefined();
+      fresh._meta = { ...fresh._meta, version: 1, history: [] };
+      await writeFile(path, JSON.stringify(fresh, null, 2) + '\n', 'utf-8');
+
+      const reviewed = await saveDokAction({
+        dokId: 'PAY',
+        patch: { status: 'review' },
+        expectedRevision: (await bytesAndRevision(path)).revision,
+      });
+      expect(reviewed.ok).toBe(true);
+      await approvePay(path);
+
+      const saved = await readJson<Dok>(path);
+      expect(saved._meta.history).toEqual([
+        {
+          version: 2, date: '2026-10-05', change: 'Sent to review', author: 'tester',
+          kind: 'status', from: 'draft', to: 'review',
+        },
+        {
+          version: 3, date: '2026-10-05', change: 'Activated', author: 'tester',
+          kind: 'status', from: 'review', to: 'active',
+        },
+      ]);
+      expect(classifyDokHistory(saved).map((item) => [item.category, item.entry.version, item.note])).toEqual([
+        ['added', 3, null],
+      ]);
+    });
+  });
+
   it('keeps the proposal staged across non-activation saves', async () => {
     const dir = await scratchWorkspace();
     historyClock.now = () => new Date(2026, 7, 16, 12);
@@ -1104,6 +1222,190 @@ describe('saveDokAction pending_change approval', () => {
     }>(path);
     expect(saved._meta.pending_change).toMatchObject({ source: 'diff' });
     expect(saved._meta.history.at(-1)).toMatchObject({ kind: 'status', from: 'draft', to: 'review' });
+  });
+
+  // The second approval of the loop: what it confirms is a regeneration, and
+  // the next code change has to reach this Dok the same way.
+  it('leaves the Dok regenerable when approval confirms the proposal', async () => {
+    const dir = await scratchWorkspace();
+    historyClock.now = () => new Date(2026, 9, 5, 12);
+    const path = await seedPending(dir, 'PAY');
+    const before = await bytesAndRevision(path);
+
+    const result = await saveDokAction({
+      dokId: 'PAY',
+      patch: { status: 'active' },
+      expectedRevision: before.revision,
+    });
+
+    expect(result.ok).toBe(true);
+    const saved = await readJson<{
+      _meta: {
+        version: number;
+        edited_by_human?: boolean;
+        history: unknown[];
+        pending_change?: unknown;
+      };
+    }>(path);
+    expect(saved._meta.pending_change).toBeUndefined();
+    expect(saved._meta.version).toBe(3);
+    expect(saved._meta.history).toEqual([
+      { version: 1, date: '2026-10-05', change: 'Active before history tracking began', kind: 'baseline' },
+      {
+        version: 3, date: '2026-10-05', change: 'Updated the description.', author: 'tester',
+        kind: 'regenerated', from: 'draft', to: 'active',
+      },
+    ]);
+    expect(saved._meta.edited_by_human).toBeUndefined();
+  });
+});
+
+// ── edited_by_human: content edits, not review moves ──────────
+//
+// `doklo sync` skips every flagged Dok unless --force. Moving a Dok through
+// review (draft · review · active) is not a content change, so it must leave
+// the Dok regenerable; prose edits and lifecycle moves stay protected. Each
+// case also pins the history and version the save writes, which this rule
+// must not change.
+
+describe('saveDokAction human-edit marking', () => {
+  it.each([
+    { label: 'approves a draft', dokId: 'PAY', from: 'draft', to: 'active', version: 2, change: 'Activated' },
+    { label: 'sends a draft to review', dokId: 'PAY', from: 'draft', to: 'review', version: 2, change: 'Sent to review' },
+    { label: 'approves a Dok in review', dokId: 'ORD', from: 'review', to: 'active', version: 2, change: 'Activated' },
+    { label: 'returns an active Dok to draft', dokId: 'CART', from: 'active', to: 'draft', version: 3, change: 'Returned to draft' },
+  ] as const)('$label without marking it human-edited', async ({ dokId, from, to, version, change }) => {
+    const dir = await scratchWorkspace();
+    historyClock.now = () => new Date(2026, 9, 5, 12);
+    const path = join(dir, '.doklo', 'hub', 'doks', `${dokId}.json`);
+    const before = await readJson<{ status: string; _meta: { history: unknown[] } }>(path);
+    expect(before.status).toBe(from);
+
+    const result = await saveDokAction({
+      dokId,
+      patch: { status: to },
+      expectedRevision: (await bytesAndRevision(path)).revision,
+    });
+
+    expect(result.ok).toBe(true);
+    const saved = await readJson<{
+      status: string;
+      _meta: { version: number; edited_by_human?: boolean; history: unknown[] };
+    }>(path);
+    expect(saved.status).toBe(to);
+    expect(saved._meta.version).toBe(version);
+    expect(saved._meta.history).toEqual([
+      ...before._meta.history,
+      { version, date: '2026-10-05', change, author: 'tester', kind: 'status', from, to },
+    ]);
+    expect(saved._meta.edited_by_human).toBeUndefined();
+  });
+
+  it('keeps the flag a Dok already carries when it is approved', async () => {
+    const dir = await scratchWorkspace();
+    historyClock.now = () => new Date(2026, 9, 5, 12);
+    const path = join(dir, '.doklo', 'hub', 'doks', 'PAY.json'); // draft, version 1, 1 legacy entry
+    const flagged = await readJson<Record<string, unknown> & { _meta: Record<string, unknown> }>(path);
+    flagged._meta = { ...flagged._meta, edited_by_human: true };
+    await writeFile(path, JSON.stringify(flagged, null, 2) + '\n', 'utf-8');
+
+    const result = await saveDokAction({
+      dokId: 'PAY',
+      patch: { status: 'active' },
+      expectedRevision: (await bytesAndRevision(path)).revision,
+    });
+
+    expect(result.ok).toBe(true);
+    const saved = await readJson<{
+      status: string;
+      _meta: { version: number; edited_by_human?: boolean; history: unknown[] };
+    }>(path);
+    expect(saved.status).toBe('active');
+    expect(saved._meta.version).toBe(2);
+    expect(saved._meta.history.at(-1)).toEqual({
+      version: 2, date: '2026-10-05', change: 'Activated', author: 'tester',
+      kind: 'status', from: 'draft', to: 'active',
+    });
+    expect(saved._meta.edited_by_human).toBe(true);
+  });
+
+  it('marks a name edit, with no entry and a version bump as before', async () => {
+    const dir = await scratchWorkspace();
+    const path = join(dir, '.doklo', 'hub', 'doks', 'PAY.json'); // draft, version 1, 1 legacy entry
+    const before = await readJson<{ _meta: { history: unknown[] } }>(path);
+
+    const result = await saveDokAction({
+      dokId: 'PAY',
+      patch: { name: 'Checkout payment' },
+      expectedRevision: (await bytesAndRevision(path)).revision,
+    });
+
+    expect(result.ok).toBe(true);
+    const saved = await readJson<{
+      name: string;
+      _meta: { version: number; edited_by_human?: boolean; history: unknown[] };
+    }>(path);
+    expect(saved.name).toBe('Checkout payment');
+    expect(saved._meta.version).toBe(2);
+    expect(saved._meta.history).toEqual(before._meta.history);
+    expect(saved._meta.edited_by_human).toBe(true);
+  });
+
+  it('marks a prose edit saved together with approval', async () => {
+    const dir = await scratchWorkspace();
+    historyClock.now = () => new Date(2026, 9, 5, 12);
+    const path = join(dir, '.doklo', 'hub', 'doks', 'PAY.json'); // draft, version 1, 1 legacy entry
+
+    const result = await saveDokAction({
+      dokId: 'PAY',
+      patch: { description: 'Reviewed and reworded.', status: 'active' },
+      expectedRevision: (await bytesAndRevision(path)).revision,
+    });
+
+    expect(result.ok).toBe(true);
+    const saved = await readJson<{
+      status: string;
+      _meta: { version: number; edited_by_human?: boolean; history: unknown[] };
+    }>(path);
+    expect(saved.status).toBe('active');
+    expect(saved._meta.version).toBe(2);
+    expect(saved._meta.history.at(-1)).toEqual({
+      version: 2, date: '2026-10-05', change: 'Activated', author: 'tester',
+      kind: 'status', from: 'draft', to: 'active',
+    });
+    expect(saved._meta.edited_by_human).toBe(true);
+  });
+
+  // A regenerated Dok always comes back as a draft, so a lifecycle status is a
+  // judgment regeneration cannot reproduce — it stays protected either way.
+  it.each([
+    { label: 'archives an active Dok', dokId: 'SHOP-LIST', from: 'active', to: 'archived', change: 'Archived' },
+    { label: 'brings a planned Dok into draft', dokId: 'PAY-INSTALL', from: 'planned', to: 'draft', change: 'Returned to draft' },
+  ] as const)('$label and marks it human-edited', async ({ dokId, from, to, change }) => {
+    const dir = await scratchWorkspace();
+    historyClock.now = () => new Date(2026, 9, 5, 12);
+    const path = join(dir, '.doklo', 'hub', 'doks', `${dokId}.json`); // version 1, 1 legacy entry
+    const before = await readJson<{ status: string; _meta: { history: unknown[] } }>(path);
+    expect(before.status).toBe(from);
+
+    const result = await saveDokAction({
+      dokId,
+      patch: { status: to },
+      expectedRevision: (await bytesAndRevision(path)).revision,
+    });
+
+    expect(result.ok).toBe(true);
+    const saved = await readJson<{
+      status: string;
+      _meta: { version: number; edited_by_human?: boolean; history: unknown[] };
+    }>(path);
+    expect(saved.status).toBe(to);
+    expect(saved._meta.version).toBe(2);
+    expect(saved._meta.history).toEqual([
+      ...before._meta.history,
+      { version: 2, date: '2026-10-05', change, author: 'tester', kind: 'status', from, to },
+    ]);
+    expect(saved._meta.edited_by_human).toBe(true);
   });
 });
 
@@ -1160,5 +1462,43 @@ describe('bulkActivateDoksAction history entries', () => {
       version: 2, date: '2026-08-16', change: 'Activated', author: 'tester',
       kind: 'status', from: 'draft', to: 'active',
     });
+  });
+
+  it('keeps the flags Doks already carry and adds none', async () => {
+    const dir = await scratchWorkspace();
+    historyClock.now = () => new Date(2026, 9, 5, 12);
+    const payPath = join(dir, '.doklo', 'hub', 'doks', 'PAY.json'); // draft, version 1, 1 legacy entry
+    const pay = await readJson<Record<string, unknown> & { _meta: Record<string, unknown> }>(payPath);
+    pay._meta = { ...pay._meta, edited_by_human: true };
+    await writeFile(payPath, JSON.stringify(pay, null, 2) + '\n', 'utf-8');
+    const cartPayPath = join(dir, '.doklo', 'hub', 'doks', 'SHOP-CART-PAY.json'); // draft, version 1, 1 legacy entry
+
+    const result = await bulkActivateDoksAction({
+      mode: 'selected',
+      targets: [
+        { dokId: 'PAY', expectedRevision: (await bytesAndRevision(payPath)).revision },
+        { dokId: 'SHOP-CART-PAY', expectedRevision: (await bytesAndRevision(cartPayPath)).revision },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    const activation = {
+      version: 2, date: '2026-10-05', change: 'Activated', author: 'tester',
+      kind: 'status', from: 'draft', to: 'active',
+    };
+    const savedPay = await readJson<{
+      _meta: { version: number; edited_by_human?: boolean; history: unknown[] };
+    }>(payPath);
+    expect(savedPay._meta.version).toBe(2);
+    expect(savedPay._meta.history).toHaveLength(2);
+    expect(savedPay._meta.history.at(-1)).toEqual(activation);
+    expect(savedPay._meta.edited_by_human).toBe(true);
+    const savedCartPay = await readJson<{
+      _meta: { version: number; edited_by_human?: boolean; history: unknown[] };
+    }>(cartPayPath);
+    expect(savedCartPay._meta.version).toBe(2);
+    expect(savedCartPay._meta.history).toHaveLength(2);
+    expect(savedCartPay._meta.history.at(-1)).toEqual(activation);
+    expect(savedCartPay._meta.edited_by_human).toBeUndefined();
   });
 });

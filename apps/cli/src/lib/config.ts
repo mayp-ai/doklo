@@ -10,7 +10,11 @@ import { makeCodexFetch, type CodexTokens } from './codex-auth.js';
 import type { LlmAuthSource } from './llm-preflight.js';
 import {
   OPENAI_CODEX_BASE_URL,
+  OPENAI_JUDGE_MODEL,
   RUNTIME_TRUST_MODEL,
+  assertJudgeTrustCredential,
+  assertJudgeTrustModel,
+  assertJudgeTrustRoute,
   assertRuntimeTrustCredential,
   assertRuntimeTrustModel,
   assertRuntimeTrustRoute,
@@ -89,9 +93,59 @@ export interface ResolveLlmInput {
   modelOverride?: string;
   profileOverride?: string;
   backendOverride?: 'claude-code' | 'anthropic-api';
+  /**
+   * Judge role only: the regeneration model whose provider the judge follows
+   * when no judge model is set (`doklo sync --judge --model <ref>`).
+   */
+  followModel?: string;
+}
+
+/** The role the sync judge resolves under (`doklo model --task judge`). */
+export const JUDGE_ROLE = 'judge';
+
+/**
+ * The judge's model when none is given (benchmark report §11.8: the strong
+ * judge follows the user's provider). An explicit judge model wins — the
+ * override, then the `judge` role binding; otherwise the provider of the
+ * regeneration model decides: OpenAI → GPT-6 Luna, anything else → Sonnet 5.
+ */
+export function defaultJudgeModel(args: Pick<ResolveLlmInput, 'config' | 'modelOverride' | 'followModel'>): string {
+  if (args.modelOverride !== undefined) return args.modelOverride;
+  const bound = args.config.models[JUDGE_ROLE]?.primary;
+  if (bound !== undefined) return bound;
+  const regeneration = args.followModel
+    ?? args.config.models['generate']?.primary
+    ?? args.config.models['default']?.primary;
+  return regeneration !== undefined && parseModelRef(regeneration).provider === 'openai'
+    ? OPENAI_JUDGE_MODEL
+    : RUNTIME_TRUST_MODEL;
+}
+
+/**
+ * The sync judge's model and route: Sonnet 5 on the direct Anthropic route
+ * (default), or GPT-6 Luna on an OpenAI API key (keychain or OPENAI_API_KEY,
+ * default endpoint) or the exact OpenAI Codex OAuth route. Any other model
+ * fails naming the two; any other route fails as runtime trust does.
+ */
+export function resolveJudgeLlm(args: ResolveLlmInput): ResolvedLlm {
+  const model = defaultJudgeModel(args);
+  assertJudgeTrustModel(model);
+  const resolved = resolveLlm({
+    config: args.config,
+    store: args.store,
+    role: JUDGE_ROLE,
+    modelOverride: model,
+    ...(args.profileOverride !== undefined ? { profileOverride: args.profileOverride } : {}),
+    ...(args.backendOverride !== undefined ? { backendOverride: args.backendOverride } : {}),
+  });
+  assertJudgeTrustModel(resolved.model);
+  assertJudgeTrustRoute(resolved);
+  assertJudgeTrustCredential(resolved);
+  return resolved;
 }
 
 export function resolveRuntimeTrustLlm(args: ResolveLlmInput): ResolvedLlm {
+  if (args.role === JUDGE_ROLE) return resolveJudgeLlm(args);
   const hasConfiguredModel = args.modelOverride !== undefined
     || args.config.models[args.role]?.primary !== undefined
     || args.config.models['default']?.primary !== undefined;

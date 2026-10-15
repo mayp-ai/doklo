@@ -8,6 +8,7 @@ import {
   DokSchema,
 } from '../src/schemas/dok.js';
 import { DokIdSchema } from '../src/schemas/ids.js';
+import { SourceAnchorSchema } from '../src/schemas/code-anchor.js';
 
 // Minimal Dok builder parametrized by dok_id and a single business rule id —
 // used by the semantic-id grammar tests below, which only need to exercise
@@ -168,5 +169,40 @@ describe('DokPendingChangeSchema (_meta.pending_change)', () => {
   it('stays optional: a meta without pending_change round-trips unchanged', () => {
     const meta = DokMetaSchema.parse({ version: 1, history: [] });
     expect('pending_change' in meta).toBe(false);
+  });
+});
+
+// Judge-gated sync design §6: three optional facts, stamped at generation. Old
+// files carry none of them and must keep parsing exactly as before.
+describe('drift baseline facts (_meta.logic_hash_normalized, _meta.source_commit, logic_files[].sha256)', () => {
+  const sha = 'a'.repeat(64);
+
+  it('parses the three facts and keeps them typed', () => {
+    const meta = DokMetaSchema.parse({
+      version: 1,
+      history: [],
+      logic_hash: 'b'.repeat(64),
+      logic_hash_normalized: `ts-tree-v1+ts5.4.2:${'c'.repeat(64)}`,
+      source_commit: 'd'.repeat(40),
+      logic_files: [{ file: 'app/page.tsx', sha256: sha }, { file: 'lib/a.ts' }],
+    });
+    expect(meta.logic_hash_normalized).toBe(`ts-tree-v1+ts5.4.2:${'c'.repeat(64)}`);
+    expect(meta.source_commit).toBe('d'.repeat(40));
+    expect(meta.logic_files).toEqual([{ file: 'app/page.tsx', sha256: sha }, { file: 'lib/a.ts' }]);
+    expect(SourceAnchorSchema.parse({ file: 'x.ts', sha256: sha }).sha256).toBe(sha);
+  });
+
+  it('stays optional: a legacy meta without them round-trips unchanged', () => {
+    const legacy = { version: 1, history: [], logic_hash: 'b'.repeat(64), logic_files: [{ file: 'a.ts' }] };
+    const meta = DokMetaSchema.parse(legacy);
+    expect(meta).toEqual(legacy);
+    expect('logic_hash_normalized' in meta).toBe(false);
+    expect('source_commit' in meta).toBe(false);
+  });
+
+  it('rejects non-string values', () => {
+    expect(DokMetaSchema.safeParse({ logic_hash_normalized: 1 }).success).toBe(false);
+    expect(DokMetaSchema.safeParse({ source_commit: true }).success).toBe(false);
+    expect(SourceAnchorSchema.safeParse({ file: 'a.ts', sha256: 7 }).success).toBe(false);
   });
 });

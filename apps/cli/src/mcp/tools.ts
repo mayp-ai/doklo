@@ -11,12 +11,13 @@
 //    generation_confidence) is never exposed. Provenance (source_anchors) and
 //    freshness (is_stale) always are — they are the trust signals.
 //
-// What `is_stale` claims (and does not) — it is about bytes, not correctness:
+// What `is_stale` claims (and does not) — it is about sources, not correctness:
 //    true      → the tracked source files changed after the Dok was generated,
 //                so the Dok may be outdated; prefer the current code.
-//    false     → those sources are byte-identical to generation time. This is
-//                NOT a claim that the Dok is correct: a Dok that was wrong when
-//                written stays `false` for as long as the code sits still.
+//    false     → those sources are unchanged since generation apart from form
+//                (comments, whitespace, line endings). This is NOT a claim that
+//                the Dok is correct: a Dok that was wrong when written stays
+//                `false` for as long as the code sits still.
 //    'unknown' → no drift hash was recorded, so the check could not decide.
 // Consumers (humans via `doklo show`, agents via these tools) must be told this
 // boundary at the point of output — see the tool descriptions in server.ts.

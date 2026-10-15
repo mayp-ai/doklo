@@ -149,10 +149,13 @@ export const DokPendingChangeSourceSchema = z.enum([
 export const DokPendingChangeSchema = z.object({
   summary: z.string().min(1),
   source: DokPendingChangeSourceSchema,
-  // `_meta.version` of the file the proposal compared against.
+  // `_meta.version` of the state the proposal starts from: the Dok as it was
+  // before the regenerations still awaiting approval — for a reviewed Dok, its
+  // last approved version. Regenerating an unapproved draft again keeps the
+  // earlier proposal's value rather than the draft's.
   base_version: z.number().int().positive(),
-  // Status of the file just before regeneration — approval uses it to decide
-  // the lazy baseline for a legacy active Dok the regeneration demoted.
+  // Status of that same state — approval uses it to decide the lazy baseline
+  // for a legacy active Dok the regeneration demoted.
   previous_status: DokStatusSchema,
   category: DokHistoryCategorySchema.optional(),
 }).passthrough();
@@ -184,6 +187,21 @@ export const DokMetaSchema = z.object({
   // Fingerprint of the deterministic source-input paths and bytes used for
   // drift detection. Human prose/status edits do not calculate or lock it.
   logic_hash: z.string().optional(),
+  // Format-only layer (judge-gated sync design §4.2, §6): "<normaliser
+  // version>:<sha256>" over the same files `logic_hash` covers, each reduced to
+  // its canonical form (comments, whitespace and line endings dropped from
+  // JS/TS; any other file, or one that does not parse, hashed raw). Stamped with
+  // `logic_hash` at generation. Drift consults it only when `logic_hash`
+  // differs and the version matches the running normaliser: equal → the
+  // sources changed in form only, so the Dok is not stale. It never replaces
+  // `logic_hash`, which stays the evidence of a code change for the release
+  // digest. Absent on older Doks, which keep the raw comparison.
+  logic_hash_normalized: z.string().optional(),
+  // git HEAD of the Dok's project root (`dokProjectRoot`) when its drift
+  // baseline was stamped — the base a diff-aware review compares against
+  // (design §4.3). A fact about the input, not a clock. Absent outside a git
+  // repository or when git could not be read in time.
+  source_commit: z.string().optional(),
   // Deterministic dependency-tracking contract used at generation. Legacy
   // documents remain readable, but cannot establish freshness without version 2.
   tracking_version: z.number().int().positive().optional(),

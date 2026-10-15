@@ -299,9 +299,11 @@ function lookup(
  *   - identity/audit (`version`, `history`, `external_ids`, `created_at`,
  *     `origins`, `previous_ids`) belongs to the file's life story → the
  *     existing values survive, with `version` bumped for this regeneration.
- *   - evidence (`source_anchors`, `logic_hash`, `logic_files`,
- *     `anchor_service_id`, `generation_confidence`, `updated_at`) describes the
- *     code as of *now* → the fresh values win.
+ *   - evidence (`source_anchors`, `logic_hash`, `logic_files` with their
+ *     `sha256`, `logic_hash_normalized`, `source_commit`, `anchor_service_id`,
+ *     `generation_confidence`, `updated_at`) describes the code as of *now* →
+ *     the fresh values win, and a fact the fresh run lacks stays absent rather
+ *     than being inherited from the file it replaces.
  *
  * `edited_by_human` is deliberately dropped: a regeneration replaces the human
  * prose it marked, so re-stamping it would make `doklo sync` skip a Dok whose

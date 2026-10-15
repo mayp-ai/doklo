@@ -2,7 +2,13 @@ import { lstatSync, readFileSync } from 'node:fs';
 import { currentSourcePathsSync } from '../fs/source-inventory.js';
 import { join } from 'node:path';
 import { resolveContainedPathSync } from '../fs/path-containment.js';
-import { computeLogicHash, type LogicHashInput } from './logic-hash.js';
+import {
+  computeLogicHash,
+  computeNormalizedLogicHash,
+  normalizedHashMatchesVersion,
+  type LogicHashInput,
+  type LogicHashNormalizer,
+} from './logic-hash.js';
 import type { Dok } from '../schemas/dok.js';
 import type { Workspace } from '../schemas/workspace.js';
 
@@ -113,12 +119,34 @@ export function dokProjectRoot(
   return join(workspaceRoot, svc?.code_root ?? '.');
 }
 
-/** Why a Dok is stale — or why staleness could not be decided (`no-hash` or `unverified-tracking`). */
-export type StaleReason = 'changed' | 'missing-file' | 'tracking-expanded' | 'no-hash' | 'unverified-tracking';
+/**
+ * Why a Dok is stale — or why staleness could not be decided (`no-hash` or
+ * `unverified-tracking`), or why a Dok whose source bytes moved is still fresh
+ * (`format-only`: the sources changed in form only — comments, whitespace,
+ * line endings). The three non-stale reasons come with `stale: false`.
+ */
+export type StaleReason =
+  | 'changed'
+  | 'missing-file'
+  | 'tracking-expanded'
+  | 'no-hash'
+  | 'unverified-tracking'
+  | 'format-only';
 
 export interface StaleResult {
   stale: boolean;
   reason?: StaleReason;
+}
+
+export interface IsDokStaleOptions {
+  /**
+   * The format-only layer's normaliser — the one that stamped
+   * `_meta.logic_hash_normalized`. Absent, staleness is the raw `logic_hash`
+   * comparison alone. Callers that surface staleness must all pass the same
+   * one (the CLI routes every caller through one entry point), or one screen
+   * would call a Dok fresh while another calls it stale.
+   */
+  normalize?: LogicHashNormalizer;
 }
 
 /**
@@ -140,9 +168,25 @@ export interface StaleResult {
  *
  * When the hashes differ we attribute the cause: any anchor file that couldn't
  * be read → `missing-file` (a source was deleted/moved); otherwise → `changed`
- * (a source's contents were edited in place).
+ * (a source's contents were edited in place) — unless the format-only layer
+ * shows the edit was form only.
+ *
+ * The format-only layer (judge-gated sync design §4.2) runs only after the
+ * gates above and only where the raw hashes already differ, so it can turn a
+ * raw mismatch into `format-only` but can never make a Dok stale, and never
+ * changes a gate's verdict. It applies when every tracked file was read, the
+ * Dok carries `_meta.logic_hash_normalized`, and that hash was stamped by the
+ * injected normaliser's version: equal normalised hashes → `format-only`
+ * (not stale). Otherwise — legacy Doks without the field, another normaliser
+ * version, no normaliser injected — the raw comparison decides, as before.
+ * `logic_hash` itself is never re-stamped here: it stays the release digest's
+ * evidence that the code changed.
  */
-export function isDokStale(dok: Dok, projectRoot: string): StaleResult {
+export function isDokStale(
+  dok: Dok,
+  projectRoot: string,
+  opts: IsDokStaleOptions = {},
+): StaleResult {
   const stored = dok._meta?.logic_hash;
   if (!stored) return { stale: false, reason: 'no-hash' };
   if (dok._meta?.tracking_review_required === true) {
@@ -158,5 +202,18 @@ export function isDokStale(dok: Dok, projectRoot: string): StaleResult {
   // Reuse the exact hash the generator stored — compute must equal verify, or a
   // legitimately-unchanged Dok could never match.
   if (computeLogicHash(contents) === stored) return { stale: false };
-  return { stale: true, reason: missing.length > 0 ? 'missing-file' : 'changed' };
+  // An unreadable source is a real change, whatever its neighbours look like.
+  if (missing.length > 0) return { stale: true, reason: 'missing-file' };
+
+  const normalizer = opts.normalize;
+  const storedNormalized = dok._meta?.logic_hash_normalized;
+  if (
+    normalizer !== undefined
+    && storedNormalized !== undefined
+    && normalizedHashMatchesVersion(storedNormalized, normalizer)
+    && computeNormalizedLogicHash(contents, normalizer) === storedNormalized
+  ) {
+    return { stale: false, reason: 'format-only' };
+  }
+  return { stale: true, reason: 'changed' };
 }

@@ -10,6 +10,10 @@ import {
   DokNotFoundError,
 } from '../src/mcp/tools.js';
 import { resolveDokStaleness } from '../src/mcp/staleness.js';
+import { buildMcpServer } from '../src/mcp/server.js';
+import { computeDriftEvidence } from '../src/lib/drift.js';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 // ───────── fixture builders (per-Dok layout, mirrors show.test.ts) ────
 
@@ -442,11 +446,53 @@ describe('staleness (drift wired)', () => {
     // NOHASH is 'unknown' → matches neither boolean filter.
   });
 
+  it('reports is_stale false for a form-only edit (comments, whitespace) and keeps it in the fresh filter', async () => {
+    const original = 'export const a = 1;\n';
+    const contents = [{ file: 'src/a.ts', content: original }];
+    const stamped = hashedDok('FORM', 'src/a.ts', computeLogicHash(contents));
+    Object.assign(stamped._meta as Record<string, unknown>, {
+      logic_hash_normalized: computeDriftEvidence(['src/a.ts'], contents).logic_hash_normalized,
+    });
+    const root = await tmpHub({ doks: { FORM: stamped } });
+    await writeSource(root, 'src/a.ts', '// note\nexport   const a = 1; // one\n');
+    const hub = await loadHubModel(root);
+    expect(getDok(hub, root, 'FORM').is_stale).toBe(false);
+    expect(listDoksTool(hub, root, { stale: false }).doks.map((d) => d.dok_id)).toEqual(['FORM']);
+    expect(listDoksTool(hub, root, { stale: true }).doks).toEqual([]);
+
+    await writeSource(root, 'src/a.ts', 'export const a = 2;\n');
+    expect(getDok(await loadHubModel(root), root, 'FORM').is_stale).toBe(true);
+  });
+
   it("resolves 'unknown' when the workspace root has no workspace.json", async () => {
     const emptyRoot = await mkdtemp(join(tmpdir(), 'doklo-mcp-empty-'));
     // Unit-level: a hashed Dok, but no resolvable workspace → the resolver
     // degrades gracefully to 'unknown' rather than throwing.
     const orphan = hashedDok('ORPH', 'src/x.ts', 'somehash') as unknown as Dok;
     expect(resolveDokStaleness(orphan, emptyRoot)).toBe('unknown');
+  });
+});
+
+// ───────── tool descriptions (what is_stale claims) ───────────────────
+
+describe('tool descriptions', () => {
+  it('tell agents that false allows form-only source changes, never byte identity', async () => {
+    const server = buildMcpServer({ version: '0.0.0-test' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: 'description-test', version: '0.0.0' });
+    await client.connect(clientTransport);
+    try {
+      const { tools } = await client.listTools();
+      expect(tools.map((tool) => tool.name).sort()).toEqual(['get_dok', 'list_doks', 'search_doks']);
+      for (const tool of tools) {
+        expect(tool.description, tool.name).toContain('apart from form (comments, whitespace)');
+        expect(tool.description, tool.name).not.toContain('byte-identical');
+        expect(tool.description, tool.name).toContain('not a claim');
+      }
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });
