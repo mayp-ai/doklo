@@ -503,6 +503,57 @@ describe('stable rendering boundary', () => {
     }
   });
 
+  it('renders public photo formats through the actual stable pipeline without workspace allowlisting', async () => {
+    const root = await tempDirectory();
+    try {
+      const sentence = 'JPEG, PNG, WebP, HEIC, HEIF 형식이며 파일당 10MB까지 첨부할 수 있습니다.';
+      await writeBuiltin(root, 'public-photo-formats', sentence);
+
+      await renderLivedoc({
+        workspaceRoot: renderWorkspace,
+        templateRef: 'public-photo-formats',
+        source: 'builtin',
+        builtinRoot: join(root, 'templates'),
+        locale: 'ko',
+        outDir: join(root, 'out'),
+        format: 'markdown',
+      });
+
+      expect(await readFile(join(root, 'out', 'publication.md'), 'utf8')).toBe(sentence);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['recordId', 'WebPEncoder'])(
+    'still rejects the internal identifier %s through the actual stable pipeline',
+    async (identifier) => {
+      const root = await tempDirectory();
+      try {
+        const outDir = join(root, 'out');
+        await writeBuiltin(root, 'internal-photo-identifier', `${identifier}를 확인합니다.`);
+
+        await expect(renderLivedoc({
+          workspaceRoot: renderWorkspace,
+          templateRef: 'internal-photo-identifier',
+          source: 'builtin',
+          builtinRoot: join(root, 'templates'),
+          locale: 'ko',
+          outDir,
+          format: 'markdown',
+        })).rejects.toMatchObject({
+          code: 'STABLE_LINT_FAILED',
+          violations: expect.arrayContaining([
+            expect.objectContaining({ code: 'INTERNAL_IDENTIFIER' }),
+          ]),
+        });
+        expect(await stat(outDir).then(() => true).catch(() => false)).toBe(false);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('skips a lint-failing Dok and renders the remaining per-Dok outputs', async () => {
     const root = await tempDirectory();
     try {

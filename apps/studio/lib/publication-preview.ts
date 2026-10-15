@@ -127,7 +127,7 @@ export async function renderPublicationCandidate(input: {
         ? { audienceDictionary: audience.dictionary }
         : {}),
     });
-    return candidateFromResult({
+    return await candidateFromResult({
       result,
       format: input.entry.publication.format,
       outDir: temp,

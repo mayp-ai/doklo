@@ -15,6 +15,9 @@ describe('parseModelRef', () => {
     expect(parseModelRef('anthropic/claude-sonnet-4-5')).toEqual({
       provider: 'anthropic', modelId: 'claude-sonnet-4-5',
     });
+    expect(parseModelRef('openai/gpt-5.6-luna')).toEqual({
+      provider: 'openai', modelId: 'gpt-5.6-luna',
+    });
   });
   it('keeps later slashes in the model id (openrouter style)', () => {
     expect(parseModelRef('openrouter/anthropic/claude-sonnet-4-5')).toEqual({
@@ -148,7 +151,7 @@ describe('callModel (AI SDK path, injected generateText)', () => {
 
   // Regression guard: the OAuth/Codex path must NOT be rejected by the missing-key
   // guard, and it must use the STREAMING API (the Codex backend requires stream:true).
-  it('codex-oauth-custom-fetch: streams (no config_missing_api_key) when fetch is provided and no apiKey/env', async () => {
+  it('codex-oauth-custom-fetch: preserves Luna for the streaming provider model', async () => {
     const prevKey = process.env['OPENAI_API_KEY'];
     delete process.env['OPENAI_API_KEY'];
     try {
@@ -164,7 +167,7 @@ describe('callModel (AI SDK path, injected generateText)', () => {
       const res = await callModel(
         { userPrompt: 'hello' },
         {
-          model: 'openai/gpt-5.5',
+          model: 'openai/gpt-5.6-luna',
           maxTokens: 8,
           timeout: 100,
           providerKind: 'openai',
@@ -178,6 +181,7 @@ describe('callModel (AI SDK path, injected generateText)', () => {
       expect(res.content).toBe('codex-response');
       expect(res.usage).toEqual({ input_tokens: 5, output_tokens: 2 });
       expect(capturedArgs['maxRetries']).toBe(0);
+      expect(capturedArgs['model']).toMatchObject({ modelId: 'gpt-5.6-luna' });
     } finally {
       if (prevKey === undefined) delete process.env['OPENAI_API_KEY'];
       else process.env['OPENAI_API_KEY'] = prevKey;

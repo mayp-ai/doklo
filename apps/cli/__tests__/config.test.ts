@@ -243,6 +243,25 @@ describe('resolveLlm auth source metadata', () => {
     expect(resolved.apiKey).toBeUndefined();
   });
 
+  it('accepts the exact Codex OAuth Luna runtime-trust route without fallback', () => {
+    const oauthRecord: CodexTokens = {
+      method: 'oauth', flavor: 'codex', access: 'a', refresh: 'r',
+      expires: Date.now() + 3_600_000, accountId: 'acc',
+    };
+    const resolved = resolveRuntimeTrustLlm({
+      config: { models: { default: { primary: 'openai/gpt-5.6-luna' } } },
+      store: memoryStore({ 'openai:default': JSON.stringify(oauthRecord) }),
+      role: 'generate',
+    });
+
+    expect(resolved).toMatchObject({
+      providerKind: 'openai', model: 'openai/gpt-5.6-luna', authSource: 'oauth',
+      baseURL: 'https://chatgpt.com/backend-api/codex',
+    });
+    expect(typeof resolved.fetch).toBe('function');
+    expect(resolved.apiKey).toBeUndefined();
+  });
+
   it('fails closed when runtime trust resolves a model outside the exact allowlist', () => {
     expect(() => resolveRuntimeTrustLlm({
       config: { models: { default: { primary: 'anthropic/claude-sonnet-4-5' } } },

@@ -69,7 +69,7 @@ export function registerLiveDocsRenderCommand(program: Command, _ctx: CliContext
   liveDocs
     .command('render <template>')
     .description('Render a Livedoc from the workspace Hub')
-    .option('--locale <code>', 'output locale (e.g., ko, en)')
+    .option('--locale <code>', 'output locale (default: DOKLO_LOCALE, then en; independent of workspace default_locale)')
     .option('--primary-locale <code>', 'fallback chain head locale')
     .option('--out-dir <path>', 'output directory inside the workspace, without symlinks (default: .doklo/output; preview: .doklo/output/preview)')
     .option('--dok <id>', 'restrict to specific Dok id (repeatable)', collect, [])

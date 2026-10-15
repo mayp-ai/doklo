@@ -112,6 +112,8 @@
   "agent.removed": "Doklo 스킬 제거: {path}",
   "agent.absent": "설치된 Doklo 스킬이 없습니다: {path}",
   "agent.discovery_note": "새 세션을 시작하거나 클라이언트를 새로고침해 스킬을 읽도록 하세요. 자동 선택은 클라이언트에 따라 다릅니다. 직접 호출: $doklo (Codex), /doklo (Claude Code).",
+  "agent.purpose": "프로젝트 에이전트 연동 파일은 기존 Doklo Dok을 Claude Code와 Codex의 제품 맥락으로 제공합니다.",
+  "agent.skipped": "프로젝트 에이전트 연동을 건너뛰었습니다. .claude와 .agents 경로를 확인하지 않았습니다. 나중에 `doklo agent setup --target claude-code`와 `doklo agent setup --target codex`로 설치하세요.",
   "agent.invalid_target": "지원하지 않는 클라이언트: {path}",
   "agent.conflict": "기존 파일 또는 수정된 스킬을 보존했습니다: {path}. 내용을 확인하고 직접 이동한 뒤 다시 실행하세요.",
   "agent.unsafe_path": "심볼릭 링크 또는 일반 파일이 아닌 스킬 경로는 변경하지 않습니다: {path}",

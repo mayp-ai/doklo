@@ -17,7 +17,7 @@ export function addLlmOptions(cmd: Command): Command {
   return cmd
     .option(
       '--model <ref>',
-      'Runtime-trust model: anthropic/claude-sonnet-5 or openai/gpt-5.6-terra',
+      'Runtime-trust model: anthropic/claude-sonnet-5, openai/gpt-5.6-terra, or openai/gpt-5.6-luna',
     )
     .option('--profile <id>', 'Credential profile id (e.g. anthropic:work)')
     .addHelpText('after', '\nToken limits: DOKLO_MAX_TOKENS_PER_RUN (default 1000000), DOKLO_MAX_TOKENS_TOTAL (default 5000000).\nCounts include input, cached input and output. Limits reserve conservatively before calls; provider usage can exceed an estimate.\nExample: DOKLO_MAX_TOKENS_PER_RUN=2000000 doklo generate');

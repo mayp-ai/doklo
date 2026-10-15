@@ -698,7 +698,7 @@ export function registerConsolidateCommand(
     program
       .command('consolidate')
       .description(
-        'LLM consolidation via runtime-trust (anthropic/claude-sonnet-5 or openai/gpt-5.6-terra)',
+        'LLM consolidation via runtime-trust (anthropic/claude-sonnet-5, openai/gpt-5.6-terra, or openai/gpt-5.6-luna)',
       )
       .option('-r, --root <dir>', 'Workspace root', process.cwd())
       .option('--dry-run', 'Preview source candidates and consolidation estimates without an LLM call', false)

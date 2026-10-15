@@ -15,10 +15,12 @@ import {
 
 export const RUNTIME_TRUST_MODEL = 'anthropic/claude-sonnet-5' as const;
 export const OPENAI_CODEX_RUNTIME_MODEL = 'openai/gpt-5.6-terra' as const;
+export const OPENAI_CODEX_LUNA_RUNTIME_MODEL = 'openai/gpt-5.6-luna' as const;
 export const OPENAI_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex' as const;
 export type RuntimeTrustModel =
   | typeof RUNTIME_TRUST_MODEL
-  | typeof OPENAI_CODEX_RUNTIME_MODEL;
+  | typeof OPENAI_CODEX_RUNTIME_MODEL
+  | typeof OPENAI_CODEX_LUNA_RUNTIME_MODEL;
 
 
 export type LlmRuntimeRoute =
@@ -195,7 +197,7 @@ type AuthorizedRuntimeLlm = Readonly<
     }
   | {
       providerKind: 'openai';
-      model: typeof OPENAI_CODEX_RUNTIME_MODEL;
+      model: typeof OPENAI_CODEX_RUNTIME_MODEL | typeof OPENAI_CODEX_LUNA_RUNTIME_MODEL;
       baseURL: typeof OPENAI_CODEX_BASE_URL;
       fetch: typeof fetch;
       apiKey?: undefined;
@@ -434,7 +436,7 @@ export async function authorizeLlmRun(
   } else if (route === 'openai-codex-oauth') {
     authorizedLlm = Object.freeze({
       providerKind: 'openai' as const,
-      model: OPENAI_CODEX_RUNTIME_MODEL,
+      model: llm.model as typeof OPENAI_CODEX_RUNTIME_MODEL | typeof OPENAI_CODEX_LUNA_RUNTIME_MODEL,
       baseURL: OPENAI_CODEX_BASE_URL,
       fetch: llm.fetch!,
     });
@@ -636,10 +638,14 @@ export function assertLlmConsent(
 }
 
 export function assertRuntimeTrustModel(model: string): asserts model is RuntimeTrustModel {
-  if (model !== RUNTIME_TRUST_MODEL && model !== OPENAI_CODEX_RUNTIME_MODEL) {
+  if (
+    model !== RUNTIME_TRUST_MODEL
+    && model !== OPENAI_CODEX_RUNTIME_MODEL
+    && model !== OPENAI_CODEX_LUNA_RUNTIME_MODEL
+  ) {
     throw contractFailure(
       'RUNTIME_TRUST_MODEL_REQUIRED',
-      `Runtime trust requires model "${RUNTIME_TRUST_MODEL}" or "${OPENAI_CODEX_RUNTIME_MODEL}"; resolved "${model}".`,
+      `Runtime trust requires model "${RUNTIME_TRUST_MODEL}", "${OPENAI_CODEX_RUNTIME_MODEL}", or "${OPENAI_CODEX_LUNA_RUNTIME_MODEL}"; resolved "${model}".`,
     );
   }
 }
@@ -705,7 +711,7 @@ function runtimeTrustRoute(llm: {
   }
   if (
     llm.providerKind === 'openai'
-    && llm.model === OPENAI_CODEX_RUNTIME_MODEL
+    && (llm.model === OPENAI_CODEX_RUNTIME_MODEL || llm.model === OPENAI_CODEX_LUNA_RUNTIME_MODEL)
     && llm.authSource === 'oauth'
     && llm.apiKey === undefined
     && llm.baseURL === OPENAI_CODEX_BASE_URL
