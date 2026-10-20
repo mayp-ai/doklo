@@ -157,6 +157,13 @@ describe('copyStandaloneAssets', () => {
         ),
       );
     }
+    // These fixtures exercise stage containment; source/build provenance is
+    // covered by the CLI standalone-provenance suite. Keep that independent
+    // gate inert so the injected path replacements can reach their own guard.
+    await writeFixtureFile(
+      join(root, 'apps', 'studio', 'scripts', 'standalone-provenance.mjs'),
+      'export function assertFreshStandalone() {}\n',
+    );
     // Satisfy the release prerequisites so ensureWorkspaceBuilt() does not shell
     // out to pnpm inside the fixture; these tests exercise containment, not the
     // build ordering (apps/cli/__tests__/release-prerequisites.test.ts does).
@@ -693,6 +700,11 @@ describe('copyStandaloneAssets', () => {
       new URL('../../cli/scripts/build-release.mjs', import.meta.url),
     );
     await writeFixtureFile(releaseScript, await readFile(sourceScript, 'utf-8'));
+    // Keep the independent provenance gate inert in this containment fixture.
+    await writeFixtureFile(
+      join(root, 'apps', 'studio', 'scripts', 'standalone-provenance.mjs'),
+      'export function assertFreshStandalone() {}\n',
+    );
     // Every sibling module build-release.mjs imports, plus the apps/cli build
     // output its prerequisite check requires (see prepareIsolatedReleaseFixture).
     for (const sibling of [

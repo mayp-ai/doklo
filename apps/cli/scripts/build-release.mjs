@@ -19,9 +19,11 @@
 // Usage:  node scripts/build-release.mjs [--with-studio]
 //   --with-studio  always rebuild the Studio standalone tree (slow Next build).
 //                  Otherwise an existing apps/studio/.next/standalone is reused,
-//                  and only built if missing.
+//                  only when its provenance matches HEAD and current source.
+//                  Missing output is built; stale output requires a rebuild.
 
 import { build } from 'esbuild';
+import { assertFreshStandalone } from '../../studio/scripts/standalone-provenance.mjs';
 import { randomUUID } from 'node:crypto';
 import {
   readFileSync,
@@ -210,6 +212,7 @@ async function copyStudio() {
   } else {
     log('reusing existing Studio standalone build.');
   }
+  assertFreshStandalone(REPO_ROOT);
   await copyStandaloneAssets({ studioDir, log, warn });
   if (!existsSync(join(standalone, 'apps', 'studio', 'server.js'))) {
     throw new Error(`Studio standalone entry not found under ${standalone}`);
@@ -391,6 +394,9 @@ async function runBoundReleaseStagePhase(expectedStagedIdentity, phase) {
 
 async function main() {
   log(`building ${PKG_NAME}@${PKG_VERSION} → ${PUBLISHED_RELEASE_DIR}`);
+  if (!WITH_STUDIO && existsSync(join(REPO_ROOT, 'apps/studio/.next/standalone'))) {
+    assertFreshStandalone(REPO_ROOT);
+  }
   ensureWorkspaceBuilt();
   await loadBuiltWorkspaceModules();
 
@@ -419,6 +425,7 @@ async function main() {
   );
   // Last gate before this tree becomes the published artefact.
   await runBoundReleaseStagePhase(expectedStagedIdentity, async () => {
+    assertFreshStandalone(REPO_ROOT);
     await assertPublishableReleaseContent(RELEASE_DIR);
     log('release content guard: clean.');
   });
