@@ -39,6 +39,7 @@ const actions = vi.hoisted(() => ({
   legacyUpsertTerm: vi.fn(),
   legacyUpsertRole: vi.fn(),
   routerPush: vi.fn(),
+  searchParams: vi.fn(),
 }));
 
 vi.mock('../lib/actions', () => ({
@@ -54,7 +55,12 @@ vi.mock('../lib/actions', () => ({
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ id: 'AUTH-SOCIAL' }),
+  useSearchParams: actions.searchParams,
   useRouter: () => ({ push: actions.routerPush, refresh: vi.fn() }),
+}));
+
+vi.mock('../lib/source-repository-action', () => ({
+  readSourceRepositoryAction: vi.fn().mockResolvedValue(null),
 }));
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
@@ -186,6 +192,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   document.body.replaceChildren();
   for (const action of Object.values(actions)) action.mockReset();
+  actions.searchParams.mockReturnValue(new URLSearchParams('edit=1'));
   actions.saveDok.mockResolvedValue({
     ok: true,
     path: `/workspace/.doklo/hub/doks/${dok.dok_id}.json`,
@@ -589,4 +596,13 @@ describe('durable editor bindings', () => {
     expect(container.querySelector('section')?.hasAttribute('aria-busy')).toBe(false);
     expect(container.textContent).not.toContain('Refreshing suggestions…');
   });
+});
+
+
+it('opens a Dok in read mode with an explicit edit link by default', () => {
+  actions.searchParams.mockReturnValue(new URLSearchParams());
+  const container = render(<DokEditorPage />);
+  expect(container.querySelector('[data-testid="dok-detail-view"]')).not.toBeNull();
+  expect(container.querySelector('a[href="/doks/AUTH-SOCIAL?edit=1"]')?.textContent).toBe('Edit Dok');
+  expect(container.querySelector('textarea[aria-label="Description"]')).toBeNull();
 });
