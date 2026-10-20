@@ -67,6 +67,8 @@ export type {
   RunEvaluateOptions,
   RunEvaluateResult,
   DokLoadProblem,
+  EvaluateReviewSummary,
+  EvaluateLifecycleSummary,
 } from './commands/evaluate.js';
 
 // Judge-gated sync, for Studio's "Still accurate" confirmation: the CLI's

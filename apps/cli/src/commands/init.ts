@@ -9,7 +9,7 @@ import { AgentSkillError, manageAgentSkill, type AgentSkillResult, type AgentTar
 import { Option, type Command } from 'commander';
 import { access, stat } from 'node:fs/promises';
 import { constants as FS } from 'node:fs';
-import { relative, resolve, sep } from 'node:path';
+import { basename, relative, resolve, sep } from 'node:path';
 import type { Framework, KoreanCustomerTone, Service, ServiceType } from '@doklo-beta/core';
 import { bootstrapWorkspace, WorkspaceAlreadyInitializedError } from '../lib/bootstrap.js';
 import { workspacePaths, type WorkspacePaths } from '../lib/paths.js';
@@ -51,15 +51,27 @@ export interface RunInitOptions {
   /** Optional override; otherwise auto-detected from package.json. */
   framework?: Framework;
   recordingBranch?: string;
+  /** Install project-local Claude Code and Codex skill files. Defaults to true. */
+  installAgentSkills?: boolean;
 }
+
+type InitAgentSkillResult =
+  | AgentSkillResult
+  | { target: AgentTarget; status: 'preserved'; code: 'conflict' | 'unsafe_path'; path: string }
+  | { target: AgentTarget; status: 'failed'; code: string; path?: string };
 
 export interface RunInitResult {
   framework: Framework;
   codeRoot: string;
   serviceRoot: string;
   paths: WorkspacePaths;
-  agentSkills: Array<AgentSkillResult | { target: AgentTarget; status: 'failed'; code: string }>;
+  agentSkillsRequested: boolean;
+  agentSkillsStatus: 'completed' | 'skipped';
+  agentSkillsPurpose: string;
+  agentSkills: InitAgentSkillResult[];
 }
+
+const AGENT_SKILLS_PURPOSE = 'Expose existing Doklo Doks as project context to Claude Code and Codex.';
 
 const FRAMEWORK_TYPE: Record<Framework, ServiceType> = {
   // Frontend
@@ -135,15 +147,36 @@ export async function runInit(opts: RunInitOptions): Promise<RunInitResult> {
 
   // Initialization remains usable if a client directory is protected or customized.
   // Report each outcome; never overwrite user-owned skill content.
+  const agentSkillsRequested = opts.installAgentSkills !== false;
   const agentSkills: RunInitResult['agentSkills'] = [];
-  for (const target of ['claude-code', 'codex'] as const) {
-    try {
-      agentSkills.push(await manageAgentSkill({ root: opts.root, target, action: 'setup' }));
-    } catch (error) {
-      agentSkills.push({ target, status: 'failed', code: error instanceof AgentSkillError ? error.code : 'write_failed' });
+  if (agentSkillsRequested) {
+    for (const target of ['claude-code', 'codex'] as const) {
+      try {
+        agentSkills.push(await manageAgentSkill({ root: opts.root, target, action: 'setup' }));
+      } catch (error) {
+        if (error instanceof AgentSkillError && (error.code === 'conflict' || error.code === 'unsafe_path')) {
+          agentSkills.push({ target, status: 'preserved', code: error.code, path: error.path });
+        } else {
+          agentSkills.push({
+            target,
+            status: 'failed',
+            code: error instanceof AgentSkillError ? error.code : 'write_failed',
+            ...(error instanceof AgentSkillError ? { path: error.path } : {}),
+          });
+        }
+      }
     }
   }
-  return { framework, codeRoot, serviceRoot, paths: workspacePaths(opts.root), agentSkills };
+  return {
+    framework,
+    codeRoot,
+    serviceRoot,
+    paths: workspacePaths(opts.root),
+    agentSkillsRequested,
+    agentSkillsStatus: agentSkillsRequested ? 'completed' : 'skipped',
+    agentSkillsPurpose: AGENT_SKILLS_PURPOSE,
+    agentSkills,
+  };
 }
 
 function onboardingGuidance(locale: string): string {
@@ -164,8 +197,15 @@ function printInitScope(result: RunInitResult): void {
 }
 
 function printAgentSkills(result: RunInitResult, ctx: CliContext): void {
+  console.log(ctx.t('agent.purpose'));
+  if (!result.agentSkillsRequested) {
+    console.log(ctx.t('agent.skipped'));
+    return;
+  }
   for (const skill of result.agentSkills) {
-    if (skill.status === 'failed') {
+    if (skill.status === 'preserved') {
+      console.error(ctx.t(`agent.${skill.code}`, { path: skill.path }));
+    } else if (skill.status === 'failed') {
       console.error(ctx.t('init.agent_failed', { target: skill.target, code: skill.code }));
     } else {
       for (const file of skill.files) console.log(ctx.t(`agent.${file.status}`, { path: file.path }));
@@ -261,6 +301,7 @@ export function registerInitCommand(
       'Comma-separated list of UI locales (e.g., en,ko)',
     )
     .option('--model <ref>', 'Model to set as default (provider/model-id)')
+    .option('--no-agent-skills', 'Skip project-local Claude Code and Codex integration files')
     .option('--no-scan', 'Skip the automatic code scan after init', true)
     .addHelpText('after', '\nSource scope: --root is the workspace; --code-root selects the service (e.g. doklo init --root . --code-root web --yes). Next.js App Router has a specialist; other projects, including FastAPI source, use generic text-file analysis without guaranteed framework semantics. Scan reports the actual strategy, file count, and exclusions. Add other services explicitly to workspace.json.\n\n' + onboardingGuidance(ctx.locale))
     .action(async (opts) => {
@@ -268,7 +309,7 @@ export function registerInitCommand(
         await import('@clack/prompts');
       const { default: chalk } = await import('chalk');
 
-      const root = opts.root as string;
+      const root = resolve(opts.root as string);
       const machine = opts.json === true;
 
       // Fail fast before the interactive wizard: if the workspace already
@@ -306,7 +347,7 @@ export function registerInitCommand(
 
       const defaults = {
         name: opts.name ?? guessName(root),
-        workspaceId: opts.workspaceId ?? toKebab(opts.name ?? guessName(root)),
+        workspaceId: opts.workspaceId ?? (toKebab(opts.name ?? guessName(root)) || 'doklo-workspace'),
         defaultLocale: opts.defaultLocale ?? ctx.locale,
         supportedLocales:
           opts.supportedLocales ?? `${ctx.locale},${ctx.locale === 'en' ? 'ko' : 'en'}`,
@@ -331,6 +372,7 @@ export function registerInitCommand(
           codeRoot: selectedRoot.codeRoot,
           framework: detected,
           recordingBranch: opts.recordingBranch,
+          installAgentSkills: opts.agentSkills !== false,
         });
 
         if (modelDefaultRef) {
@@ -552,6 +594,7 @@ export function registerInitCommand(
         codeRoot: selectedRoot.codeRoot,
         framework: detected,
         recordingBranch,
+        installAgentSkills: opts.agentSkills !== false,
       });
 
       // Persist chosen model to ~/.config/doklo/config.json (outside runInit
@@ -599,8 +642,7 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 function guessName(root: string): string {
-  const parts = root.split('/').filter(Boolean);
-  return parts[parts.length - 1] ?? 'doklo-workspace';
+  return basename(root) || 'doklo-workspace';
 }
 
 function toKebab(s: string): string {

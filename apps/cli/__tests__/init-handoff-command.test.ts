@@ -176,7 +176,63 @@ describe('registerInitCommand terminal-only completion', () => {
     expect(selectPromptMock).not.toHaveBeenCalled();
     expect(logInfoMock).not.toHaveBeenCalled();
     expect(handoffMock).not.toHaveBeenCalled();
-    expect(takeCommandResult(program)).toMatchObject({ command: 'init', status: 'success', data: { agentSkills: expect.any(Array) } });
+    expect(takeCommandResult(program)).toMatchObject({
+      command: 'init',
+      status: 'success',
+      data: {
+        agentSkillsRequested: true,
+        agentSkillsStatus: 'completed',
+        agentSkillsPurpose: 'Expose existing Doklo Doks as project context to Claude Code and Codex.',
+        agentSkills: expect.any(Array),
+      },
+    });
     expect(JSON.parse(await readFile(join(root, 'workspace.json'), 'utf8')).services[0].service_id).toBe('web');
+  });
+
+  it('supports --no-agent-skills with --yes and reports an intentional skip', async () => {
+    const root = await nextjsTmp();
+    const program = new Command();
+    registerInitCommand(program, createContext('en'), { handoff: handoffMock, serve: vi.fn() });
+
+    await program.parseAsync(
+      ['init', '--root', root, '--yes', '--json', '--no-scan', '--no-agent-skills'],
+      { from: 'user' },
+    );
+
+    expect(takeCommandResult(program)).toMatchObject({
+      command: 'init',
+      status: 'success',
+      data: {
+        agentSkillsRequested: false,
+        agentSkillsStatus: 'skipped',
+        agentSkillsPurpose: 'Expose existing Doklo Doks as project context to Claude Code and Codex.',
+        agentSkills: [],
+      },
+    });
+    await expect(access(join(root, '.claude'))).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(access(join(root, '.agents'))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('explains the skipped paths in human output without printing discovery guidance', async () => {
+    const root = await nextjsTmp();
+    const output: string[] = [];
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((message) => output.push(String(message)));
+    const program = new Command();
+    registerInitCommand(program, createContext('en'), { handoff: handoffMock, serve: vi.fn() });
+
+    try {
+      await program.parseAsync(
+        ['init', '--root', root, '--yes', '--no-scan', '--no-agent-skills'],
+        { from: 'user' },
+      );
+    } finally {
+      consoleLog.mockRestore();
+    }
+
+    expect(output.join('\n')).toContain(
+      'Project agent integration exposes existing Doklo Doks as product context to Claude Code and Codex.',
+    );
+    expect(output.join('\n')).toContain('No .claude or .agents paths were inspected.');
+    expect(output.join('\n')).not.toContain('Restart or refresh the client');
   });
 });

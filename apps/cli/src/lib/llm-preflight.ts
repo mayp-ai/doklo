@@ -15,10 +15,12 @@ import {
 
 export const RUNTIME_TRUST_MODEL = 'anthropic/claude-sonnet-5' as const;
 export const OPENAI_CODEX_RUNTIME_MODEL = 'openai/gpt-5.6-terra' as const;
+export const OPENAI_CODEX_LUNA_RUNTIME_MODEL = 'openai/gpt-5.6-luna' as const;
 export const OPENAI_CODEX_BASE_URL = 'https://chatgpt.com/backend-api/codex' as const;
 export type RuntimeTrustModel =
   | typeof RUNTIME_TRUST_MODEL
-  | typeof OPENAI_CODEX_RUNTIME_MODEL;
+  | typeof OPENAI_CODEX_RUNTIME_MODEL
+  | typeof OPENAI_CODEX_LUNA_RUNTIME_MODEL;
 
 /**
  * The sync judge's second model (judge-gated sync; benchmark report §11.8):
@@ -209,7 +211,7 @@ type AuthorizedRuntimeLlm = Readonly<
     }
   | {
       providerKind: 'openai';
-      model: typeof OPENAI_CODEX_RUNTIME_MODEL | typeof OPENAI_JUDGE_MODEL;
+      model: typeof OPENAI_CODEX_RUNTIME_MODEL | typeof OPENAI_CODEX_LUNA_RUNTIME_MODEL | typeof OPENAI_JUDGE_MODEL;
       baseURL: typeof OPENAI_CODEX_BASE_URL;
       fetch: typeof fetch;
       apiKey?: undefined;
@@ -464,8 +466,8 @@ export async function authorizeLlmRun(
     case 'openai-codex-oauth':
       authorizedLlm = Object.freeze({
         providerKind: 'openai' as const,
-        // Terra for generation; GPT-6 Luna only in a judge-only plan (checked above).
-        model: llm.model === OPENAI_JUDGE_MODEL ? OPENAI_JUDGE_MODEL : OPENAI_CODEX_RUNTIME_MODEL,
+        // Preserve the approved generation or judge model after the plan-specific gate.
+        model: llm.model as typeof OPENAI_CODEX_RUNTIME_MODEL | typeof OPENAI_CODEX_LUNA_RUNTIME_MODEL | typeof OPENAI_JUDGE_MODEL,
         baseURL: OPENAI_CODEX_BASE_URL,
         fetch: llm.fetch!,
       });
@@ -695,10 +697,14 @@ export function assertLlmConsent(
 }
 
 export function assertRuntimeTrustModel(model: string): asserts model is RuntimeTrustModel {
-  if (model !== RUNTIME_TRUST_MODEL && model !== OPENAI_CODEX_RUNTIME_MODEL) {
+  if (
+    model !== RUNTIME_TRUST_MODEL
+    && model !== OPENAI_CODEX_RUNTIME_MODEL
+    && model !== OPENAI_CODEX_LUNA_RUNTIME_MODEL
+  ) {
     throw contractFailure(
       'RUNTIME_TRUST_MODEL_REQUIRED',
-      `Runtime trust requires model "${RUNTIME_TRUST_MODEL}" or "${OPENAI_CODEX_RUNTIME_MODEL}"; resolved "${model}".`,
+      `Runtime trust requires model "${RUNTIME_TRUST_MODEL}", "${OPENAI_CODEX_RUNTIME_MODEL}", or "${OPENAI_CODEX_LUNA_RUNTIME_MODEL}"; resolved "${model}".`,
     );
   }
 }
@@ -883,7 +889,7 @@ function runtimeTrustRoute(llm: {
   // before (assertRuntimeTrustModel, or assertJudgeTrustModel for a judge plan).
   if (
     llm.providerKind === 'openai'
-    && (llm.model === OPENAI_CODEX_RUNTIME_MODEL || llm.model === OPENAI_JUDGE_MODEL)
+    && (llm.model === OPENAI_CODEX_RUNTIME_MODEL || llm.model === OPENAI_CODEX_LUNA_RUNTIME_MODEL || llm.model === OPENAI_JUDGE_MODEL)
     && llm.authSource === 'oauth'
     && llm.apiKey === undefined
     && llm.baseURL === OPENAI_CODEX_BASE_URL

@@ -8,7 +8,7 @@
     "dev": "next dev -p ${DOKLO_STUDIO_PORT:-4321}",
     "dev:demo": "DOKLO_WORKSPACE_ROOT=\"$(pwd)/demo\" next dev -p ${DOKLO_STUDIO_PORT:-4321}",
     "build": "next build",
-    "build:standalone": "next build && node scripts/copy-standalone-assets.mjs",
+    "build:standalone": "node scripts/build-standalone.mjs",
     "e2e:tarball": "node e2e/tarball-studio.mjs",
     "e2e:publications": "node e2e/publication-workbench.mjs",
     "e2e:bulk-review": "node e2e/dok-bulk-review.mjs",

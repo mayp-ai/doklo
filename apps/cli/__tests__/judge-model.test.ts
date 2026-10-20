@@ -146,7 +146,7 @@ describe('the judge role', () => {
       config: { models: { default: { primary: 'openai/gpt-6-luna' } } },
       store: codexStore(),
       role: 'generate',
-    })).toThrow(refusal('RUNTIME_TRUST_MODEL_REQUIRED', /"anthropic\/claude-sonnet-5" or "openai\/gpt-5\.6-terra"/));
+    })).toThrow(refusal('RUNTIME_TRUST_MODEL_REQUIRED', /"anthropic\/claude-sonnet-5", "openai\/gpt-5\.6-terra", or "openai\/gpt-5\.6-luna"/));
   });
 });
 
