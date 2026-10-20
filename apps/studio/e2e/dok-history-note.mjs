@@ -72,11 +72,49 @@ try {
   });
   const baseUrl = `http://127.0.0.1:${port}`;
 
+  await check('Read mode progressively reveals system steps and remembers evidence preferences', async () => {
+    await page.goto(`${baseUrl}/doks/AUTH-SOCIAL`, { waitUntil: 'domcontentloaded' });
+    await visible(page.getByTestId('dok-detail-view'));
+    const system = page.getByRole('checkbox', { name: 'Show system processes' });
+    const evidence = page.getByRole('checkbox', { name: 'Show process evidence' });
+    assert(await page.getByTestId('flow-step').count() === 1, 'Automatic steps were not hidden initially.');
+    assert(await evidence.isDisabled(), 'Evidence should wait for system disclosure.');
+    await system.check();
+    assert(await page.getByTestId('flow-step').count() === 2, 'System step did not appear.');
+    await evidence.check();
+    await visible(page.getByText('No code evidence is linked to this step.').first());
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await visible(page.getByTestId('dok-detail-view'));
+    await poll(async () => await system.isChecked() && await evidence.isChecked(), 'Read preferences did not persist.');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await visible(page.getByTestId('dok-detail-sources'));
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Mobile read view overflows horizontally.');
+    await shot('00-mobile-read-view');
+    await page.setViewportSize({ width: 1280, height: 900 });
+  });
+
   await check('A note with no other edit saves and records an `edited` entry', async () => {
     await page.goto(`${baseUrl}/doks/${NOTE_DOK}`, { waitUntil: 'domcontentloaded' });
+    await visible(page.getByTestId('dok-detail-view'));
+    await page.getByRole('link', { name: 'Edit Dok', exact: true }).click();
     await visible(page.getByRole('navigation', { name: 'Dok editor actions' }));
     const before = await readDok(NOTE_DOK);
     assert(before.status === 'active', `${NOTE_DOK} did not start active.`);
+
+    const description = page.getByRole('textbox', { name: 'Description' });
+    const persistedDescription = await description.inputValue();
+    const unsavedDescription = `${persistedDescription} UNSAVED DISCARD CHECK`;
+    await description.fill(unsavedDescription);
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.getByRole('button', { name: 'Read view', exact: true }).click();
+    await visible(page.getByTestId('dok-detail-view'));
+    assert(!(await page.getByTestId('dok-detail-view').innerText()).includes('UNSAVED DISCARD CHECK'),
+      'Read view displayed an unsaved optimistic description after discard.');
+    await page.getByRole('link', { name: 'Edit Dok', exact: true }).click();
+    await visible(page.getByRole('navigation', { name: 'Dok editor actions' }));
+    assert(await description.inputValue() === persistedDescription,
+      'Re-entering the editor restored an unsaved discarded description.');
+
     assert(
       await saveButton(page).textContent() === 'Saved',
       'The action bar offered a save before anything changed.',
@@ -133,6 +171,8 @@ try {
 
   await check('A staged proposal shows in the action bar before approval', async () => {
     await page.goto(`${baseUrl}/doks/${PROPOSAL_DOK}`, { waitUntil: 'domcontentloaded' });
+    await visible(page.getByTestId('dok-detail-view'));
+    await page.getByRole('link', { name: 'Edit Dok', exact: true }).click();
     const banner = page.getByTestId('pending-proposal');
     await visible(banner);
     const text = (await banner.innerText()).replace(/\s+/g, ' ').trim();
