@@ -338,6 +338,14 @@ addresses, storage conventions, function names and other invisible mechanisms
 out of descriptions, steps and rules. Explain the customer's outcome instead.
 Keep observable error handling, limits and permission rules. API-contract features
 still need their public request/response fields and status codes.
+Preserve source-implemented reliability behavior whenever it changes a customer-
+observable result or recovery path. Before returning JSON, check the supplied
+executable source for retry or reconnect maximums, timeout or cancellation behavior,
+transient-versus-terminal failures, fallback behavior, and resume or deduplication
+guarantees. State exact numeric bounds when implemented, and represent each relevant
+fact in a step outcome, business rule, or acceptance criterion. Translate internal
+mechanisms into customer-observable behavior; do not expose headers, function names,
+storage details, or infer behavior from unsupplied dependencies.
 An imported helper establishes only the behavior of that helper, not all actions
 on the screen where the helper was declared. Do not infer omitted source.
 Executing module initializers and side-effect imports are implementation context;
