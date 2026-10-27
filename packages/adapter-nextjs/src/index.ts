@@ -168,6 +168,7 @@ export * from './role-extractor.js';
 export * from './role-signal-extractor.js';
 export * from './import-graph.js';
 export * from './lexicon-extractor.js';
+export * from './locale-detector.js';
 export * from './jsx-lexicon-extractor.js';
 export * from './support.js';
 export * from './file-ledger.js';

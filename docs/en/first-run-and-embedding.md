@@ -55,7 +55,7 @@ doklo generate --llm-backend anthropic-api --dry-run
 
 New standard role display names follow the workspace locale; IDs such as `ROLE-USER` remain stable. Existing curated names are preserved. In Studio, edit the existing role's display name rather than deleting and recreating the role. A product term such as “guardian” does not establish a new permission role.
 
-Select Korean customer prose with `formal` (default, 합쇼체: “확인합니다”) or `plain` (해라체: “확인한다”). Use `doklo init --korean-tone formal` during setup, or edit `korean_customer_tone` in an existing `workspace.json`. Generation includes the selected policy in the prompt and records that policy and field-level writing concerns in Dok metadata.
+Korean customer prose is written in 합쇼체 (`formal`: “확인합니다”). `doklo init` no longer asks; a workspace that needs plain prose sets `korean_customer_tone: plain` (해라체: “확인한다”) in `workspace.json` by hand. Generation includes the policy in the prompt and records that policy and field-level writing concerns in Dok metadata.
 
 Official Korean help-page rendering checks clear sentence-ending conflicts in the final text after term references and explicit audience substitutions. A policy change since generation also requires review. Correct the prose or selectively regenerate and review it before publishing. `--preview` provides a marked review artifact with warnings and preserves Hub state. Quotes and names or labels are excluded; this conservative check does not guarantee every sentence's grammar or naturalness. Existing English role names, synonyms and sentence endings are never rewritten automatically.
 

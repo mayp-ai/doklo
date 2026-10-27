@@ -20,6 +20,7 @@ import {
   DOK_SOURCE_MAX_CHARS,
   capDokRolesForPrompt,
   carryForwardMeta,
+  stampDokLocale,
   joinPromptParts,
   type PromptParts,
   parseConsolidatedFeatureConfig,
@@ -1188,6 +1189,8 @@ export async function runGenerate(
 
       const recoverable = !llmResult.success && (
         llmResult.failureKind === 'truncated_response'
+        // A Dok drifted into the source's language may hold to the asked one on a second call.
+        || llmResult.failureKind === 'wrong_language'
         || (llmResult.failureKind === undefined && typeof llmResult.rawResponse === 'string' && llmResult.rawResponse.length > 0)
       );
       if (!recoverable || attempt === retries || tokenCapFailure) break;
@@ -1220,9 +1223,11 @@ export async function runGenerate(
               results,
               skippedExisting,
             )
-          : llmResult.failureKind === undefined && typeof llmResult.rawResponse === 'string' && llmResult.rawResponse.length > 0
-            ? retryableGenerationFailure('DOK_RESPONSE_MALFORMED', paths.root, paths.dokFile(p.dokId), results, skippedExisting)
-            : {};
+          : llmResult.failureKind === 'wrong_language'
+            ? retryableGenerationFailure('DOK_LANGUAGE_MISMATCH', paths.root, paths.dokFile(p.dokId), results, skippedExisting)
+            : llmResult.failureKind === undefined && typeof llmResult.rawResponse === 'string' && llmResult.rawResponse.length > 0
+              ? retryableGenerationFailure('DOK_RESPONSE_MALFORMED', paths.root, paths.dokFile(p.dokId), results, skippedExisting)
+              : {};
       failures.push({
         serviceId: p.serviceId,
         dokId: p.dokId,
@@ -1357,6 +1362,7 @@ export async function runGenerate(
     // some earlier run (see upsertOriginsByService). Other services' entries stay.
     dok._meta = carryForwardMeta(existingDokByPlannedId.get(p.dokId)?._meta, dok._meta);
     // Use the immutable, authorized context even if settings changed after consent.
+    stampDokLocale(dok, ctx.defaultLocale);
     recordDokWritingPolicy(dok, ctx.defaultLocale, ctx.koreanCustomerTone);
     // Resolver evidence is deterministic, never model-authored. Legacy scans
     // and partial reads cannot establish a new trusted baseline.
@@ -2335,7 +2341,7 @@ async function prepareGenerationPayload(input: {
   const items: PreparedGenerationItem[] = [];
   for (const item of input.workList) {
     const feature = buildFeatureForGeneration(item.feature, item.ir);
-    const featureChars = renderDokFeatureBlock(feature).length;
+    const featureChars = renderDokFeatureBlock(feature, 12_000, input.workspaceLocale).length;
     const fileContext = await loadFileContext(item.serviceRoot, feature.files, feature.source_context);
     const suggestedActorRole = suggestRoleFromRoutePath(
       feature.primary_route,
@@ -2611,7 +2617,7 @@ function generationRecoveryCommand(dokId: string, replaceExisting: boolean): str
 }
 
 function retryableGenerationFailure(
-  code: 'PROVIDER_RATE_LIMITED' | 'PROVIDER_RESPONSE_TRUNCATED' | 'DOK_RESPONSE_MALFORMED' | 'PERMISSION_DENIED',
+  code: 'PROVIDER_RATE_LIMITED' | 'PROVIDER_RESPONSE_TRUNCATED' | 'DOK_RESPONSE_MALFORMED' | 'DOK_LANGUAGE_MISMATCH' | 'PERMISSION_DENIED',
   root: string,
   outputPath: string,
   completed: readonly GenerateOneResult[],

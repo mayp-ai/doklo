@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-10-27
+
+### Added
+- Doks in nine languages: `default_locale` accepts `en`, `ko`, `ja`, `zh-Hans`,
+  `zh-Hant`, `fr`, `es`, `de` and `pt`. Loosely written tags (`ko_KR`, `zh-TW`)
+  are stored in canonical form; any other BCP 47 tag is named in the prompt
+  instead of falling back to English. Each Dok records its language in
+  `_meta.locale`.
+- `doklo init` proposes the language from the code (i18n configuration, then the
+  text a visitor reads, then a single message catalog, then `<html lang>`) and
+  falls back to the CLI language when the code says nothing. The picker lists all
+  nine languages and marks the detected one. `doklo scan --json` reports the
+  detected language per service in `data.results[].locale`.
+
+### Changed
+- Korean customer prose is always written in 합쇼체 (`formal`). `doklo init` no
+  longer asks; `--korean-tone` is accepted, ignored and warned about, so existing
+  scripts keep running. A workspace that needs plain prose sets
+  `korean_customer_tone: plain` in `workspace.json`.
+- The generation prompt holds the requested language against source written in
+  another one: the feature's working label is not copied into a Dok's name, and
+  the prompt ends with the instruction in English and in the language itself.
+  On-screen wording is quoted exactly only when it is already in the Dok's
+  language; otherwise the Dok gives its meaning and the original once in
+  parentheses, with the language's own quotation marks.
+
+### Fixed
+- A Dok written in another script than the requested language, such as Korean
+  prose for a Chinese workspace, is no longer saved. Generation retries it once
+  and then reports `DOK_LANGUAGE_MISMATCH` with the command to regenerate it.
+
+### Upgrade notes
+- Existing Doks keep their language until they are regenerated; `_meta.locale`
+  appears on each Dok when it is next generated.
+- The sync judge and the Live Docs templates still write in English or Korean.
+- The package remains an Apache-2.0 developer preview. This update does not
+  enable Cloud hosting, automatic publication, or document approval.
+
 ## [0.4.0] - 2026-10-15
 
 ### Added

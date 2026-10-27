@@ -8,7 +8,7 @@ Doklo reads supported application code and creates feature-document drafts for p
 npm install -g @mayp/doklo
 ```
 
-Version 0.4.0 requires Node.js 20.9 or newer, with one project per workspace.
+Version 0.4.1 requires Node.js 20.9 or newer, with one project per workspace.
 
 ## Start in your project
 
@@ -81,6 +81,18 @@ A verdict is an opinion with cited evidence, never an approval. The judge writes
 - Descriptions a person edited are still skipped without `--force`.
 - Drafts, descriptions with a tracked file that is gone or unreadable, and descriptions whose tracking was repaired regenerate without the judge, as do descriptions beyond `--judge-max`, over the 240,000-character input, or whose changes cannot be shown to the judge.
 
+## Document languages in 0.4.1
+
+Doks can be written in English, Korean, Japanese, Simplified or Traditional Chinese, French, Spanish, German, or Portuguese (`en`, `ko`, `ja`, `zh-Hans`, `zh-Hant`, `fr`, `es`, `de`, `pt`). `doklo init` proposes the language from the code: i18n configuration first, then the text a visitor reads, then a single message catalog, then `<html lang>`. When the code says nothing, it proposes the CLI's language. Pass `--default-locale` to choose; loosely written tags such as `ko_KR` or `zh-TW` are stored in their canonical form. `doklo scan --json` reports the detected language for each service.
+
+Each Dok records the language it was written in (`_meta.locale`). To change the language, set `default_locale` in `workspace.json` and regenerate.
+
+Source written in another language does not change the Dok's language. On-screen wording is quoted exactly only when it is already in the Dok's language; otherwise the Dok says what it means and adds the original once in parentheses. A Dok that still comes back in another script is not saved: generation retries it once, then reports `DOK_LANGUAGE_MISMATCH` with the command to regenerate it.
+
+Korean customer prose is always written in 합쇼체 (`formal`). `doklo init` no longer asks; `--korean-tone` is accepted and ignored with a warning. A workspace that needs plain prose sets `korean_customer_tone: plain` in `workspace.json`.
+
+The sync judge and the Live Docs templates still write in English or Korean.
+
 ## Live Docs improvements in 0.3.2
 
 Help articles have a revised reading layout and section navigation that also
@@ -102,7 +114,7 @@ HWPX toolchain remains optional. Existing documents are not rewritten or approve
   Apply host-page styles and keep outputs inside the workspace.
 - New standard role names follow the workspace locale; curated names remain
   unchanged. Generation uses confirmed terms and a shared Korean customer tone
-  (`formal` by default, or `plain`). Official Korean help-page output reports and
+  (`formal`, or `plain` set in `workspace.json`). Official Korean help-page output reports and
   blocks clear tone conflicts or an unreviewed policy change. Review and correct
   the prose, or use a marked draft preview; existing prose is not rewritten.
 - Public image-format names such as WebP no longer trigger identifier-pattern

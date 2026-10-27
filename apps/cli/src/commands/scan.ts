@@ -9,7 +9,9 @@ import type { Command } from 'commander';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import {
+  detectProjectLocale,
   extractProjectIR,
+  type DetectedLocale,
   type ParserFileLedgerEntry,
 } from '@doklo-beta/adapter-nextjs';
 import { resolveContainedOutputPath, resolveContainedPath } from '@doklo-beta/generator';
@@ -98,6 +100,13 @@ export interface ScanServiceResult {
   framework: Framework;
   outputPath: string;
   counts: { routes: number; components: number; stores: number };
+  /**
+   * The product language the code root appears to be written for — what
+   * `doklo init` proposes as `default_locale`, and what a host may adopt for a
+   * project nobody has chosen a language for yet. A proposal: `locale` is null
+   * when no signal was decisive.
+   */
+  locale: DetectedLocale;
   analysis?: ScanAnalysis;
   warnings?: ScanWarning[];
   trackingRepair?: { repairedDokIds: string[]; unmatchedDokIds: string[] };
@@ -249,6 +258,7 @@ export async function runScan(
         components: ir.components.length,
         stores: ir.stores.length,
       },
+      locale: detectProjectLocale({ rootDir: item.serviceRoot, files: ir.files }),
       analysis: {
         workspaceRoot: paths.root,
         codeRoot: svc.code_root,
