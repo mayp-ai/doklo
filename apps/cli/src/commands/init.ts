@@ -10,7 +10,7 @@ import { Option, type Command } from 'commander';
 import { access, stat } from 'node:fs/promises';
 import { constants as FS } from 'node:fs';
 import { basename, relative, resolve, sep } from 'node:path';
-import type { Framework, KoreanCustomerTone, Service, ServiceType } from '@doklo-beta/core';
+import { DOK_LOCALES, canonicalDokLocale, findDokLocale, type Framework, type KoreanCustomerTone, type Service, type ServiceType } from '@doklo-beta/core';
 import { bootstrapWorkspace, WorkspaceAlreadyInitializedError } from '../lib/bootstrap.js';
 import { workspacePaths, type WorkspacePaths } from '../lib/paths.js';
 import type { CliContext } from '../lib/context.js';
@@ -19,6 +19,7 @@ import { buildProviderChoices, buildModelChoices, toModelOption } from './model.
 import { modelGuidance } from '../lib/model-guidance.js';
 import { loadModelsDb, getCost, resolveContainedPath } from '@doklo-beta/generator';
 import { authenticateProvider } from '../lib/authenticate.js';
+import { detectProjectLocale } from '@doklo-beta/adapter-nextjs';
 import { formatScanAnalysis, runScan, type ScanAnalysis } from './scan.js';
 import type { runServe } from './serve.js';
 import type { runInitHandoff } from '../lib/init-handoff.js';
@@ -47,6 +48,11 @@ export interface RunInitOptions {
   serviceId: string;
   /** Existing service directory, relative to the workspace root. Defaults to '.'. */
   codeRoot?: string;
+  /**
+   * Korean register. The CLI no longer offers a choice (decision 2026-10-26:
+   * customer prose is 합쇼체, `formal`, which is also what an absent value
+   * means); the field stays for workspaces that set it by hand.
+   */
   koreanCustomerTone?: KoreanCustomerTone;
   /** Optional override; otherwise auto-detected from package.json. */
   framework?: Framework;
@@ -179,13 +185,13 @@ export async function runInit(opts: RunInitOptions): Promise<RunInitResult> {
   };
 }
 
-function onboardingGuidance(locale: string): string {
+export function onboardingGuidance(locale: string): string {
   return locale === 'ko'
-    ? '제품 용어: doklo lexicon-suggest --dry-run으로 검토합니다(모델 호출 없음). 선택 사항인 lexicon-suggest 실행은 유료 모델을 호출할 수 있습니다. 제안을 사람이 검토한 뒤 Studio Lexicon에서 확정하고, doklo generate --only <Dok ID> --force로 선택 재생성합니다(유료). 생성된 draft를 사람이 검토·승인한 뒤 doklo live-docs render로 렌더합니다. 한국어 말투는 --korean-tone formal(기본 합쇼체: ~합니다) 또는 plain(해라체: ~한다)으로 선택합니다. 기존 workspace.json의 korean_customer_tone으로도 설정합니다. 생성은 선택 정책과 필드별 충돌을 기록하며, 정식 help-page 렌더는 명확한 어미 충돌이나 생성 이후 정책 변경을 차단합니다. --preview로 표시된 검토용 미리보기를 확인한 뒤 문구를 수정하거나 선택 재생성하세요. 인용·이름은 말투 검사에서 제외되며 일반 문자열의 어미·동의어는 자동 변경하지 않습니다. 확정 용어는 owned/constant 표시 텍스트와 TermRef로 적용하며 i18n 바인딩은 현재 직접 해석하지 않습니다.'
-    : 'Product terms: inspect doklo lexicon-suggest --dry-run (no model call). Optional lexicon-suggest execution can call a paid model. Review suggestions, confirm them in Studio Lexicon, then selectively regenerate with doklo generate --only <Dok ID> --force (paid). Review and approve the generated drafts before doklo live-docs render. Select --korean-tone formal (default, 합쇼체: ~합니다) or plain (해라체: ~한다); existing workspaces use korean_customer_tone in workspace.json. Generation records the selected policy and field-level conflicts. Official help-page rendering blocks clear ending conflicts and policy changes since generation; --preview produces a marked review artifact. Review and edit or selectively regenerate. Quotes and labels are excluded; prose endings and synonyms are never rewritten automatically. Approved owned/constant display text and TermRefs apply canonical terms; i18n bindings are not currently resolved directly.';
+    ? '제품 용어: doklo lexicon-suggest --dry-run으로 검토합니다(모델 호출 없음). 선택 사항인 lexicon-suggest 실행은 유료 모델을 호출할 수 있습니다. 제안을 사람이 검토한 뒤 Studio Lexicon에서 확정하고, doklo generate --only <Dok ID> --force로 선택 재생성합니다(유료). 생성된 draft를 사람이 검토·승인한 뒤 doklo live-docs render로 렌더합니다. 한국어 고객 문장은 합쇼체(~합니다)로 씁니다. 생성은 문체 정책과 필드별 충돌을 기록하며, 정식 help-page 렌더는 명확한 어미 충돌이나 생성 이후 정책 변경을 차단합니다. --preview로 표시된 검토용 미리보기를 확인한 뒤 문구를 수정하거나 선택 재생성하세요. 인용·이름은 말투 검사에서 제외되며 일반 문자열의 어미·동의어는 자동 변경하지 않습니다. 확정 용어는 owned/constant 표시 텍스트와 TermRef로 적용하며 i18n 바인딩은 현재 직접 해석하지 않습니다.'
+    : 'Product terms: inspect doklo lexicon-suggest --dry-run (no model call). Optional lexicon-suggest execution can call a paid model. Review suggestions, confirm them in Studio Lexicon, then selectively regenerate with doklo generate --only <Dok ID> --force (paid). Review and approve the generated drafts before doklo live-docs render. Korean customer prose is written in 합쇼체 (~합니다). Generation records the writing policy and field-level conflicts. Official help-page rendering blocks clear ending conflicts and policy changes since generation; --preview produces a marked review artifact. Review and edit or selectively regenerate. Quotes and labels are excluded; prose endings and synonyms are never rewritten automatically. Approved owned/constant display text and TermRefs apply canonical terms; i18n bindings are not currently resolved directly.';
 }
 
-function onboardingNextStep(locale: string, tone: KoreanCustomerTone = 'formal'): string {
+export function onboardingNextStep(locale: string, tone: KoreanCustomerTone = 'formal'): string {
   return locale === 'ko'
     ? `용어 제안 → 사람 검토·확정 → 선택 재생성 → draft 검토·승인 → 렌더: doklo init --help에서 확인하세요. 제안·재생성은 유료일 수 있으며 한국어 말투는 ${tone === 'formal' ? '합쇼체' : '해라체'}입니다.`
     : `Terms: propose → human review and confirmation → selective regeneration → draft review and approval → render. See doklo init --help. Suggestion and generation calls may be paid; Korean customer tone: ${tone}.`;
@@ -294,8 +300,10 @@ export function registerInitCommand(
     .option('--name <name>', 'Workspace display name')
     .option('--workspace-id <id>', 'Workspace id (kebab-case)')
     .option('--service-id <id>', 'Service id', 'web')
-    .option('--default-locale <locale>', 'Default locale for business text (en|ko)')
-    .addOption(new Option('--korean-tone <tone>', 'Korean customer prose: formal (~합니다, default) or plain (~한다)').choices(['formal', 'plain']))
+    .option('--default-locale <locale>', `Language the Doks are written in (${DOK_LOCALES.map((entry) => entry.code).join('|')}; proposed from the code when omitted)`)
+    // Accepted and ignored since 2026-10-26 so scripts written for 0.3.2 keep
+    // running: Korean customer prose is always 합쇼체 (review 2026-10-27).
+    .addOption(new Option('--korean-tone <tone>', 'Deprecated and ignored: Korean customer prose is always formal (합쇼체)').hideHelp())
     .option(
       '--supported-locales <list>',
       'Comma-separated list of UI locales (e.g., en,ko)',
@@ -345,12 +353,28 @@ export function registerInitCommand(
       const selectedRoot = await resolveInitCodeRoot(root, requestedCodeRoot ?? '.');
       const detected = (await assertSupportedRuntimeProject(selectedRoot.serviceRoot)).framework;
 
+      // The product's own language first (a Korean site must not get an English
+      // Hub), the operator's CLI language only when the code says nothing
+      // (decisions 2026-07-13 §미결① → 2026-10-26).
+      const detectedLocale = detectProjectLocale({ rootDir: selectedRoot.serviceRoot });
+      // `ko-KR` is `ko`: the Korean style block and register checks match the
+      // canonical tag only (review 2026-10-27).
+      const proposedLocale = opts.defaultLocale !== undefined
+        ? canonicalDokLocale(opts.defaultLocale as string)
+        : detectedLocale.locale ?? ctx.locale;
+      if (opts.koreanTone !== undefined && !machine) {
+        log.warn(ctx.locale === 'ko'
+          ? '--korean-tone은 더 이상 쓰지 않습니다. 한국어 고객 문장은 항상 합쇼체(~합니다)로 씁니다.'
+          : '--korean-tone is no longer used: Korean customer prose is always formal (합쇼체, ~합니다).');
+      }
+      const proposedSupported = detectedLocale.supported.length > 0
+        ? detectedLocale.supported
+        : [proposedLocale, ...(proposedLocale === 'en' ? ['ko'] : ['en'])];
       const defaults = {
         name: opts.name ?? guessName(root),
         workspaceId: opts.workspaceId ?? (toKebab(opts.name ?? guessName(root)) || 'doklo-workspace'),
-        defaultLocale: opts.defaultLocale ?? ctx.locale,
-        supportedLocales:
-          opts.supportedLocales ?? `${ctx.locale},${ctx.locale === 'en' ? 'ko' : 'en'}`,
+        defaultLocale: proposedLocale,
+        supportedLocales: opts.supportedLocales ?? proposedSupported.join(','),
         serviceId: opts.serviceId ?? 'web',
       };
 
@@ -366,7 +390,6 @@ export function registerInitCommand(
           workspaceId: defaults.workspaceId,
           name: defaults.name,
           defaultLocale: defaults.defaultLocale,
-          koreanCustomerTone: opts.koreanTone,
           supportedLocales: defaults.supportedLocales.split(',').map((s: string) => s.trim()).filter(Boolean),
           serviceId: defaults.serviceId,
           codeRoot: selectedRoot.codeRoot,
@@ -386,7 +409,7 @@ export function registerInitCommand(
           printAgentSkills(result, ctx);
           outro(ctx.t('init.complete', { path: result.paths.workspaceFile }));
           log.info(ctx.t('init.next_step_cli'));
-          log.info(onboardingNextStep(defaults.defaultLocale, opts.koreanTone));
+          log.info(onboardingNextStep(defaults.defaultLocale));
         }
         recordCommandResult(program, {
           schema_version: 1,
@@ -441,11 +464,14 @@ export function registerInitCommand(
       // 3. Default locale
       const defaultLocale = await select({
         message: ctx.t('init.default_locale'),
-        options: [
-          { value: 'en', label: 'en (English)' },
-          { value: 'ko', label: 'ko (Korean)' },
-        ],
-        initialValue: defaults.defaultLocale === 'ko' ? 'ko' : 'en',
+        options: DOK_LOCALES.map((entry) => ({
+          value: entry.code,
+          label: `${entry.code} (${entry.native})`,
+          ...(detectedLocale.locale === entry.code && detectedLocale.source !== null
+            ? { hint: ctx.locale === 'ko' ? '코드에서 감지됨' : 'detected from the code' }
+            : {}),
+        })),
+        initialValue: findDokLocale(defaults.defaultLocale)?.code ?? 'en',
       });
       if (isCancel(defaultLocale)) {
         cancel(ctx.t('init.welcome'));
@@ -588,7 +614,6 @@ export function registerInitCommand(
         workspaceId: workspaceId as string,
         name: name as string,
         defaultLocale: defaultLocale as string,
-        koreanCustomerTone: opts.koreanTone,
         supportedLocales,
         serviceId: serviceId as string,
         codeRoot: selectedRoot.codeRoot,
@@ -610,7 +635,7 @@ export function registerInitCommand(
         printAgentSkills(result, ctx);
         outro(ctx.t('init.complete', { path: result.paths.workspaceFile }));
         log.info(ctx.t('init.next_step_cli'));
-        log.info(onboardingNextStep(String(defaultLocale), opts.koreanTone));
+        log.info(onboardingNextStep(String(defaultLocale)));
       }
       recordCommandResult(program, {
         schema_version: 1,

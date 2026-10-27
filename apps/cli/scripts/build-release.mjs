@@ -83,7 +83,7 @@ const RELEASE_DIR = join(
   `.release.stage-${process.pid}-${randomUUID()}`,
 );
 const PKG_NAME = '@mayp/doklo';
-const PKG_VERSION = '0.4.0';
+const PKG_VERSION = '0.4.1';
 const RELEASE_LICENSE = 'Apache-2.0';
 
 const argv = process.argv.slice(2);

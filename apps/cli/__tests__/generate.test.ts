@@ -6006,6 +6006,30 @@ describe('bounded generation recovery', () => {
     } });
     expect(await readdir(join(root, '.doklo/hub/doks'))).toEqual([]);
   });
+
+  // A Korean product's Dok asked for in Chinese came back Korean (review 2026-10-27):
+  // ask once more, then name the language instead of storing the wrong one.
+  it('retries a Dok written in the wrong language once, then reports the mismatch', async () => {
+    const root = await tmpInit();
+    await writeConsolidated(root, 'web', ['AUTH', 'USER']);
+    const outcome = await runGenerateThroughCommander(root,
+      ['--only', 'USER', '--no-roles', '--no-ia', '--no-code-mapping'], {
+        runGenerateDeps: { generateDokForFeature: async () => ({
+          success: false, dok: null, prompt: '', rawResponse: '{}', failureKind: 'wrong_language',
+          usage: { input_tokens: 11, output_tokens: 7 },
+          error: 'The Dok was written in Hangul (Korean), not Simplified Chinese (简体中文).',
+        }) },
+      });
+    expect(outcome.result).toMatchObject({ status: 'partial', data: {
+      failures: [{
+        dokId: 'USER', attempts: 2, code: 'DOK_LANGUAGE_MISMATCH', retryable: true,
+        reason: 'The Dok was written in Hangul (Korean), not Simplified Chinese (简体中文).',
+        nextCommand: 'doklo generate --only USER --yes',
+      }],
+      retryTokenUsage: { attemptedCalls: 1 },
+    } });
+    expect(await readdir(join(root, '.doklo/hub/doks'))).toEqual([]);
+  });
 });
 
 it('stops before reserving a recovery attempt when cancelled by retry progress', async () => {

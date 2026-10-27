@@ -174,6 +174,12 @@ export const DokOriginSchema = z.object({
 
 // Operational meta — separated from the business definition.
 export const DokMetaSchema = z.object({
+  // The language the Dok's prose was generated in — `workspace.default_locale`
+  // at generation time, stamped by the generator. One Dok, one language: a Hub
+  // wanted in another language is regenerated (decision 2026-10-26). Absent on
+  // Doks generated before this field; consumers treat those as the workspace's
+  // default locale at the time.
+  locale: z.string().optional(),
   writing_policy: DokWritingPolicySchema.optional(),
   writing_review: z.object({
     assessed_by: z.literal('deterministic').default('deterministic'),

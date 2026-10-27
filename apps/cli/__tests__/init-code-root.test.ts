@@ -3,7 +3,7 @@ import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } fr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Command } from 'commander';
-import { registerInitCommand, runInit } from '../src/commands/init.js';
+import { onboardingGuidance, onboardingNextStep, registerInitCommand, runInit } from '../src/commands/init.js';
 import { runScan } from '../src/commands/scan.js';
 import { createContext } from '../src/lib/context.js';
 import { takeCommandResult } from '../src/lib/command-result.js';
@@ -33,12 +33,45 @@ function options(root: string, codeRoot: string) {
 }
 
 describe('init service code root', () => {
-  it('persists the explicit Korean tone through the init CLI', async () => {
+  it('no longer offers a Korean tone switch: an old --korean-tone is accepted, ignored, and nothing is written', async () => {
     const root = await monorepo();
     const program = new Command().exitOverride();
     registerInitCommand(program, createContext('ko'));
-    await program.parseAsync(['init', '--root', root, '--code-root', 'web', '--korean-tone', 'plain', '--yes', '--json', '--no-scan'], { from: 'user' });
-    expect(JSON.parse(await readFile(join(root, 'workspace.json'), 'utf8')).korean_customer_tone).toBe('plain');
+    // Scripts written for 0.3.2 keep running (review 2026-10-27); the register is 합쇼체 regardless.
+    await program.parseAsync(['init', '--root', root, '--code-root', 'web', '--default-locale', 'ko-KR', '--korean-tone', 'plain', '--yes', '--json', '--no-scan'], { from: 'user' });
+    const workspace = JSON.parse(await readFile(join(root, 'workspace.json'), 'utf8'));
+    // The canonical tag, so the Korean style block and register checks apply.
+    expect(workspace.default_locale).toBe('ko');
+    expect(workspace).not.toHaveProperty('korean_customer_tone');
+    expect(program.commands.find((command) => command.name() === 'init')!.helpInformation()).not.toMatch(/korean-tone/);
+  });
+  it('proposes the default locale from the code, not from the CLI language', async () => {
+    const root = await monorepo();
+    await writeFile(join(root, 'web/app/page.tsx'), 'export default function Page() { return <main><h1>회원 가입을 진행합니다</h1><p>이메일 주소와 비밀번호를 입력한 뒤 다음 단계로 넘어갑니다. 약관에 동의해야 계정이 만들어집니다. 이미 계정이 있으면 로그인 화면으로 이동할 수 있습니다.</p><p>비밀번호를 잊었다면 재설정 메일을 보냅니다. 메일에 있는 링크는 삼십 분 동안만 유효합니다. 새 비밀번호는 여덟 자 이상이어야 합니다.</p><button>다음</button></main>; }');
+    const program = new Command().exitOverride();
+    registerInitCommand(program, createContext('en'));
+    await program.parseAsync(['init', '--root', root, '--code-root', 'web', '--yes', '--json', '--no-scan'], { from: 'user' });
+    const workspace = JSON.parse(await readFile(join(root, 'workspace.json'), 'utf8'));
+    expect(workspace.default_locale).toBe('ko');
+    expect(workspace.supported_locales).toEqual(['ko']);
+  });
+  it('falls back to the CLI language when the code says nothing', async () => {
+    const root = await monorepo();
+    const program = new Command().exitOverride();
+    registerInitCommand(program, createContext('en'));
+    await program.parseAsync(['init', '--root', root, '--code-root', 'web', '--yes', '--json', '--no-scan'], { from: 'user' });
+    const workspace = JSON.parse(await readFile(join(root, 'workspace.json'), 'utf8'));
+    expect(workspace.default_locale).toBe('en');
+    expect(workspace.supported_locales).toEqual(['en', 'ko']);
+  });
+  it('tells the person the Korean register is 합쇼체', () => {
+    for (const locale of ['ko', 'en']) {
+      const guidance = onboardingGuidance(locale);
+      expect(guidance).toMatch(/합쇼체/);
+      expect(guidance).not.toMatch(/korean-tone/);
+    }
+    expect(onboardingNextStep('ko')).toMatch(/합쇼체/);
+    expect(onboardingNextStep('en')).toMatch(/formal/);
   });
   it('keeps the workspace at the monorepo root and scans only the selected Next.js app', async () => {
     const root = await monorepo();

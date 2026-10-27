@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildDokPrompt,
   parseDokFromLLMResponse,
+  stampDokLocale,
   type DokGenContext,
 } from '../src/dok-generator.js';
 
@@ -61,6 +62,16 @@ describe('buildDokPrompt', () => {
 
   it('asks for korean output when defaultLocale=ko', () => {
     expect(buildDokPrompt(sampleFeature, { ...ctx, defaultLocale: 'ko' })).toMatch(/한국어/);
+  });
+
+  it('names any listed language, and only ko gets the Korean style block', () => {
+    const ja = buildDokPrompt(sampleFeature, { ...ctx, defaultLocale: 'ja' });
+    expect(ja).toMatch(/Respond strictly in \*\*Japanese \(日本語\)\*\*/);
+    expect(ja).not.toMatch(/Korean style/);
+    const fr = buildDokPrompt(sampleFeature, { ...ctx, defaultLocale: 'fr' });
+    expect(fr).toMatch(/French \(français\)/);
+    // An unlisted tag is still an instruction, not a silent fall-through to English.
+    expect(buildDokPrompt(sampleFeature, { ...ctx, defaultLocale: 'nl' })).toMatch(/BCP 47 tag `nl`/);
   });
 
   it('embeds the suggestedActorRole hint when provided', () => {
@@ -174,4 +185,25 @@ it('reports the JSON syntax error inside a fence, not the fence itself', () => {
   expect(result.error).toContain('JSON parse failed');
   expect(result.error).not.toContain("Unexpected token '`'");
   expect(result.error).not.toContain('```json');
+});
+
+describe('stampDokLocale', () => {
+  it('records the canonical generation language in _meta.locale', () => {
+    const dok = parseDokFromLLMResponse(JSON.stringify({
+      dok_id: 'AUTH',
+      name: 'Sign in',
+      status: 'draft',
+      tags: ['auth'],
+      surfaces: ['web'],
+      description: 'Users authenticate with email and password.',
+      user_actions: { steps: [] },
+      business_rules: { rules: [] },
+      acceptance_criteria: { criteria: [] },
+    }));
+    if (!dok.success) throw new Error(dok.error ?? 'fixture must parse');
+    stampDokLocale(dok.dok!, 'ko_KR');
+    expect(dok.dok!._meta.locale).toBe('ko');
+    stampDokLocale(dok.dok!, 'zh-TW');
+    expect(dok.dok!._meta.locale).toBe('zh-Hant');
+  });
 });

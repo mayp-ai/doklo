@@ -8,10 +8,16 @@
 
 import {
   DokSchema,
+  canonicalDokLocale,
+  dokLanguageName,
+  findDokLocale,
+  hasForeignScript,
+  proseScript,
   koreanWritingPolicyPrompt,
   recordDokWritingPolicy,
   type KoreanCustomerTone,
   type Dok,
+  type DokScript,
   type DokPriorityField,
   type RoleId,
 } from '@doklo-beta/core';
@@ -114,7 +120,7 @@ export interface GenerateDokResult {
   usage: LLMUsage | null;
   interrupted?: boolean;
   /** Stable provider failure classification; provider raw detail is debug-only. */
-  failureKind?: LLMFailureKind;
+  failureKind?: LLMFailureKind | 'wrong_language';
   error?: string;
 }
 
@@ -203,7 +209,21 @@ export async function generateDokForFeature(
     };
   }
 
+  const wrongLanguage = findDokLanguageMismatch(parsed.dok, ctx.defaultLocale);
+  if (wrongLanguage !== null) {
+    return {
+      success: false,
+      dok: null,
+      prompt,
+      rawResponse: llm.content,
+      usage: llm.usage,
+      failureKind: 'wrong_language',
+      error: wrongLanguage,
+    };
+  }
+
   recordContentReview(parsed.dok, Object.keys(ctx.fileContext));
+  stampDokLocale(parsed.dok, ctx.defaultLocale);
   recordDokWritingPolicy(parsed.dok, ctx.defaultLocale, ctx.koreanCustomerTone);
   return {
     success: true,
@@ -212,6 +232,44 @@ export async function generateDokForFeature(
     rawResponse: llm.content,
     usage: llm.usage,
   };
+}
+
+/**
+ * One Dok, one language: the prose was asked for in `defaultLocale`, and that
+ * tag travels with the document so a Hub can tell a Dok written before a
+ * language change from one written after it (decision 2026-10-26).
+ */
+export function stampDokLocale(dok: Dok, defaultLocale: string): void {
+  dok._meta = { ...dok._meta, locale: canonicalDokLocale(defaultLocale) };
+}
+
+const SCRIPT_NAMES: Record<DokScript, string> = {
+  Latn: 'Latin script', Hang: 'Hangul (Korean)', Jpan: 'Japanese', Hani: 'Chinese characters',
+};
+
+/**
+ * A Dok whose prose is in another script than the language it was asked for —
+ * Korean prose for a Simplified Chinese Hub, from a Korean product's source
+ * (review 2026-10-27) — must not be stored under that language. Returns the
+ * reason, or null when the prose matches or the language's script is unknown.
+ */
+export function findDokLanguageMismatch(dok: Dok, defaultLocale: string): string | null {
+  const expected = findDokLocale(defaultLocale);
+  if (!expected) return null;
+  const texts = [dok.name, dok.description];
+  for (const step of dok.user_actions?.steps ?? []) texts.push(step.intent, step.outcome, ...(step.preconditions ?? []));
+  for (const rule of dok.business_rules?.rules ?? []) texts.push(rule.description);
+  for (const criterion of dok.acceptance_criteria?.criteria ?? []) texts.push(criterion.statement);
+  const actual = proseScript(texts.filter((text): text is string => typeof text === 'string'));
+  if (actual !== null && actual !== expected.script) {
+    return `The Dok was written in ${SCRIPT_NAMES[actual]}, not ${expected.language}.`;
+  }
+  // The name is written first, where the model settles on a language, and the
+  // Hub lists Doks by it: one stray script there is enough to refuse.
+  if (typeof dok.name === 'string' && hasForeignScript(dok.name, expected.script)) {
+    return `The Dok's name is not written in ${expected.language}.`;
+  }
+  return null;
 }
 
 function hasUnclosedJsonStructure(raw: string): boolean {
@@ -269,7 +327,11 @@ export function buildDokPromptParts(
   if (sourceChars > DOK_SOURCE_MAX_CHARS) {
     throw new Error(`Source context ${sourceChars} exceeds ${DOK_SOURCE_MAX_CHARS} characters; split the service or feature before generation. No source was silently omitted.`);
   }
-  const language = ctx.defaultLocale === 'ko' ? 'Korean (한국어)' : 'English';
+  const language = dokLanguageName(ctx.defaultLocale);
+  // The same instruction in the language itself closes the prompt: after pages of
+  // Korean source, an English instruction alone did not hold Chinese (2026-10-27).
+  const outputLocale = findDokLocale(ctx.defaultLocale);
+  const nativeInstruction = outputLocale && outputLocale.code !== 'en' ? `\n${outputLocale.instruction}` : '';
   const renderFiles = (entries: [string, string][]) => entries
     .map(
       ([path, content]) =>
@@ -357,7 +419,16 @@ If evidence is insufficient, report it in _review instead of filling gaps.
 Respond strictly in **${language}**. The fields \`name\`, \`description\`, every
 \`intent\` and \`outcome\`, and every business-rule / acceptance-criterion
 \`statement\` must be in ${language}. Identifiers (dok_id, role_ref, ids) stay
-ASCII.${ctx.defaultLocale === 'ko' ? `
+ASCII. The source, its on-screen strings and the feature label may be in another
+language; that never changes the output language.
+
+Quote on-screen wording (button labels, messages, statuses) exactly as the
+supplied source shows it only when it is in ${language}. When the product shows
+it in another language, say in ${language} what it means instead of putting your
+own translation in quotation marks as if the screen showed it; when a reader
+needs to recognize the wording on screen, add the original once, in parentheses,
+after that description. Product and brand names stay as written. Use the
+quotation marks and punctuation of ${language} prose.${ctx.defaultLocale === 'ko' ? `
 
 # Korean style (customer-facing help copy)
 
@@ -377,7 +448,7 @@ markdown fences — JSON only.
 \`\`\`ts
 type Dok = {
   dok_id: string;          // MUST be exactly the dok_id given in the task
-  name: string;            // short business name (≤ 8 words)
+  name: string;            // short business name in ${language} (≤ 8 words), not the feature label
   tags: string[];          // 2-6 lowercase keywords
   surfaces: ('web'|'mobile'|'admin'|'api')[];
   priority: {              // two independent axes — see constraint 7
@@ -511,14 +582,16 @@ ${ctx.lockedPriority.map((l) => `  - \`${l.field}\` = \`${l.value}\` — ${l.rea
 
   const userPrompt = `# Task
 
-Extract the Dok for the feature below. \`dok_id\` MUST be exactly
+Extract the Dok for the feature below, written in ${language}. \`dok_id\` MUST be exactly
 \`"${ctx.dokId}"\` — so the first business rule id is \`BR-${ctx.dokId}-01\`
-and the first acceptance criterion id is \`AC-${ctx.dokId}-01\`.${actorHint}${lockedSection}
+and the first acceptance criterion id is \`AC-${ctx.dokId}-01\`. A feature
+\`label\` is a working name and may be in another language; write \`name\` and
+every other text field in ${language}.${actorHint}${lockedSection}
 
 # Feature
 
 \`\`\`json
-${renderDokFeatureBlock(feature)}
+${renderDokFeatureBlock(feature, 12_000, ctx.defaultLocale)}
 \`\`\`
 
 # Implementation evidence
@@ -529,7 +602,8 @@ ${fileBlocks || '(no file context provided)'}
 
 ${productBlocks || '(no product brief supplied; describe this feature without inferring the whole product scope)'}
 
-Now output the JSON object.`;
+Now output the JSON object. Write every reader-facing field in ${language},
+whatever language the evidence above is written in.${nativeInstruction}`;
 
   return { systemPrompt, userPrompt };
 }
@@ -564,21 +638,32 @@ export function capDokRolesForPrompt(
   return kept;
 }
 
-/** Exact consolidated-feature fragment inserted into `buildDokPrompt`. */
+/**
+ * Exact consolidated-feature fragment inserted into `buildDokPrompt`. A working
+ * label in another script than the Dok's language is left out: the model copied
+ * it into `name` (review 2026-10-27), and the id, route and files still say what
+ * the feature is.
+ */
 export function renderDokFeatureBlock(
   feature: FeatureForGeneration,
   maxChars = 12_000,
+  outputLocale?: string,
 ): string {
-  type PromptFeature = Pick<
-    FeatureForGeneration,
-    'canonical_id' | 'label' | 'primary_route' | 'members' | 'files'
-  >;
+  type PromptMember = { id: string; label?: string; route: string };
+  type PromptFeature = Pick<FeatureForGeneration, 'canonical_id' | 'primary_route' | 'files'> & {
+    label?: string;
+    members: PromptMember[];
+  };
+  const script = outputLocale === undefined ? undefined : findDokLocale(outputLocale)?.script;
+  const shown = (label: string) => script === undefined || !hasForeignScript(label, script);
   const render = (value: PromptFeature) => JSON.stringify(value, null, 2);
   const initial: PromptFeature = {
     canonical_id: feature.canonical_id,
-    label: feature.label,
+    ...(shown(feature.label) ? { label: feature.label } : {}),
     primary_route: feature.primary_route,
-    members: feature.members,
+    members: feature.members.every((member) => shown(member.label))
+      ? feature.members
+      : feature.members.map(({ id, label, route }) => (shown(label) ? { id, label, route } : { id, route })),
     files: feature.files,
   };
   const rendered = render(initial);
@@ -586,7 +671,7 @@ export function renderDokFeatureBlock(
 
   const capped: PromptFeature = {
     canonical_id: feature.canonical_id.slice(0, 512),
-    label: feature.label.slice(0, 2_000),
+    ...(shown(feature.label) ? { label: feature.label.slice(0, 2_000) } : {}),
     primary_route: feature.primary_route.slice(0, 2_000),
     members: [],
     files: [],
@@ -594,7 +679,7 @@ export function renderDokFeatureBlock(
   for (const member of feature.members) {
     const next = {
       id: member.id.slice(0, 512),
-      label: member.label.slice(0, 1_000),
+      ...(shown(member.label) ? { label: member.label.slice(0, 1_000) } : {}),
       route: member.route.slice(0, 1_000),
     };
     if (render({ ...capped, members: [...capped.members, next] }).length > maxChars) break;
