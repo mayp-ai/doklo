@@ -122,6 +122,21 @@ export const DokHistoryCategorySchema = z.enum([
   'added', 'changed', 'deprecated', 'removed', 'fixed', 'security',
 ]);
 
+// Human-curated FAQ attached to a Dok. Never LLM-generated: regeneration
+// carries it forward untouched (see generator carryForwardCuratedContent).
+// The "frequently" claim belongs to the curator — Doklo has no frequency
+// data, so nothing here is inferred.
+export const DokFaqItemSchema = z.object({
+  /** FAQ-{dok_id}-NN by convention (not schema-enforced across files). */
+  id: z.string().min(1),
+  question: TranslatableSchema,
+  answer: TranslatableSchema,
+}).passthrough();
+
+export const DokFaqSchema = z.object({
+  items: z.array(DokFaqItemSchema),
+}).passthrough();
+
 export const DokHistoryEntrySchema = z.object({
   version: z.number().int().positive(),
   // ISO date (YYYY-MM-DD) — not full datetime, keeps PR diffs stable
@@ -280,6 +295,7 @@ export const DokSchema = z.object({
     .object({ criteria: z.array(AcceptanceCriterionSchema) })
     .passthrough()
     .optional(),
+  faq: DokFaqSchema.optional(),
 
   _meta: DokMetaSchema.default({ version: 1, history: [] }),
 }).passthrough().superRefine((dok, ctx) => {

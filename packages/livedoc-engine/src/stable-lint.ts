@@ -49,6 +49,8 @@ function matching(pattern: RegExp): (source: string) => Iterable<PatternMatch> {
  * text it reads is written by a workspace.
  */
 export const INTERNAL_IDENTIFIER_PATTERN = /\b(?:user_actions(?:\.steps)?|business_rules|acceptance_criteria|source_anchors|topology\.edges|editingBanner|sourceAnchors?|dokId|termRef|userActions|businessRules|acceptanceCriteria|TermRef|Handlebars|DOM|null|Doks?|ROLE-[A-Z0-9_-]+|[Aa]uto[- ]suggested(?:\s+from\s+(?:a\s+)?(?:(?:code|repository|workspace)\s*)?scan)?|[Gg]enerated\s+from\s+(?:a\s+)?(?:code|repository|workspace)\s+scan|(?:high|medium|low)\s+confidence|[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*|(?:use|has|is)[A-Z][A-Za-z0-9]*|[a-z][A-Za-z0-9]*(?:Id|Email))\b|_meta\b/gu;
+/** A role compared against a quoted code value, in English or Korean reader copy. */
+export const ROLE_CODE_VALUE_PATTERN = /\broles?\s+(?:is|isn't|is\s+not|of|=|==|===|!==?|equals)\s+['"‘“`][A-Za-z][A-Za-z0-9_-]{0,40}['"’”`]|역할(?:이|은|을|가)?\s*['"‘“`][A-Za-z][A-Za-z0-9_-]{0,40}['"’”`]/gu;
 // Public file-format names are customer vocabulary. Keep exact matching: an
 // implementation symbol such as WebPEncoder must still be checked below.
 const PUBLIC_FILE_FORMATS = ['JPEG', 'PNG', 'WebP', 'HEIC', 'HEIF'] as const;
@@ -68,6 +70,15 @@ const RULES: LintRule[] = [
     code: 'INTERNAL_IDENTIFIER',
     message: 'Stable output exposes an internal identifier or developer-only term. Rewrite implementation terms for readers; for a public name, add an exact match to stable_public_terms in workspace.json. This only exempts identifier patterns, not selected Dok IDs or other copy checks.',
     find: matching(INTERNAL_IDENTIFIER_PATTERN),
+  },
+  {
+    // A role named by the value the code compares against ("the role is 'owner'",
+    // "역할이 'owner'인") instead of by a reader's word. INTERNAL_IDENTIFIER_PATTERN
+    // only knows the ROLE- form, and a quoted lowercase value is otherwise ordinary
+    // text — so this matches the comparison phrasing, not every quoted word.
+    code: 'INTERNAL_IDENTIFIER',
+    message: 'Stable output names a role by its code value. Use the role\'s reader-facing name instead.',
+    find: matching(ROLE_CODE_VALUE_PATTERN),
   },
   {
     code: 'SOURCE_PATH',

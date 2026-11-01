@@ -1,0 +1,196 @@
+# Functional specification, spreadsheet edition — declarative xlsx spec.
+#
+# Genre: the Excel 기능명세서/기능정의서 that Korean delivery packages carry
+# next to the bound document (feature-spec). Four sheets, each one row per
+# fact the Hub records, so a reviewer can filter and annotate:
+#
+# ① 기능목록 — one row per feature. 구분 = the top-level IA menu the feature
+#    sits under (blank when the IA places it nowhere); counts come from the
+#    Hub; 비고 is the reviewer's column and stays empty.
+# ② 처리절차 — one row per step (the 입력/처리/출력 of a 기능정의서, written as
+#    actor / action / system response / precondition).
+# ③ 업무규칙 — one row per rule with its type, applicable roles (reader-facing
+#    names) and the acceptance criteria that verify it.
+# ④ 수용기준 — one row per acceptance criterion with its related rules and a
+#    blank 시험 결과 column: verdicts are the tester's, never generated.
+#
+# Status, rule type and impact print through `label:` so the closed
+# vocabularies read in the document's language. No source paths: the audit
+# trace with program IDs is rtm-trace's job.
+
+sheets:
+  - name_key: sheet_features
+    rows: doks
+    title_key: title_features
+    subtitle_key: subtitle_features
+    header_fill: FFD9D9D9
+    freeze_header: true
+    zebra: false
+    columns:
+      - key: no
+        value: index
+        width: 6
+        align: center
+      - key: group
+        value: ia_group
+        translate: true
+        width: 14
+      - key: feature_id
+        value: dok.dok_id
+        width: 16
+      - key: feature_name
+        value: dok.name
+        translate: true
+        width: 26
+      - key: summary
+        value: dok.description
+        translate: true
+        width: 60
+      - key: actors
+        value: dok.user_actions.steps
+        map: actor
+        resolve: actor
+        unique: true
+        join: ", "
+        width: 18
+      - key: services
+        value: dok.surfaces
+        join: ", "
+        width: 12
+      - key: status
+        value: dok.status
+        label: status
+        width: 10
+        align: center
+      - key: priority
+        value: dok.priority.impact
+        label: impact
+        width: 10
+        align: center
+      - key: steps
+        value: dok.user_actions.steps
+        count: true
+        width: 8
+        align: center
+      - key: rules
+        value: dok.business_rules.rules
+        count: true
+        width: 8
+        align: center
+      - key: acs
+        value: dok.acceptance_criteria.criteria
+        count: true
+        width: 10
+        align: center
+      - key: remark
+        blank: true
+        width: 16
+
+  - name_key: sheet_steps
+    rows: steps
+    title_key: title_steps
+    subtitle_key: subtitle_steps
+    header_fill: FFD9D9D9
+    freeze_header: true
+    zebra: false
+    columns:
+      - key: s_feature_id
+        value: dok.dok_id
+        width: 16
+      - key: s_feature_name
+        value: dok.name
+        translate: true
+        width: 26
+      - key: step_no
+        value: step.order
+        width: 7
+        align: center
+      - key: actor
+        value: step.actor
+        resolve: actor
+        width: 14
+      - key: action
+        value: step.intent
+        translate: true
+        width: 44
+      - key: result
+        value: step.outcome
+        translate: true
+        width: 44
+      - key: precondition
+        value: step.preconditions
+        join: "\n"
+        width: 32
+
+  - name_key: sheet_rules
+    rows: rules
+    title_key: title_rules
+    subtitle_key: subtitle_rules
+    header_fill: FFD9D9D9
+    freeze_header: true
+    zebra: false
+    columns:
+      - key: rule_id
+        value: rule.id
+        width: 20
+      - key: r_feature_id
+        value: dok.dok_id
+        width: 16
+      - key: r_feature_name
+        value: dok.name
+        translate: true
+        width: 26
+      - key: rule_type
+        value: rule.type
+        label: rule_type
+        width: 11
+        align: center
+      - key: rule
+        value: rule.description
+        translate: true
+        width: 64
+      - key: roles
+        value: rule.applies_to_roles
+        resolve: role
+        join: ", "
+        width: 16
+      - key: r_acs
+        value: acs
+        map: id
+        join: "\n"
+        width: 22
+
+  - name_key: sheet_acs
+    rows: acs
+    title_key: title_acs
+    subtitle_key: subtitle_acs
+    header_fill: FFD9D9D9
+    freeze_header: true
+    zebra: false
+    columns:
+      - key: ac_id
+        value: criterion.id
+        width: 20
+      - key: a_feature_id
+        value: dok.dok_id
+        width: 16
+      - key: a_feature_name
+        value: dok.name
+        translate: true
+        width: 26
+      - key: criterion
+        value: criterion.statement
+        translate: true
+        width: 64
+      - key: a_rules
+        value: rules
+        map: id
+        join: "\n"
+        width: 22
+      - key: test_result
+        blank: true
+        width: 10
+        align: center
+      - key: a_remark
+        blank: true
+        width: 16

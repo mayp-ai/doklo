@@ -10,6 +10,22 @@ describe('Korean customer writing policy', () => {
     expect(WorkspaceSchema.safeParse({ ...base, korean_customer_tone: 'casual' }).success).toBe(false);
   });
 
+  it('accepts polite (해요체) and still rejects unknown tones', () => {
+    expect(WorkspaceSchema.parse({ ...base, korean_customer_tone: 'polite' })).toHaveProperty('korean_customer_tone', 'polite');
+    expect(WorkspaceSchema.safeParse({ ...base, korean_customer_tone: 'casual' }).success).toBe(false);
+  });
+
+  it('classifies 해요체 endings as polite, never as formal', () => {
+    expect(findKoreanToneConflicts('주문을 선택하세요. 환불이 접수돼요.', 'formal').map(c => c.actual_tone)).toEqual(['polite', 'polite']);
+    expect(findKoreanToneConflicts('주문을 선택하세요. 환불이 접수돼요.', 'polite')).toEqual([]);
+    expect(findKoreanToneConflicts('주문을 선택합니다.', 'polite')).toEqual([
+      { code: 'KOREAN_TONE_CONFLICT', expected_tone: 'polite', actual_tone: 'formal', excerpt: '주문을 선택합니다.' },
+    ]);
+    expect(findKoreanToneConflicts('주문을 선택한다.', 'polite')[0]?.actual_tone).toBe('plain');
+    // 십시오 stays formal: it is the 합쇼체 imperative, not 해요체.
+    expect(findKoreanToneConflicts('주문을 선택하십시오.', 'polite')[0]?.actual_tone).toBe('formal');
+  });
+
   it.each(['\n', '\r\n', '\r'])('checks unpunctuated sentences separated by %j', (boundary) => {
     expect(findKoreanToneConflicts(`메시지를 보낸다${boundary}답변을 확인합니다.`)).toEqual([
       { code: 'KOREAN_TONE_CONFLICT', expected_tone: 'formal', actual_tone: 'plain', excerpt: '메시지를 보낸다' },
@@ -18,6 +34,13 @@ describe('Korean customer writing policy', () => {
       { code: 'KOREAN_TONE_CONFLICT', expected_tone: 'plain', actual_tone: 'formal', excerpt: '메시지를 보냅니다' },
     ]);
   });
+
+  // Endings a list of known verbs missed in generated Doks (review 2026-10-27).
+  it.each(['가입 폼이 나타난다.', '일정은 추가되지 않는다.', '목록에서 사라진다.', '입력창을 연다.', '현황을 확인하고 싶다.', '이미 초대된 주소이다.'])(
+    'reads any sentence-final ~다 that is not ~니다 as plain: %s', (sentence) => {
+      expect(findKoreanToneConflicts(sentence).map(c => c.actual_tone)).toEqual(['plain']);
+      expect(findKoreanToneConflicts(sentence, 'plain')).toEqual([]);
+    });
 
   it('keeps multiline quoted labels outside the sentence policy', () => {
     expect(findKoreanToneConflicts('“메시지를 보낸다\n답변을 확인한다”라는 문구를 확인합니다.')).toEqual([]);

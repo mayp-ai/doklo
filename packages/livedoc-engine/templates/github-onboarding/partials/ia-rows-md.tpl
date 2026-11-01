@@ -1,0 +1,2 @@
+{{#each nodes}}| {{#if (gt ../depth 0)}}{{#if (gt ../depth 1)}}　　{{else}}　{{/if}}└ {{/if}}{{md_cell (translate this.label)}} | {{#each this.doks}}{{#if @index}}, {{/if}}{{md_cell (translate this.dok.name)}}{{/each}} | {{#each this.doks}}{{#if @index}}; {{/if}}{{#each (step_roles this.dok.user_actions.steps)}}{{#if @index}}, {{/if}}{{md_cell (role_label this)}}{{else}}{{t "na"}}{{/each}}{{/each}} |
+{{#if this.children.length}}{{> ia-rows-md nodes=this.children depth=(add ../depth 1)}}{{/if}}{{/each}}

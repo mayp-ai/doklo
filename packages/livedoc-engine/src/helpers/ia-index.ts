@@ -128,11 +128,72 @@ export function buildIaIndex(
   return { sections, unplaced };
 }
 
+export interface HelpCategory {
+  service_id: string;
+  label: Translatable;
+  path?: string;
+  /** Every placed Dok under this top-level group, flattened in tree order. */
+  articles: IaIndexEntry[];
+  count: number;
+}
+
+export interface HelpCategoriesResult {
+  categories: HelpCategory[];
+  unplaced: IaIndexEntry[];
+}
+
+function flattenEntries(node: IaIndexNode): IaIndexEntry[] {
+  return [...node.doks, ...node.children.flatMap(flattenEntries)];
+}
+
+/**
+ * Help-center projection of the IA index: each top-level route group becomes
+ * one category and everything beneath it is flattened into that category's
+ * article list. Leaf routes never become headings of their own — the
+ * help-center convention is category cards over article lists, not a
+ * sitemap. Order is the IA tree order; labels are the IA labels verbatim
+ * (renaming is Studio's job, not the renderer's).
+ */
+export function buildHelpCategories(
+  services: ServiceHubSlice[],
+  doks: Dok[],
+  linkExtension: string,
+  linkPrefix = './',
+): HelpCategoriesResult {
+  const index = buildIaIndex(services, doks, linkExtension, linkPrefix);
+  const categories: HelpCategory[] = [];
+  for (const section of index.sections) {
+    for (const node of section.nodes) {
+      const articles = flattenEntries(node);
+      if (articles.length === 0) continue;
+      categories.push({
+        service_id: section.service_id,
+        label: node.label,
+        ...(node.path ? { path: node.path } : {}),
+        articles,
+        count: articles.length,
+      });
+    }
+  }
+  return { categories, unplaced: index.unplaced };
+}
+
 export function registerIaIndex(hb: typeof Handlebars): void {
   hb.registerHelper(
     'ia_index',
     function (services: unknown, doks: unknown, linkExtension: unknown, linkPrefix: unknown) {
       return buildIaIndex(
+        Array.isArray(services) ? (services as ServiceHubSlice[]) : [],
+        Array.isArray(doks) ? (doks as Dok[]) : [],
+        typeof linkExtension === 'string' ? linkExtension : '.html',
+        typeof linkPrefix === 'string' ? linkPrefix : './',
+      );
+    },
+  );
+  hb.registerHelper(
+    'help_categories',
+    function (services: unknown, doks: unknown, linkExtension: unknown, linkPrefix: unknown) {
+      return buildHelpCategories(
         Array.isArray(services) ? (services as ServiceHubSlice[]) : [],
         Array.isArray(doks) ? (doks as Dok[]) : [],
         typeof linkExtension === 'string' ? linkExtension : '.html',

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderLivedoc, EngineError, type RenderLivedocInput } from '../src/index.js';
+import { hubUpdatedAt } from '../src/render.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ws = join(here, 'fixtures', 'render-ws');
@@ -334,5 +335,21 @@ describe('renderLivedoc', () => {
         expect((err as EngineError).code).toBe('MISSING_HUB_LAYER');
       }
     });
+  });
+});
+
+describe('hubUpdatedAt', () => {
+  const history = (date: string) => [{ _meta: { history: [{ date }] } }];
+  it('returns a history day as a date label, not a midnight instant', () => {
+    expect(hubUpdatedAt({ workspace: {}, doks: history('2026-05-20') } as never)).toBe('2026-05-20');
+  });
+  it('returns a workspace timestamp as the instant it is when it is the newest record', () => {
+    expect(hubUpdatedAt({ workspace: { updated_at: '2026-05-20T10:00:00.000Z' }, doks: history('2026-05-20') } as never)).toBe('2026-05-20T10:00:00.000Z');
+  });
+  it('a later history day beats an earlier instant and stays a label', () => {
+    expect(hubUpdatedAt({ workspace: { updated_at: '2026-05-19T23:00:00.000Z' }, doks: history('2026-05-20') } as never)).toBe('2026-05-20');
+  });
+  it('is undefined when the Hub records nothing', () => {
+    expect(hubUpdatedAt({ workspace: {}, doks: [{ _meta: {} }] } as never)).toBeUndefined();
   });
 });

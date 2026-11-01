@@ -67,6 +67,16 @@
 {{/each}}
 
 {{/if}}
+{{#if help.faq.length}}
+## {{t "section_faq"}}
+
+{{#each help.faq}}
+**Q. {{this.question}}**
+
+{{this.answer}}
+
+{{/each}}
+{{/if}}
 {{#if variables.support_url}}
 ### {{t "feedback_title"}}
 

@@ -85,7 +85,7 @@ const CommonManifestSchema = z
     name: z
       .string()
       .min(1)
-      .regex(/^[a-z0-9][a-z0-9.-]*$/, 'name must be lowercase kebab-case (dots allowed for version-style names like openapi-3.1)'),
+      .regex(/^[a-z0-9][a-z0-9.-]*$/, 'name must be lowercase kebab-case (dots allowed for version-style names like my-spec-1.0)'),
     version: z.string().min(1),
     display_name: z.record(z.string(), z.string()).optional(),
     description: z.record(z.string(), z.string()).optional(),
@@ -102,6 +102,13 @@ const CommonManifestSchema = z
     partials: z.record(z.string(), z.string()).optional(),
     supported_locales: z.array(z.string()).min(1),
     default_locale: z.string().min(1),
+    /**
+     * The Hub (Dok) languages this template is written for, as BCP 47 tags —
+     * e.g. `["ko"]` for a Korean public-sector delivery form. Enumeration hides
+     * the template from a workspace whose `default_locale` is not listed;
+     * resolution by explicit name is unchanged. Absent = any language.
+     */
+    hub_locales: z.array(z.string().min(1)).min(1).optional(),
     strings: z.record(z.string(), LocalizedStringMapSchema).default({}),
     selector: TemplateSelectorSchema.optional(),
     requires_hub_layers: z.array(z.enum(['doks', 'lexicon', 'roles', 'ia', 'code-mapping'])).default(['doks']),
@@ -271,8 +278,8 @@ export const TemplateManifestSchema = RawTemplateManifestSchema
     if (manifest.renderer === 'pptx' && !manifest.output_formats.every((format) => format === 'pptx')) {
       ctx.addIssue({ code: 'custom', message: "renderer:'pptx' templates may only declare output formats: ['pptx']" });
     }
-    if (manifest.renderer === 'pptx' && manifest.scope !== 'per_dok') {
-      ctx.addIssue({ code: 'custom', message: "renderer:'pptx' requires scope: 'per_dok'" });
+    if (manifest.renderer === 'pptx' && manifest.scope === 'selected_doks') {
+      ctx.addIssue({ code: 'custom', message: "renderer:'pptx' requires scope: 'per_dok' or 'workspace'" });
     }
     if (manifest.renderer !== 'xlsx' && manifest.output_formats.includes('xlsx')) {
       ctx.addIssue({ code: 'custom', message: "output_format 'xlsx' requires renderer: 'xlsx'" });

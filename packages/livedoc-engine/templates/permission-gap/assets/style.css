@@ -1,39 +1,62 @@
-/* permission-gap — review sheet for missing permission rules.
- * Same tokens as the other stable templates; plain, printable.
- * Pure-markdown body → bare-element styling only. */
+/* ============================================================
+ * permission-gap v2.1 — a review form on paper. Serif body,
+ * navy ink, centred head with a double rule, boxed tables with
+ * an outer frame, the review column set apart as a fill-in
+ * field. Rendered from Markdown, so the selectors are element-
+ * level. extends_default_css: false.
+ * ============================================================ */
 :root {
-  --font-sans: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI",
-               "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-  --ink: oklch(0.255 0.016 165); --ink-soft: oklch(0.38 0.014 165); --ink-muted: oklch(0.46 0.014 165);
-  --line: oklch(0.89 0.01 165); --bg: oklch(0.994 0.003 165); --bg-soft: oklch(0.964 0.008 165); --accent: #045e52;
+  color-scheme: light;
+  --serif: "Noto Serif KR", "Nanum Myeongjo", "Apple Myungjo", "Batang", Georgia, "Times New Roman", serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+  --paper: #fbf9f4; --fg: #1d2433; --navy: #1f2f4f; --navy-soft: #3f5078; --muted: #6b7280;
+  --frame: #1f2f4f; --hair: #cfd3dc; --field: #f1efe8; --field-line: #b9bcc6;
 }
-*, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
-body { font-family: var(--font-sans); font-size: 15px; line-height: 1.65; -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: break-word; }
-main.livedoc { max-width: 880px; margin: 0 auto; padding: 40px 24px 64px; }
 
-h1 { font-size: 28px; line-height: 1.25; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 12px; }
-h2 { font-size: 18px; font-weight: 700; margin: 32px 0 10px; padding-top: 20px; border-top: 1px solid var(--line); }
-p { margin: 0 0 12px; }
-strong { font-weight: 600; }
-a { color: var(--accent); }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--fg); }
+body { font-family: var(--serif); font-size: 15px; line-height: 1.75; -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: anywhere; }
+main.livedoc { max-width: 860px; margin: 0 auto; padding: 64px 40px 96px; }
 
-blockquote { margin: 16px 0 20px; padding: 10px 14px; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 6px; color: var(--ink-soft); }
-blockquote p { margin: 0; }
+/* head: title centred over a double rule, meta line beneath */
+h1 { margin: 0 0 10px; text-align: center; font-size: 28px; font-weight: 700; letter-spacing: 0.08em; color: var(--navy); }
+h1 + p { text-align: center; font-family: var(--sans); font-size: 13px; color: var(--navy-soft); margin: 0 0 6px; padding-bottom: 18px; border-bottom: 3px double var(--navy); }
+h1 + p strong { font-weight: 600; color: var(--muted); margin-left: 2px; }
+h1 + p + p, h1 + p + p + p { font-family: var(--sans); font-size: 13px; color: var(--muted); margin: 10px 0 0; text-align: left; }
+h1 + p + p { margin-top: 20px; }
 
-ol { padding-left: 22px; margin: 0 0 12px; }
-li { margin: 4px 0; }
+h2 { margin: 44px 0 14px; font-size: 18px; font-weight: 700; color: var(--navy); padding-left: 14px; border-left: 4px solid var(--navy); line-height: 1.3; }
+h3 { margin: 24px 0 8px; font-family: var(--sans); font-size: 12.5px; font-weight: 600; letter-spacing: 0.06em; color: var(--navy-soft); text-transform: uppercase; }
+p { margin: 0 0 10px; }
+ul { margin: 6px 0 0; padding-left: 20px; }
+li { margin: 6px 0; }
+li strong { color: var(--navy); }
 
-table { width: 100%; border-collapse: collapse; margin: 0 0 16px; }
-th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
-th { font-weight: 600; color: var(--ink-muted); font-size: 13px; }
+table { width: 100%; border-collapse: collapse; margin: 6px 0 20px; font-size: 14px; line-height: 1.55; border: 1.5px solid var(--frame); background: #fff; }
+th, td { padding: 7px 12px; border-bottom: 1px solid var(--hair); border-right: 1px solid var(--hair); vertical-align: top; text-align: left; }
+th:last-child, td:last-child { border-right: 0; }
+thead th { font-family: var(--sans); font-size: 12.5px; font-weight: 600; color: var(--navy); background: #f4f2eb; border-bottom: 1.5px solid var(--frame); }
+tbody tr:last-child td { border-bottom: 0; }
+td[align="center"], th[align="center"] { text-align: center; font-family: var(--sans); color: var(--navy); font-size: 13px; }
+td:first-child { font-weight: 500; }
+/* the review column: a fill-in field, not prose */
+h2 ~ table td:last-child { font-family: var(--sans); font-size: 12.5px; color: var(--navy-soft); background: var(--field); white-space: nowrap; }
+h2 ~ table thead th:last-child { background: var(--field); }
 
-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; background: var(--bg-soft); padding: 0.1em 0.3em; border-radius: 3px; }
-hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0 12px; }
-hr + p { color: var(--ink-muted); font-size: 14px; }
+@media (max-width: 640px) {
+  main.livedoc { padding: 36px 18px 64px; }
+  h1 { font-size: 22px; letter-spacing: 0.04em; }
+  table { display: block; overflow-x: auto; }
+}
 
-@media print { main.livedoc { padding: 0; } blockquote { background: none; } }
-@media (max-width: 640px) { main.livedoc { padding: 24px 16px 48px; } h1 { font-size: 24px; } table { display: block; overflow-x: auto; } }
-
-a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
-@media print { body { background: transparent; } main.livedoc { max-width: none; padding: 0; } h2, h3 { break-after: avoid; } table, figure, blockquote { break-inside: avoid; } a { color: inherit; } }
+@page { size: A4; margin: 20mm 18mm; }
+@media print {
+  html, body { background: #fff; color: #000; }
+  body { font-size: 10.5pt; }
+  main.livedoc { max-width: none; padding: 0; }
+  table { font-size: 9.5pt; break-inside: auto; }
+  tr { break-inside: avoid; }
+  thead { display: table-header-group; }
+  thead th, h2 ~ table td:last-child { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  h2, h3 { break-after: avoid; }
+}

@@ -1,0 +1,168 @@
+/* help-index — help-center home. Shares the release-digest visual family
+ * (warm neutral ground, single green accent, Pretendard) so a help set
+ * published next to a digest reads as one product's documentation. */
+:root {
+  --hc-bg: #FCFCFA;
+  --hc-surface: #FFFFFF;
+  --hc-ink: #1A1C1D;
+  --hc-body: #33363A;
+  --hc-muted: #77726A;
+  --hc-faint: #A8A399;
+  --hc-line: #E9E6E0;
+  --hc-accent: #0B7A5C;
+  --hc-accent-ink: #085C46;
+  --hc-hero-bg: #F5F3EE;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
+    "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
+  background: var(--hc-bg);
+  color: var(--hc-body);
+  line-height: 1.7;
+  font-size: 16px;
+  letter-spacing: -0.011em;
+  word-break: keep-all;
+}
+
+main.livedoc { display: block; }
+
+a {
+  color: var(--hc-accent);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+a:hover { color: var(--hc-accent-ink); text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── masthead ───────────────────────────── */
+.hc-masthead {
+  border-bottom: 1px solid var(--hc-line);
+  background: var(--hc-surface);
+}
+.hc-masthead-inner {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 18px 28px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.hc-brand {
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--hc-ink);
+  letter-spacing: -0.03em;
+}
+.hc-masthead-label {
+  font-size: 13.5px;
+  color: var(--hc-muted);
+  padding-left: 12px;
+  border-left: 1px solid var(--hc-line);
+}
+
+/* ── hero ───────────────────────────────── */
+.hc { max-width: 1040px; margin: 0 auto; padding: 0 28px 48px; }
+.hc-hero {
+  margin: 0 -28px;
+  padding: 56px 28px 44px;
+  background: var(--hc-hero-bg);
+  text-align: center;
+}
+.hc-hero-title {
+  font-size: 36px;
+  font-weight: 800;
+  color: var(--hc-ink);
+  letter-spacing: -0.035em;
+  line-height: 1.2;
+}
+.hc-hero-intro {
+  margin: 12px auto 0;
+  max-width: 560px;
+  font-size: 16.5px;
+  color: var(--hc-muted);
+}
+
+/* ── category cards ─────────────────────── */
+.hc-grid {
+  margin-top: 40px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+.hc-card {
+  background: var(--hc-surface);
+  border: 1px solid var(--hc-line);
+  border-radius: 12px;
+  padding: 22px 24px 20px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.hc-card:hover {
+  border-color: #D9D4CA;
+  box-shadow: 0 8px 24px -18px rgba(26, 28, 29, 0.25);
+}
+.hc-card-title {
+  font-size: 18px;
+  font-weight: 750;
+  color: var(--hc-ink);
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+.hc-card-count {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--hc-faint);
+  font-variant-numeric: tabular-nums;
+}
+.hc-card-list {
+  list-style: none;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hc-line);
+}
+.hc-card-list li { font-size: 14.5px; }
+.hc-card-list li + li { margin-top: 8px; }
+.hc-card-list a { color: var(--hc-body); }
+.hc-card-list a:hover { color: var(--hc-accent-ink); }
+
+/* ── other topics ───────────────────────── */
+.hc-other { margin-top: 48px; }
+.hc-other-title {
+  font-size: 17px;
+  font-weight: 750;
+  color: var(--hc-ink);
+  letter-spacing: -0.02em;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--hc-line);
+}
+.hc-other-list { list-style: none; margin-top: 16px; columns: 2; column-gap: 32px; }
+.hc-other-list li { font-size: 14.5px; break-inside: avoid; margin-bottom: 8px; }
+.hc-other-list a { color: var(--hc-body); }
+
+.hc-empty { margin-top: 48px; text-align: center; color: var(--hc-muted); }
+
+/* ── footer ─────────────────────────────── */
+.hc-foot {
+  margin-top: 64px;
+  padding-top: 24px;
+  border-top: 1px solid var(--hc-line);
+  font-size: 14.5px;
+  color: var(--hc-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.hc-support a { text-decoration: underline; text-decoration-color: rgba(11, 122, 92, 0.32); text-underline-offset: 3px; }
+.hc-colophon { font-size: 12.5px; color: var(--hc-faint); margin-left: auto; }
+
+@media (max-width: 640px) {
+  .hc { padding: 0 20px 40px; }
+  .hc-hero { margin: 0 -20px; padding: 40px 20px 32px; }
+  .hc-hero-title { font-size: 28px; }
+  .hc-other-list { columns: 1; }
+}

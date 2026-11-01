@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { renderLivedoc } from '../src/render.js';
+import { DokSchema } from '@doklo-beta/core';
+import { prepareStableHelpCopy } from '../src/stable-help-copy.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const roots: string[] = [];
@@ -67,5 +69,35 @@ describe('customer copy implementation details', () => {
     const { render } = await renderCopy(copy, false);
     const result = await render();
     expect(await readFile(result.outputs.find((output) => output.format === 'markdown')!.path, 'utf8')).toContain(copy);
+  });
+});
+
+describe('application routes in customer copy', () => {
+  const describe_ = (description: string) => {
+    const dok = DokSchema.parse({ dok_id: 'ADMIN', name: 'Admin', description });
+    return prepareStableHelpCopy({ dok, workspaceName: 'Acme', resolve: (value) => String(value), actorLabel: () => 'User' }).copy.description;
+  };
+
+  it.each([
+    ['Non-admin users cannot access the /admin route.', 'Non-admin users cannot access the admin page.'],
+    ['Non-admin users cannot access the /admin page route.', 'Non-admin users cannot access the admin page.'],
+    ['Open the /settings page to change your plan.', 'Open the settings page to change your plan.'],
+    ['Open a /orders/[id] screen.', 'Open the orders page.'],
+    ['Go to /x9_Q to continue.', 'Go to the page to continue.'],
+    ['관리자가 아닌 사용자는 /admin 경로에 접근할 수 없습니다.', '관리자가 아닌 사용자는 해당 페이지에 접근할 수 없습니다.'],
+  ])('reads %s as a page, without doubling the words around it', (input, expected) => {
+    expect(describe_(input)).toBe(expected);
+  });
+
+  it('collapses a repeated function word', () => {
+    expect(describe_('Members cannot access the the billing settings.')).toBe('Members cannot access the billing settings.');
+    expect(describe_('He said that that plan ends today.')).toBe('He said that that plan ends today.');
+  });
+
+  it('stays linear on a long run of routes and articles', () => {
+    const run = 'the /a page '.repeat(20_000);
+    const started = performance.now();
+    describe_(`Open ${run}now.`);
+    expect(performance.now() - started).toBeLessThan(2_000);
   });
 });

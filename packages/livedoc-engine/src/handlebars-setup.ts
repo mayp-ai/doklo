@@ -1,5 +1,6 @@
 import Handlebars from 'handlebars';
 import { registerIaIndex } from './helpers/ia-index.js';
+import { registerHelpSetJson } from './helpers/help-set-json.js';
 import {
   registerActorLabel,
   registerFormatDate,
@@ -47,5 +48,6 @@ export function createEngine(): typeof Handlebars {
   registerAggregations(hb);
   registerAudienceText(hb);
   registerIaIndex(hb);
+  registerHelpSetJson(hb);
   return hb;
 }

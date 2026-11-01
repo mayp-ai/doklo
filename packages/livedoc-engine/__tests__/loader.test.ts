@@ -85,6 +85,58 @@ describe('listTemplates', () => {
     });
   });
 
+  it('hides a template declared for other Dok languages, and only then', async () => {
+    const temp = await mkdtemp(join(tmpdir(), 'livedoc-loader-hub-locale-'));
+    try {
+      const localBuiltin = join(temp, 'builtin');
+      const manifest = (name: string, hubLocales?: string[]) => JSON.stringify({
+        name,
+        version: '1.0.0',
+        stability: 'experimental',
+        variables: {},
+        output_formats: ['markdown'],
+        scope: 'workspace',
+        output_path: `${name}.md`,
+        supported_locales: ['en', 'ko'],
+        default_locale: 'ko',
+        ...(hubLocales ? { hub_locales: hubLocales } : {}),
+      });
+      for (const [name, hubLocales] of [
+        ['korean-form', ['ko']],
+        ['any-language', undefined],
+      ] as const) {
+        const directory = join(localBuiltin, name);
+        await mkdir(directory, { recursive: true });
+        await writeFile(join(directory, 'doklo-template.json'), manifest(name, hubLocales ? [...hubLocales] : undefined));
+        await writeFile(join(directory, 'template.md.tpl'), 'Body.');
+      }
+      const base = {
+        workspaceRoot: join(temp, 'workspace'),
+        userHome: join(temp, 'user'),
+        builtinRoot: localBuiltin,
+        includeExperimental: true,
+      };
+
+      const english = await listTemplates({ ...base, hubLocale: 'en' });
+      expect(english.map((entry) => entry.name)).toEqual(['any-language']);
+
+      const korean = await listTemplates({ ...base, hubLocale: 'ko' });
+      expect(korean.map((entry) => entry.name).sort()).toEqual(['any-language', 'korean-form']);
+      expect(korean.find((entry) => entry.name === 'korean-form')?.hubLocales).toEqual(['ko']);
+      expect(korean.find((entry) => entry.name === 'any-language')?.hubLocales).toBeUndefined();
+
+      // No Hub language known (no workspace yet): nothing is hidden.
+      const unknown = await listTemplates(base);
+      expect(unknown.map((entry) => entry.name).sort()).toEqual(['any-language', 'korean-form']);
+
+      // Resolution by name ignores the declaration.
+      const resolved = await resolveTemplate('korean-form', { ...base, hubLocale: 'en' });
+      expect(resolved.parsed.manifest.hub_locales).toEqual(['ko']);
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
   it('computes precedence before hiding an experimental winner', async () => {
     const temp = await mkdtemp(join(tmpdir(), 'livedoc-loader-precedence-'));
     try {

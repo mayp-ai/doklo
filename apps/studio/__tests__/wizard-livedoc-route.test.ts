@@ -31,7 +31,7 @@ function renderRequest(): Request {
   return new Request('http://localhost/api/wizard/livedoc', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ ref: 'saas-prd', locale: 'en', dok: 'AUTH-SIGNIN' }),
+    body: JSON.stringify({ ref: 'help-page', locale: 'en', dok: 'AUTH-SIGNIN' }),
   });
 }
 

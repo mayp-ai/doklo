@@ -1,77 +1,78 @@
-**{{t "console_tag"}}**
+{{#with this as |root|}}
+# {{t "doc_title"}} — {{md_text (translate workspace.name)}}
 
-# {{t "doc_title"}}
+{{t "subtitle"}} · {{t "internal"}}
 
-{{md_text (translate workspace.name)}} · {{t "subtitle"}}
+**{{t "meta_asof"}}** {{format_date generated_at}} · **{{t "meta_features"}}** {{len doks}}{{t "unit_features"}}
 
-**{{t "updated"}}:** {{format_date workspace.updated_at}} · {{t "scope_workspace"}}
+{{t "reading"}}
 
-| {{t "kpi_features"}} | {{t "kpi_permission"}} | {{t "kpi_validation"}} | {{t "kpi_restriction"}} | {{t "kpi_policy"}} |
-| ---: | ---: | ---: | ---: | ---: |
-| {{len doks}} | {{len (rules_by_type doks "permission")}} | {{len (rules_by_type doks "validation")}} | {{len (rules_by_type doks "restriction")}} | {{len (rules_by_type doks "policy")}} |
-
-> **{{t "agent_note_title"}}**
->
-> {{t "agent_note_body"}}
+## {{t "toc_title"}}
 
 {{#each doks}}
-## {{md_text (translate this.name)}} · {{md_code this.dok_id}}
+- {{md_text (translate this.name)}} ({{md_code this.dok_id}}){{#unless (has_blockers this)}} — {{t "toc_clean"}}{{/unless}}
+{{/each}}
+
+{{#each doks}}
+## {{md_text (translate this.name)}} ({{md_code this.dok_id}})
 
 {{md_text (translate this.description)}}
 
+{{#if (add (add (len (unique_actors this.user_actions.steps)) (len this.surfaces)) (len this._meta.source_anchors))}}
 {{#if (len (unique_actors this.user_actions.steps))}}
-- **{{t "card_roles_label"}}:** {{#each (unique_actors this.user_actions.steps)}}{{md_text (actor_label this)}}{{#unless @last}}, {{/unless}}{{/each}}
+- **{{t "roles_label"}}:** {{#each (unique_actors this.user_actions.steps)}}{{#if @index}}, {{/if}}{{md_text (actor_label this)}}{{/each}}
 {{/if}}
 {{#if this.surfaces.length}}
-- **{{t "card_surface_label"}}:** {{#each this.surfaces}}{{md_text this}}{{#unless @last}}, {{/unless}}{{/each}}
+- **{{t "surfaces_label"}}:** {{#each this.surfaces}}{{#if @index}}, {{/if}}{{md_text this}}{{/each}}
 {{/if}}
-
-### {{t "card_when"}}
-
-{{#each this.business_rules.rules}}
-{{#if (eq this.type "permission")}}
-{{#if this.applies_to_roles.length}}
-- **{{t "label_permission"}} — {{t "check_permission"}}:** {{md_text (translate this.description)}} ({{#each this.applies_to_roles}}{{md_text (role_label this)}}{{#unless @last}}, {{/unless}}{{/each}}) — {{md_code this.id}}
-{{else}}
-- **{{t "label_permission"}} — {{t "perm_anyone"}}:** {{md_text (translate this.description)}} — {{md_code this.id}}
-{{/if}}
-{{/if}}
-{{/each}}
-{{#each this.user_actions.steps}}
-{{#each this.preconditions}}
-- **{{t "label_precondition"}} — {{t "check_precondition"}}:** {{md_text this}} — {{t "precond_in"}} {{../order}} · {{md_text (translate ../intent)}}
-{{/each}}
-{{/each}}
-{{#each this.business_rules.rules}}
-{{#if (eq this.type "validation")}}
-- **{{t "label_validation"}} — {{t "check_validation"}}:** {{md_text (translate this.description)}} — {{md_code this.id}}
-{{/if}}
-{{/each}}
-{{#each this.business_rules.rules}}
-{{#if (eq this.type "restriction")}}
-- **{{t "label_restriction"}} — {{t "check_restriction"}}:** {{md_text (translate this.description)}} — {{md_code this.id}}
-{{/if}}
-{{/each}}
-{{#each this.business_rules.rules}}
-{{#if (eq this.type "policy")}}
-- **{{t "label_policy"}} — {{t "check_policy"}}:** {{md_text (translate this.description)}} — {{md_code this.id}}
-{{/if}}
-{{/each}}
-{{#each this.business_rules.rules}}
-{{#if (eq this.type "calculation")}}
-- **{{t "label_calculation"}}:** {{md_text (translate this.description)}} — {{md_code this.id}}
-{{/if}}
-{{/each}}
-
-{{#unless (has_blockers this)}}
-**{{t "card_no_blockers"}}.** {{t "card_no_blockers_hint"}}
-{{/unless}}
-
 {{#if this._meta.source_anchors.length}}
-**{{t "source_label"}}:** {{#each this._meta.source_anchors}}{{md_code this.file}}{{#unless @last}}, {{/unless}}{{/each}}
+- **{{t "source_label"}}:** {{#each this._meta.source_anchors}}{{#if @index}}, {{/if}}{{md_code this.file}}{{/each}}
+{{/if}}
+
+{{/if}}
+{{#if (has_blockers this)}}
+| {{t "col_type"}} | {{t "col_condition"}} | {{t "col_roles"}} | {{t "col_ref"}} |
+| --- | --- | --- | --- |
+{{#with this as |dok|}}
+{{#each dok.business_rules.rules}}
+{{#if (eq this.type "permission")}}
+{{> reason-row-md type_label=(t "type_permission") text=(translate this.description) roles=this.applies_to_roles any=(t "roles_any") ref=(md_code this.id) na=(t "na")}}
+{{/if}}
+{{/each}}
+{{#each dok.user_actions.steps}}
+{{#each this.preconditions}}
+{{> reason-row-md type_label=(t "type_precondition") text=this ref=(concat (t "step_ref") " " ../order) na=(t "na")}}
+{{/each}}
+{{/each}}
+{{#each dok.business_rules.rules}}
+{{#if (eq this.type "validation")}}
+{{> reason-row-md type_label=(t "type_validation") text=(translate this.description) ref=(md_code this.id) na=(t "na")}}
+{{/if}}
+{{/each}}
+{{#each dok.business_rules.rules}}
+{{#if (eq this.type "restriction")}}
+{{> reason-row-md type_label=(t "type_restriction") text=(translate this.description) ref=(md_code this.id) na=(t "na")}}
+{{/if}}
+{{/each}}
+{{#each dok.business_rules.rules}}
+{{#if (eq this.type "policy")}}
+{{> reason-row-md type_label=(t "type_policy") text=(translate this.description) ref=(md_code this.id) na=(t "na")}}
+{{/if}}
+{{/each}}
+{{#each dok.business_rules.rules}}
+{{#if (eq this.type "calculation")}}
+{{> reason-row-md type_label=(t "type_calculation") text=(translate this.description) ref=(md_code this.id) na=(t "na")}}
+{{/if}}
+{{/each}}
+{{/with}}
+{{else}}
+{{t "no_blockers"}}
 {{/if}}
 
 {{/each}}
----
+## {{t "escalate_title"}}
 
-_{{t "footer_live"}}_
+{{#if variables.escalation_contact}}**{{t "escalate_to"}}:** {{md_text variables.escalation_contact}}
+
+{{/if}}{{t "escalate_bring"}}
+{{/with}}

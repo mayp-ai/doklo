@@ -38,6 +38,15 @@ export function registerMathHelpers(hb: typeof Handlebars): void {
     return positional.map((value) => String(value ?? '')).join('');
   });
 
+  /**
+   * {{includes list value}} — true when the array holds the value (strict
+   * equality). Lets a template draw a matrix cell ("is this feature offered
+   * on this service?") without a nested each/if that cannot fall back to "no".
+   */
+  hb.registerHelper('includes', (list: unknown, value: unknown) => {
+    return Array.isArray(list) && list.includes(value);
+  });
+
   hb.registerHelper('default', (value: unknown, fallback: unknown) => {
     return value === undefined || value === null || value === '' ? fallback : value;
   });

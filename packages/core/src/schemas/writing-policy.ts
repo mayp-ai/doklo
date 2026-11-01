@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const KoreanCustomerToneSchema = z.enum(['formal', 'plain']);
+export const KoreanCustomerToneSchema = z.enum(['formal', 'plain', 'polite']);
 export type KoreanCustomerTone = z.infer<typeof KoreanCustomerToneSchema>;
 
 export const DokWritingPolicySchema = z.object({

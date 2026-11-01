@@ -183,3 +183,63 @@ describe('variant_matrix helper', () => {
     expect(out).toBe('desktop+mobile|A-001#1miss:;B-001#1miss:mobile;');
   });
 });
+
+describe('step_roles helper', () => {
+  it('lists the roles that perform a step once each, system actors excluded', () => {
+    const out = render('{{join (step_roles doks.[0].user_actions.steps) ","}}', { doks: DOKS });
+    expect(out).toBe('ROLE-USER');
+  });
+});
+
+describe('rule_roles helper', () => {
+  it('collects the roles named by rules of one type, deduplicated', () => {
+    const rules = [
+      { id: 'r1', type: 'permission', applies_to_roles: ['ROLE-ADMIN', 'ROLE-USER'] },
+      { id: 'r2', type: 'permission', applies_to_roles: ['ROLE-USER'] },
+      { id: 'r3', type: 'validation', applies_to_roles: ['ROLE-MENTOR'] },
+    ];
+    expect(render('{{join (rule_roles rules "permission") ","}}', { rules })).toBe('ROLE-ADMIN,ROLE-USER');
+    expect(render('{{len (rule_roles rules "restriction")}}', { rules })).toBe('0');
+  });
+});
+
+describe('surface_columns helper', () => {
+  it('keeps declared services in order and appends undeclared surfaces sorted', () => {
+    const doks = [
+      { ...DOKS[0], surfaces: ['web', 'mobile'] },
+      { ...DOKS[1], surfaces: ['admin', 'web'] },
+    ];
+    const services = [{ service_id: 'web', type: 'frontend' }, { service_id: 'api', type: 'backend' }];
+    const out = render(
+      '{{#each (surface_columns doks services)}}{{this.service_id}}{{#if this.type}}:{{this.type}}{{/if}},{{/each}}',
+      { doks, services },
+    );
+    expect(out).toBe('web:frontend,api:backend,admin,mobile,');
+  });
+});
+
+describe('doks_with_unnamed_rule_type helper', () => {
+  it('keeps active doks whose rules of the type name no role', () => {
+    const doks = [
+      { ...DOKS[0], business_rules: { rules: [{ id: 'r', type: 'permission', applies_to_roles: [] }] } },
+      { ...DOKS[1], business_rules: { rules: [{ id: 'r', type: 'permission', applies_to_roles: ['ROLE-ADMIN'] }] } },
+      { ...DOKS[1], dok_id: 'C-001', business_rules: { rules: [] } },
+    ];
+    const out = render('{{#each (doks_with_unnamed_rule_type doks "permission")}}{{this.dok_id}},{{/each}}', { doks });
+    expect(out).toBe('A-001,');
+  });
+});
+
+describe('external_parties helper', () => {
+  it('lists each step an external actor performs, with its Dok', () => {
+    const doks = [
+      { ...DOKS[0], user_actions: { steps: [
+        { order: 1, actor: { kind: 'external', label: 'Mail service' }, intent: 'i', outcome: 'o' },
+        { order: 2, actor: { kind: 'role', role_ref: 'ROLE-USER' }, intent: 'i', outcome: 'o' },
+      ] } },
+      DOKS[1],
+    ];
+    const out = render('{{#each (external_parties doks)}}{{this.label}}@{{this.dok.dok_id}}#{{this.step.order}};{{/each}}', { doks });
+    expect(out).toBe('Mail service@A-001#1;');
+  });
+});

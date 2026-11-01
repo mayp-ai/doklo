@@ -1,0 +1,2 @@
+{{#each nodes}}| {{#if (gt ../depth 0)}}{{#if (gt ../depth 1)}}　　{{else}}　{{/if}}└ {{/if}}{{md_cell (translate this.label)}} | {{#each this.doks}}{{#if @index}}, {{/if}}{{md_cell (translate this.dok.name)}}{{/each}} |
+{{#if this.children.length}}{{> ia-rows-md nodes=this.children depth=(add ../depth 1)}}{{/if}}{{/each}}

@@ -1,10 +1,10 @@
 {
   "$schema": "https://doklo.dev/template-manifest-v2.json",
   "name": "release-digest",
-  "version": "1.0.0",
+  "version": "1.2.2",
   "display_name": {
-    "en": "Release Customer Digest",
-    "ko": "릴리스 고객 다이제스트"
+    "en": "Release Notes",
+    "ko": "릴리스 노트"
   },
   "description": {
     "en": "One customer-facing page announcing what changed since the last digest render: new, improved, and discontinued features, computed deterministically from the publication's own render evidence.",
@@ -42,12 +42,25 @@
       "type": "string",
       "required": false,
       "description": "Customer support URL for the footer link."
+    },
+    "help_base_url": {
+      "type": "string",
+      "required": false,
+      "description": "Base URL of the published help pages; each feature entry then links to <help_base_url>/<DOK-ID>.html."
     }
   },
   "default_format": "markdown",
   "outputs": {
-    "markdown": { "entry": "template.md.tpl", "output_path": "release-digest.md", "source": "markdown" },
-    "html": { "entry": "template.md.tpl", "output_path": "release-digest.html", "source": "markdown" }
+    "markdown": {
+      "entry": "template.md.tpl",
+      "output_path": "release-digest.md",
+      "source": "markdown"
+    },
+    "html": {
+      "entry": "template.html.tpl",
+      "output_path": "release-digest.html",
+      "source": "html"
+    }
   },
   "scope": "workspace",
   "supported_locales": [
@@ -55,29 +68,49 @@
     "ko"
   ],
   "default_locale": "en",
-  "extends_default_css": true,
+  "extends_default_css": false,
   "strings": {
     "en": {
-      "title": "What Changed in This Release",
-      "intro": "Review the product features added, changed, or removed in this release.",
-      "section_added": "New features",
-      "section_changed": "Changed features",
-      "changed_item_suffix": "was changed.",
-      "section_removed": "Removed features",
-      "no_changes": "This release has no documented customer-facing changes.",
-      "first_edition_intro": "This first digest summarizes the product features currently available.",
-      "support": "Contact support"
+      "title": "What's new",
+      "masthead_label": "Product updates",
+      "intro": "Here's what changed for you in this release.",
+      "section_added": "New",
+      "section_added_more": "And a few more",
+      "section_changed": "Improved",
+      "changed_item_suffix": "has been updated.",
+      "section_removed": "No longer available",
+      "removed_item_suffix": "has been discontinued.",
+      "no_changes": "No customer-facing changes in this release.",
+      "first_edition_intro": "This is the first digest for this product. Here's what it offers today — future digests will cover only what changed.",
+      "support_question": "Questions?",
+      "support": "Contact support",
+      "colophon": "Doklo Live Docs",
+      "glance_title": "At a glance",
+      "glance_added": "New",
+      "glance_changed": "Improved",
+      "glance_removed": "Discontinued",
+      "learn_more": "Learn more"
     },
     "ko": {
-      "title": "이번 릴리스에서 달라진 점",
-      "intro": "이번 릴리스에서 추가·변경·중단된 제품 기능을 확인합니다.",
-      "section_added": "추가된 기능",
-      "section_changed": "변경된 기능",
-      "changed_item_suffix": "기능이 변경되었습니다.",
-      "section_removed": "중단된 기능",
-      "no_changes": "이번 릴리스에는 문서화된 고객 대상 변경 사항이 없습니다.",
-      "first_edition_intro": "첫 릴리스 요약으로 현재 제공 중인 제품 기능을 표시합니다.",
-      "support": "고객지원에 문의"
+      "title": "새로운 소식",
+      "masthead_label": "업데이트 소식",
+      "intro": "이번 릴리스에서 달라진 내용",
+      "section_added": "새로운 기능",
+      "section_added_more": "추가된 다른 기능",
+      "section_changed": "개선된 기능",
+      "changed_item_suffix": "업데이트됨",
+      "section_removed": "종료된 기능",
+      "removed_item_suffix": "종료됨",
+      "no_changes": "이번 릴리스에 고객 대상 변경 없음",
+      "first_edition_intro": "이 제품의 첫 소식 — 현재 제공 중인 기능 소개. 다음 소식부터는 달라진 것만",
+      "support_question": "문의",
+      "support": "고객지원",
+      "colophon": "Doklo Live Docs",
+      "glance_title": "한눈에 보기",
+      "glance_added": "새 기능",
+      "glance_changed": "개선",
+      "glance_removed": "종료",
+      "learn_more": "자세히 보기"
     }
   },
   "requires_hub_layers": [

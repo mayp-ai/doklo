@@ -202,6 +202,24 @@ describe('stable artifact public-copy lint', () => {
     );
   });
 
+  it.each([
+    "Only available when the user's role is 'owner'.",
+    'The button is hidden unless the role === "admin".',
+    "역할이 'owner'인 멘토만 일정을 바꿀 수 있습니다.",
+  ])('detects a role named by its code value: %s', (copy) => {
+    expect(run(`<p>${copy}</p>`)).toContainEqual(
+      expect.objectContaining({ code: 'INTERNAL_IDENTIFIER' }),
+    );
+  });
+
+  it.each([
+    'Only the program owner can change the schedule.',
+    "Choose the 'Mentor' tab to see your sessions.",
+    '담당 멘토만 일정을 바꿀 수 있습니다.',
+  ])('leaves a role named in reader words alone: %s', (copy) => {
+    expect(run(`<p>${copy}</p>`)).toEqual([]);
+  });
+
   it('rejects only known selected Dok IDs and allows ordinary customer references', () => {
     expect(run('<p>Order ORD is ready.</p>')).toEqual([]);
     expect(run('<p>Feature AUTH is available.</p>')).toEqual([]);

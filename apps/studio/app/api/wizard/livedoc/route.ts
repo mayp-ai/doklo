@@ -25,10 +25,14 @@ async function loadEngine(): Promise<typeof import('@doklo-beta/livedoc-engine')
   return import(/* webpackIgnore: true */ '@doklo-beta/livedoc-engine');
 }
 
+// Download-only deliverables: office files plus the JSON data bundle
+// (help-data), which is likewise served as an attachment rather than
+// previewed inline.
 const BINARY_MIME: Record<string, string> = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   hwpx: 'application/hwp+zip',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  json: 'application/json; charset=utf-8',
 };
 
 /** Captured Dok ids, most recent capture first. */
@@ -107,7 +111,8 @@ async function renderWizardLivedoc(
       const base = basename(htmlOut.path);
       return { kind: 'html', html: await inlinePreviewAssets(html, outDir), filename: `${locale}-${base}` };
     }
-    // Binary deliverables (xlsx / hwpx) — download-only, no inline preview.
+    // Non-HTML deliverables (xlsx / hwpx / pptx / json) — download-only,
+    // no inline preview.
     const binOut = result.outputs.find((o) => o.format === target);
     if (!binOut) {
       throw new Error(`No ${target} output produced for '${ref}'`);

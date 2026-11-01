@@ -34,15 +34,20 @@ describe('help-index built-in template', () => {
         join(htmlOutput, 'help-index.md'),
         'utf8',
       );
-      expect(htmlIndex).toContain('# Find Product Help');
-      expect(htmlIndex).toContain('### Sign in');
+      expect(htmlIndex).toContain('# Help Center');
+      // Help-center form: the top-level route group is the category and its
+      // articles are flattened beneath it — leaf routes never become headings.
+      expect(htmlIndex).toContain('## Auth');
+      expect(htmlIndex).not.toContain('### Sign in');
       expect(htmlIndex).toContain(
         '- [Sign-in help](./AUTH.html)',
       );
-      expect(htmlIndex).toContain('## Topics outside navigation');
+      expect(htmlIndex).toContain('## Other topics');
       expect(htmlIndex).toContain(
         '- [Account help](./LOOSE.html)',
       );
+      // Article counts label each category like a help-center card.
+      expect(htmlIndex).toMatch(/## Auth\n\n_1 article_/);
 
       const markdownOutput = join(root, 'markdown-output');
       await renderLivedoc({
@@ -113,7 +118,7 @@ describe('help-index built-in template', () => {
         expect.objectContaining({ code: 'MISSING_IA' }),
       );
       const index = await readFile(join(outDir, 'help-index.md'), 'utf8');
-      expect(index).toContain('## Topics outside navigation');
+      expect(index).toContain('## Other topics');
       expect(index).toContain('- [Sign-in help](./AUTH.html)');
       expect(index).toContain('- [Account help](./LOOSE.html)');
     } finally {

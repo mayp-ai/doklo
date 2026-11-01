@@ -1,15 +1,21 @@
 # Requirements Traceability Matrix (요구사항추적표) — declarative xlsx spec.
 #
-# Genre: 한국 공공 정보화사업 감리 산출물. The visual identity is the
-# audit-table convention (감리 산출물 표): a 공공 표제 row (사업명/작성일/총건수),
-# a single muted-gray header band (FFD9D9D9), thin grid borders, no zebra, no
-# color flourish — the deliberately plain ledger a 정보시스템 감리 reviewer reads.
-# The RTM signature is the COLUMN SYSTEM itself: requirement ID → test-case ID
-# → implementing program (code anchor) → verified rules → status, laid out so an
-# auditor can walk end-to-end traceability across one row.
+# Genre: 한국 공공 정보화사업 감리 산출물 (전자정부법 §57 → 정보시스템 감리기준
+# 제8~10조의 "대비표" 계열 수감 문서). Form follows the audited conventions:
+#
+# - 4단계 2단 병합 헤더 [요구사항 | 설계 | 구현 | 시험] — CBD 표준산출물(R3,
+#   TTAK.KO-11.0162)과 감리수행가이드 서식의 시각 시그니처. `group:` per column.
+# - 판정란은 생성하지 않는다: 시험 결과(충족/미흡)·적합/부적합은 발주자 검수와
+#   감리원 판정의 몫이므로 `blank: true` 사람 기입 칸으로만 제공한다.
+# - 화면 ID는 Hub가 아직 보증하지 못하는 설계 산출물 매핑이므로 역시 빈 기입
+#   칸이다 — 자동으로 채운 척하지 않는다.
+# - 프로그램 ID = `_meta.source_anchors[].file`. 감리원이 수작업으로 확인하던
+#   구현 연결을 코드 앵커가 증명하는, 이 문서의 Doklo 차별 컬럼.
+# - 시스템당 1표 원칙(CBD): 추적 본표는 시트 하나다. 분류별 시트 분할 금지.
 #
 # Sheet ① "요구사항추적표": one row per acceptance criterion (= 시험케이스 추적행).
-# Sheet ② "기능별 집계":   one row per Dok (단계/규칙/AC/구현파일 카운트).
+# Sheet ② "커버리지 점검":   one row per Dok — 감리 지적 1순위인 "빈 셀·누락"을
+#                            제출 전에 자가 점검하는 보조 시트 (감리 표준 양식 아님).
 
 sheets:
   # ── Sheet ① : the trace table, AC-grained (the killer 감리 deliverable) ──
@@ -23,49 +29,48 @@ sheets:
     columns:
       - key: req_id
         value: dok.dok_id
-        width: 18
+        width: 16
         align: left
+        group: req
       - key: req_name
         value: dok.name
         translate: true
         width: 24
         align: left
-      - key: domain
-        value: dok.tags
-        join: ", "
-        width: 18
+        group: req
+      - key: screen_id
+        blank: true            # 설계 산출물(화면설계서) 매핑 — 사람 기입 칸
+        width: 14
         align: left
-      - key: detail
+        group: design
+      - key: program_id
+        value: anchors         # _meta.source_anchors[].file — Doklo 차별 컬럼
+        join: "\n"
+        width: 32
+        align: left
+        group: impl
+      - key: tc_id
+        value: criterion.id
+        width: 22
+        align: left
+        group: test
+      - key: criteria
         value: criterion.statement
         translate: true
         width: 50
         align: left
-      - key: impl
-        value: anchors          # _meta.source_anchors[].file — Doklo 차별 컬럼
-        join: "\n"
-        width: 30
-        align: left
-      - key: tc_id
-        value: criterion.id
-        width: 24
-        align: left
-      - key: rules
-        value: rules            # this AC가 검증하는 규칙들
-        map: id
-        join: "\n"
-        width: 22
-        align: left
-      - key: status
-        value: dok.status       # 데이터 기반 — 결정 불가하므로 dok.status 그대로
+        group: test
+      - key: result
+        blank: true            # 충족/미흡 — 검수자 판정란, 자동 기입 금지
         width: 10
         align: center
+        group: test
       - key: remark
-        value: dok.surfaces      # 노출 면 (honest data note)
-        join: ", "
+        blank: true
         width: 12
         align: left
 
-  # ── Sheet ② : per-feature aggregation (기능 단위 조감) ──
+  # ── Sheet ② : pre-submission coverage self-check (보조 시트) ──
   - name_key: sheet_summary
     rows: doks
     title_key: summary_title
@@ -76,7 +81,7 @@ sheets:
     columns:
       - key: s_req_id
         value: dok.dok_id
-        width: 18
+        width: 16
         align: left
       - key: s_req_name
         value: dok.name
@@ -96,14 +101,10 @@ sheets:
       - key: s_acs
         value: dok.acceptance_criteria.criteria
         count: true
-        width: 12
+        width: 14
         align: center
       - key: s_files
         value: dok._meta.source_anchors
         count: true
         width: 12
-        align: center
-      - key: s_status
-        value: dok.status
-        width: 10
         align: center

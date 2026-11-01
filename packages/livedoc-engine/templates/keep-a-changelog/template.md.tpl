@@ -1,6 +1,6 @@
-# {{t "title"}}
+# {{t "title"}} — {{md_text (translate workspace.name)}}
 
-{{t "intro"}}
+{{t "intro_pre"}}{{md_text (translate workspace.name)}}{{t "intro_post"}}
 
 {{t "intro2"}}
 {{#if changelog.total}}

@@ -1,0 +1,1 @@
+| {{type_label}} | {{md_cell text}} | {{#if roles.length}}{{#each roles}}{{#if @index}}, {{/if}}{{md_cell (role_label this)}}{{/each}}{{else}}{{#if any}}{{any}}{{else}}{{na}}{{/if}}{{/if}} | {{ref}} |

@@ -1,0 +1,1 @@
+{{#if (eq scope "global")}}{{t "scope_global"}}{{else}}{{#if (eq scope "tenant")}}{{t "scope_tenant"}}{{else}}{{#if (eq scope "resource")}}{{t "scope_resource"}}{{else}}{{scope}}{{/if}}{{/if}}{{/if}}

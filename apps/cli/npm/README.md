@@ -81,6 +81,14 @@ A verdict is an opinion with cited evidence, never an approval. The judge writes
 - Descriptions a person edited are still skipped without `--force`.
 - Drafts, descriptions with a tracked file that is gone or unreadable, and descriptions whose tracking was repaired regenerate without the judge, as do descriptions beyond `--judge-max`, over the 240,000-character input, or whose changes cannot be shown to the judge.
 
+## Live Docs templates in 0.4.2
+
+Two templates are new. `feature-spec` writes the whole Hub as one functional specification in the shape delivery documents take: a cover with document control fields and sign-off, a revision history, the system structure, a feature list, one section per feature with its procedure, business rules and acceptance criteria, cross-feature policies and appendices. Each part can be switched off, so the feature list or the feature details can be published on their own. `feature-spec-xlsx` is its spreadsheet edition. `help-data` renders the customer-safe help set as one JSON bundle for a headless help SDK.
+
+The stable templates were rebuilt from Hub facts only: no section is written from assumptions, and what the Hub does not record is left out. Templates are named the way practitioners name the documents — Troubleshooting Guide, Developer Onboarding Guide, Architecture Overview, Release Notes, Help Center Home, Access Review Sheet, Functional Specification, Administrator Guide, Security Controls Inventory. `saas-prd` and `openapi-3.1` were removed; both filled in facts the Hub does not carry.
+
+A template can say which Dok languages it is written for (`hub_locales` in `doklo-template.json`). `doklo template list` leaves such a template out when the workspace's `default_locale` is not among them and says how many it kept off the list; `--all-languages` shows them, and `live-docs render` still accepts any template by name. The four Korean public-sector and delivery forms (`feature-spec-xlsx`, `rtm-trace`, `korean-public-ppt`, `ops-manual`) are declared for Korean Hubs.
+
 ## Document languages in 0.4.1
 
 Doks can be written in English, Korean, Japanese, Simplified or Traditional Chinese, French, Spanish, German, or Portuguese (`en`, `ko`, `ja`, `zh-Hans`, `zh-Hant`, `fr`, `es`, `de`, `pt`). `doklo init` proposes the language from the code: i18n configuration first, then the text a visitor reads, then a single message catalog, then `<html lang>`. When the code says nothing, it proposes the CLI's language. Pass `--default-locale` to choose; loosely written tags such as `ko_KR` or `zh-TW` are stored in their canonical form. `doklo scan --json` reports the detected language for each service.

@@ -1,0 +1,15 @@
+/* github-devguide — rides the engine's default layer; tokens: --bg --bg-soft --ink --ink-soft --ink-muted --line. */
+main.livedoc { max-width: 880px; }
+main.livedoc table { display: table; font-size: 0.92em; }
+main.livedoc th { white-space: nowrap; }
+main.livedoc td code { white-space: nowrap; }
+main.livedoc input[type="checkbox"] { margin-right: 0.4em; vertical-align: -1px; }
+main.livedoc li:has(> input[type="checkbox"]) { list-style: none; margin-left: -1.4em; }
+
+/* properties panel — the first table under the intro, the way Notion/Obsidian show a page's properties */
+main.livedoc > table:first-of-type { width: auto; min-width: 22em; max-width: 100%; margin: 0 0 1.6em; border: 1px solid var(--line, #d1d9e0); border-radius: 8px; background: var(--bg-soft, #f6f8fa); font-size: 0.88em; border-collapse: separate; border-spacing: 0; }
+main.livedoc > table:first-of-type thead { display: none; }
+main.livedoc > table:first-of-type td { border: 0; border-top: 1px solid var(--line, #d1d9e0); padding: 6px 14px; line-height: 1.5; vertical-align: middle; }
+main.livedoc > table:first-of-type tr:first-child td { border-top: 0; }
+main.livedoc > table:first-of-type td:first-child { color: var(--ink-muted, #59636e); white-space: nowrap; padding-right: 28px; min-width: 7em; }
+main.livedoc > table:first-of-type td code { background: var(--bg, #fff); border: 1px solid var(--line, #d1d9e0); padding: 1px 7px; border-radius: 4px; font-size: 0.92em; }

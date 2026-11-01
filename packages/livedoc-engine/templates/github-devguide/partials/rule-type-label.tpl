@@ -1,0 +1,1 @@
+{{#if (eq type "permission")}}{{t "type_permission"}}{{else}}{{#if (eq type "restriction")}}{{t "type_restriction"}}{{else}}{{#if (eq type "policy")}}{{t "type_policy"}}{{else}}{{#if (eq type "validation")}}{{t "type_validation"}}{{else}}{{#if (eq type "calculation")}}{{t "type_calculation"}}{{else}}{{type}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}

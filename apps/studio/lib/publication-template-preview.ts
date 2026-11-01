@@ -134,32 +134,35 @@ async function renderTemplatePreview(input: {
   const engine = await loadEngine();
   if (input.template.scope === 'per_dok') {
     let lastCandidateError: Error | undefined;
+    // A Dok in another Korean register still renders (decisions 2026-10-08, D1);
+    // an example in the workspace register is preferred, and kept as a fallback.
+    let registerFallback: PublicationTemplatePreview | undefined;
     for (const dokId of input.dokIds) {
       try {
-        return await renderTextTemplatePreview({
+        const rendered = await renderTextTemplatePreview({
           ...input,
           engine,
           dokIds: [dokId],
           format,
         });
+        if (!rendered.registerWarnings) return rendered.preview;
+        registerFallback ??= rendered.preview;
       } catch (error) {
-        const writingPolicyFailure = error instanceof engine.EngineError
-          && (error.code === 'KOREAN_TONE_CONFLICT'
-            || error.code === 'KOREAN_WRITING_POLICY_CHANGED');
-        if (!(error instanceof engine.StableLintError) && !writingPolicyFailure) throw error;
+        if (!(error instanceof engine.StableLintError)) throw error;
         lastCandidateError = error;
       }
     }
+    if (registerFallback) return registerFallback;
     if (lastCandidateError) throw lastCandidateError;
     throw new Error(
       `Template '${input.template.name}' has no eligible Dok to preview.`,
     );
   }
-  return renderTextTemplatePreview({
+  return (await renderTextTemplatePreview({
     ...input,
     engine,
     format,
-  });
+  })).preview;
 }
 
 async function renderTextTemplatePreview(input: {
@@ -170,7 +173,7 @@ async function renderTextTemplatePreview(input: {
   format: (typeof TEXT_PREVIEW_FORMATS)[number];
   variables: Record<string, string | boolean | number | undefined>;
   engine: Awaited<ReturnType<typeof loadEngine>>;
-}): Promise<PublicationTemplatePreview> {
+}): Promise<{ preview: PublicationTemplatePreview; registerWarnings: boolean }> {
   const outDir = await mkdtemp(join(tmpdir(), 'doklo-template-preview-'));
   try {
     const result = await input.engine.renderLivedoc({
@@ -202,14 +205,18 @@ async function renderTextTemplatePreview(input: {
     const filename = basename(path);
     const content = await readFile(path, 'utf8');
     return {
-      kind: 'html',
-      fidelity: 'workspace',
-      html: input.format === 'html'
-        ? await inlinePreviewAssets(content, canonicalOutDir)
-        : textPreviewDocument(content, filename, input.locale),
-      filename,
-      format: input.format,
-      output_count: outputs.length,
+      preview: {
+        kind: 'html',
+        fidelity: 'workspace',
+        html: input.format === 'html'
+          ? await inlinePreviewAssets(content, canonicalOutDir)
+          : textPreviewDocument(content, filename, input.locale),
+        filename,
+        format: input.format,
+        output_count: outputs.length,
+      },
+      registerWarnings: (result.manifest.warnings ?? []).some((warning) =>
+        warning.code === 'KOREAN_TONE_CONFLICT' || warning.code === 'KOREAN_WRITING_POLICY_CHANGED'),
     };
   } finally {
     await rm(outDir, { recursive: true, force: true });
