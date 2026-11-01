@@ -1,0 +1,4 @@
+{{~#each services~}}{{~#each this.ia.edges~}}
+{{~#if (eq this.from ../../dok.dok_id)~}}<span class="fs-rel"><span class="fs-rel-type">{{> edge-type-label type=this.type}}</span> {{#each ../../doks}}{{#if (eq this.dok_id ../to)}}{{translate this.name}} <span class="t-id-inline">{{this.dok_id}}</span>{{/if}}{{/each}}</span>{{~/if~}}
+{{~#if (eq this.to ../../dok.dok_id)~}}<span class="fs-rel"><span class="fs-rel-type fs-rel-type--in">{{> edge-type-label type=this.type}}</span> {{#each ../../doks}}{{#if (eq this.dok_id ../from)}}{{translate this.name}} <span class="t-id-inline">{{this.dok_id}}</span>{{/if}}{{/each}}</span>{{~/if~}}
+{{~/each~}}{{~/each~}}

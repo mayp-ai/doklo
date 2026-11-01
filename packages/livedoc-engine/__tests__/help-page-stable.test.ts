@@ -211,8 +211,8 @@ describe('template discovery stability gate', () => {
   it('retains experimental discoverability only behind explicit opt-in', async () => {
     const entries = await list({ ...opts, includeExperimental: true });
 
-    expect(entries).toHaveLength(16);
-    expect(entries.filter((entry) => entry.stability === 'experimental')).toHaveLength(9);
+    expect(entries).toHaveLength(17);
+    expect(entries.filter((entry) => entry.stability === 'experimental')).toHaveLength(10);
     expect(entries.map((entry) => entry.name)).toContain('help-index');
     expect(entries.map((entry) => entry.name)).toContain('release-digest');
   });

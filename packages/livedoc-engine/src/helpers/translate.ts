@@ -19,6 +19,8 @@ export interface HelperRoot {
   __outputSource?: TemplateOutputSource;
   /** Project-supplied dev-jargon → operator-language substitutions (audience_text). */
   __audienceDictionary?: ReadonlyArray<readonly [string, string]>;
+  /** IANA zone instants are printed in (`format_date`, `render_date`); absent = UTC. Date-only labels ignore it. */
+  __timezone?: string;
 }
 
 function getRoot(context: unknown, options: Handlebars.HelperOptions): HelperRoot {

@@ -24,6 +24,13 @@ export interface ResolveOptions {
   preferredSource?: TemplateSource;
   /** Include experimental templates in enumeration. Resolution by explicit name is unchanged. */
   includeExperimental?: boolean;
+  /**
+   * The workspace's Dok language (`workspace.default_locale`). When set, a
+   * template that declares `hub_locales` without it is left out of enumeration
+   * — a Korean public-sector form stays off an English product's list.
+   * Resolution by explicit name is unchanged.
+   */
+  hubLocale?: string;
 }
 
 export interface ResolvedTemplate {
@@ -152,8 +159,19 @@ export interface ListEntry {
   requiredInput: TemplateManifest['required_input'];
   variables: Record<string, TemplateVariableDefinition>;
   outputFormats: TemplateManifest['output_formats'];
+  /** The Dok languages the template declares itself for (`hub_locales`); undefined = any. */
+  hubLocales?: readonly string[];
   /** True when this entry is the one resolveTemplate() would pick (precedence winner). */
   active: boolean;
+}
+
+/** Whether a template written for `hubLocales` applies to a Hub in `hubLocale`. Undeclared = every language. */
+export function templateAppliesToHubLocale(
+  hubLocales: readonly string[] | undefined,
+  hubLocale: string | undefined,
+): boolean {
+  if (hubLocales === undefined || hubLocale === undefined) return true;
+  return hubLocales.includes(hubLocale);
 }
 
 /**
@@ -174,6 +192,7 @@ export async function listTemplates(opts: ResolveOptions): Promise<ListEntry[]> 
         const isActive = !seenActive.has(name);
         if (isActive) seenActive.add(name);
         if (!opts.includeExperimental && parsed.manifest.stability !== 'stable') continue;
+        if (!templateAppliesToHubLocale(parsed.manifest.hub_locales, opts.hubLocale)) continue;
         out.push({
           name,
           version: parsed.manifest.version,
@@ -186,6 +205,7 @@ export async function listTemplates(opts: ResolveOptions): Promise<ListEntry[]> 
           requiredInput: parsed.manifest.required_input,
           variables: parsed.manifest.variables,
           outputFormats: parsed.manifest.output_formats,
+          ...(parsed.manifest.hub_locales ? { hubLocales: parsed.manifest.hub_locales } : {}),
           active: isActive,
         });
       } catch (err) {

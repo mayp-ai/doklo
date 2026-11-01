@@ -1,0 +1,45 @@
+{
+  "$schema": "https://doklo.dev/template-manifest-v2.json",
+  "name": "help-data",
+  "version": "0.1.0",
+  "display_name": {
+    "en": "Help Set Data (JSON)",
+    "ko": "도움말 세트 데이터 (JSON)"
+  },
+  "description": {
+    "en": "The customer-safe help-set view model (doklo-help-set@1) as one JSON bundle — categories, articles, steps, rules, checks, and curated FAQ — for the headless help SDK and any custom frontend. Article copy passes the same cleanup pipeline as the stable help-page; raw schema internals never appear.",
+    "ko": "고객 안전 도움말 세트 뷰 모델(doklo-help-set@1)을 JSON 번들 하나로 냅니다 — 카테고리·아티클·단계·규칙·확인·큐레이션 FAQ. 헤드리스 도움말 SDK와 커스텀 프런트엔드용이며, 아티클 카피는 stable help-page와 같은 세척 파이프라인을 거치고 원시 스키마 내부는 노출되지 않습니다."
+  },
+  "author": { "name": "doklo", "url": "https://github.com/mayp-ai/doklo" },
+  "license": "MIT",
+  "stability": "experimental",
+  "audience": {
+    "en": "Developers embedding help in their own site",
+    "ko": "자사 사이트에 도움말을 넣는 개발자"
+  },
+  "purpose": {
+    "en": "Serve reviewed help content as data so the site owns the rendering.",
+    "ko": "검토된 도움말을 데이터로 제공해 렌더링은 사이트가 소유하게 합니다."
+  },
+  "job": {
+    "en": "Power native help components without hand-maintaining help content.",
+    "ko": "도움말 콘텐츠를 손으로 관리하지 않고 네이티브 도움말 컴포넌트를 구동합니다."
+  },
+  "required_input": {
+    "en": "Reviewed Doks selected for the help set; service IA (v2) provides categories and curated Dok faq items are included when present",
+    "ko": "도움말 세트로 선택한 검토된 Dok; 서비스 IA(v2)가 있으면 카테고리가 되고 Dok의 큐레이션 faq가 있으면 포함됩니다"
+  },
+  "variables": {},
+  "default_format": "json",
+  "outputs": {
+    "json": { "entry": "template.json.tpl", "output_path": "help-data.json", "source": "json" }
+  },
+  "scope": "workspace",
+  "supported_locales": ["en", "ko"],
+  "default_locale": "en",
+  "strings": {
+    "en": {},
+    "ko": {}
+  },
+  "requires_hub_layers": ["doks", "ia"]
+}

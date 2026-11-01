@@ -60,3 +60,11 @@ describe('math helpers', () => {
     expect(render('{{default v "—"}}', { v: 'x' })).toBe('x');
   });
 });
+
+describe('includes helper', () => {
+  it('tests array membership and is false for non-arrays', () => {
+    expect(render('{{#if (includes list "b")}}y{{else}}n{{/if}}', { list: ['a', 'b'] })).toBe('y');
+    expect(render('{{#if (includes list "z")}}y{{else}}n{{/if}}', { list: ['a', 'b'] })).toBe('n');
+    expect(render('{{#if (includes list "a")}}y{{else}}n{{/if}}', { list: undefined })).toBe('n');
+  });
+});

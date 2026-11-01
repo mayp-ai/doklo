@@ -164,6 +164,20 @@ export function registerAggregations(hb: typeof Handlebars): void {
   });
 
   /**
+   * {{doks_with_unnamed_rule_type doks "permission"}} — active Doks that
+   * declare a rule of the type but leave its applies_to_roles empty: the
+   * access-review sheet lists them apart from Doks with no rule at all.
+   */
+  hb.registerHelper('doks_with_unnamed_rule_type', function (doks: unknown, type: unknown) {
+    if (!Array.isArray(doks)) return [];
+    const t = String(type ?? '');
+    return (doks as Dok[]).filter((d) => {
+      const typed = rulesOf(d).filter((r) => r.type === t);
+      return d.status === 'active' && typed.length > 0 && typed.every((r) => (r.applies_to_roles ?? []).length === 0);
+    });
+  });
+
+  /**
    * {{where_status doks "active"}} — status filter (inspection scopes).
    */
   hb.registerHelper('where_status', function (doks: unknown, status: unknown) {
@@ -203,6 +217,76 @@ export function registerAggregations(hb: typeof Handlebars): void {
         stepsOf(d).some((s) => s.actor.kind === 'role' && s.actor.role_ref === id) ||
         rulesOf(d).some((r) => (r.applies_to_roles ?? []).includes(id)),
     );
+  });
+
+  /**
+   * {{step_roles steps}} — the role ids that perform at least one step, in
+   * first-appearance order. Matrix templates test a role column against it.
+   */
+  hb.registerHelper('step_roles', function (steps: unknown) {
+    if (!Array.isArray(steps)) return [];
+    const out: string[] = [];
+    for (const step of steps as UserActionStep[]) {
+      const actor = step?.actor;
+      if (actor?.kind === 'role' && actor.role_ref && !out.includes(actor.role_ref)) out.push(actor.role_ref);
+    }
+    return out;
+  });
+
+  /**
+   * {{rule_roles rules "permission"}} — the role ids named by rules of one
+   * type (applies_to_roles), deduplicated in first-appearance order. The
+   * access-review sheet reads a feature's permitted roles from this, never
+   * from the rule text, which may carry identifiers a stable artifact must
+   * not print.
+   */
+  hb.registerHelper('rule_roles', function (rules: unknown, type: unknown) {
+    if (!Array.isArray(rules)) return [];
+    const t = String(type ?? '');
+    const out: string[] = [];
+    for (const rule of rules as BusinessRule[]) {
+      if (rule?.type !== t) continue;
+      for (const role of rule.applies_to_roles ?? []) if (!out.includes(role)) out.push(role);
+    }
+    return out;
+  });
+
+  /**
+   * {{surface_columns doks workspace.services}} — the services a matrix needs
+   * a column for: every declared workspace service in declared order, then
+   * any surface a Dok names that the workspace does not declare, sorted. A
+   * declared service carries its type; an undeclared surface only its id.
+   */
+  hb.registerHelper('surface_columns', function (doks: unknown, services: unknown) {
+    const declared = Array.isArray(services)
+      ? (services as Array<{ service_id: string; type?: string }>).map((s) => ({
+          service_id: s.service_id,
+          ...(s.type ? { type: s.type } : {}),
+        }))
+      : [];
+    const known = new Set(declared.map((s) => s.service_id));
+    const extra = new Set<string>();
+    if (Array.isArray(doks)) {
+      for (const d of doks as Dok[]) for (const surface of d.surfaces ?? []) if (!known.has(surface)) extra.add(surface);
+    }
+    return [...declared, ...[...extra].sort().map((service_id) => ({ service_id }))];
+  });
+
+  /**
+   * {{external_parties doks}} — every step performed by an external actor,
+   * as [{ label, dok, step }] in Dok order: the context section of an
+   * architecture document lists the parties outside the system from these.
+   */
+  hb.registerHelper('external_parties', function (doks: unknown) {
+    if (!Array.isArray(doks)) return [];
+    const out: Array<{ label: string; dok: Dok; step: UserActionStep }> = [];
+    for (const d of doks as Dok[]) {
+      for (const step of stepsOf(d)) {
+        const actor = step.actor;
+        if (actor?.kind === 'external') out.push({ label: actor.label, dok: d, step });
+      }
+    }
+    return out;
   });
 
   /**

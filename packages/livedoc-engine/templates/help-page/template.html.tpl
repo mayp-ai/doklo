@@ -15,6 +15,7 @@
 {{#if help.steps.length}}<li><a href="#{{help_html.how_id}}">{{t "toc_how"}}</a></li>{{/if}}
 {{#if help.rules.length}}<li><a href="#{{help_html.tips_id}}">{{t "toc_tips"}}</a></li>{{/if}}
 {{#if help.criteria.length}}<li><a href="#{{help_html.done_id}}">{{t "toc_done"}}</a></li>{{/if}}
+{{#if help.faq.length}}<li><a href="#{{help_html.faq_id}}">{{t "toc_faq"}}</a></li>{{/if}}
 </ul>
 </nav>
 {{/if}}
@@ -100,6 +101,20 @@
 <li class="help-check"><span class="help-check-text">{{this.statement}}</span>{{#if this.related_rules.length}}<span class="help-check-rules"><span class="help-check-rules-label">{{t "check_related_rule"}}</span>{{#each (rules_for this.related_rules ../help.rules)}}<span class="help-check-rule help-check-rule--{{this.type}}">{{> rule-type-label rule=this}}</span>{{/each}}</span>{{/if}}</li>
 {{/each}}
 </ul>
+</section>
+{{/if}}
+{{#if help.faq.length}}
+<section id="{{help_html.faq_id}}" class="help-section help-section--faq" aria-labelledby="{{help_html.faq_title_id}}" tabindex="-1">
+<{{help_html.section_tag}} id="{{help_html.faq_title_id}}" class="help-section-title" tabindex="-1">{{t "section_faq"}}</{{help_html.section_tag}}>
+<p class="help-section-lede">{{t "section_faq_lede"}}</p>
+<div class="help-faq">
+{{#each help.faq}}
+<details class="help-faq-item">
+<summary class="help-faq-q">{{this.question}}</summary>
+<p class="help-faq-a">{{this.answer}}</p>
+</details>
+{{/each}}
+</div>
 </section>
 {{/if}}
 

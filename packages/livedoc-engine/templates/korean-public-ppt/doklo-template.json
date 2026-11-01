@@ -1,44 +1,233 @@
 {
   "$schema": "https://doklo.dev/template-manifest-v2.json",
   "name": "korean-public-ppt",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "display_name": {
-    "en": "Public-manual PPTX",
-    "ko": "공공기관 매뉴얼 PPTX"
+    "en": "User Manual (PPTX, public-sector form)",
+    "ko": "사용자 매뉴얼 (PPTX, 공공기관 양식)"
   },
   "description": {
-    "en": "16:9 PowerPoint user manual — one slide per step with a screenshot and a numbered intent/outcome column. Korean public-institution manual style. Binary renderer (pptxgenjs), not a text template.",
-    "ko": "16:9 PPT 사용자 매뉴얼 — 스텝당 1슬라이드, 스크린샷 + 번호 매긴 행동/결과 컬럼. 공공기관 매뉴얼 스타일. 바이너리 렌더러(pptxgenjs), 텍스트 템플릿 아님."
+    "en": "A 16:9 user manual in the form Korean public-sector deliverables take, as one PowerPoint deck for the selected features: cover, document information and revision history, contents, overview (purpose, readers, notation), access and roles, menu map, one section per feature with a screen slide per step (screenshot with numbered callout, or a written screen description when none is captured), cautions, contact and a feature appendix. Binary renderer (pptxgenjs); theme.yaml sets colors, fonts, logo and footer.",
+    "ko": "공공기관 납품 매뉴얼 꼴의 16:9 사용자 매뉴얼. 선택한 기능 전체를 한 권으로: 표지, 문서 정보·개정 이력, 목차, 개요(목적·대상·표기 규칙), 접속 및 권한, 메뉴 구성, 기능별 절(화면마다 슬라이드 하나 — 스크린샷과 번호 콜아웃, 없으면 화면 설명), 유의사항, 문의처, 부록 기능 목록. 바이너리 렌더러(pptxgenjs); theme.yaml로 색·글꼴·로고·바닥글을 바꿉니다."
   },
-  "author": { "name": "doklo", "url": "https://github.com/mayp-ai/doklo" },
+  "author": {
+    "name": "doklo",
+    "url": "https://github.com/mayp-ai/doklo"
+  },
   "license": "MIT",
   "stability": "experimental",
-  "audience": { "en": "Operators and public-sector delivery reviewers", "ko": "운영자와 공공 납품 검토자" },
-  "purpose": { "en": "Present one product procedure as a slide-based user manual.", "ko": "하나의 제품 절차를 슬라이드형 사용자 매뉴얼로 제공합니다." },
-  "job": { "en": "Teach or demonstrate an operating procedure step by step.", "ko": "운영 절차를 단계별로 교육하거나 시연합니다." },
-  "required_input": { "en": "Ordered feature actions and optional step screenshots", "ko": "순서가 있는 기능 행동과 선택적 단계 스크린샷" },
-  "variables": {},
+  "audience": {
+    "en": "Operators and public-sector delivery reviewers",
+    "ko": "운영자와 공공 납품 검토자"
+  },
+  "purpose": {
+    "en": "Hand over the product's procedures as one slide-based user manual.",
+    "ko": "제품의 사용 절차를 한 권의 슬라이드형 사용자 매뉴얼로 전달합니다."
+  },
+  "job": {
+    "en": "Teach or demonstrate operating procedures screen by screen.",
+    "ko": "운영 절차를 화면 단위로 교육하거나 시연합니다."
+  },
+  "required_input": {
+    "en": "Ordered feature actions, rules and checks; step screenshots when captured; the IA tree for chapter order",
+    "ko": "순서가 있는 기능 행동·규칙·확인 기준, 캡처된 단계 스크린샷, 장 순서를 정하는 IA 트리"
+  },
+  "variables": {
+    "document_title": {
+      "type": "string",
+      "required": false,
+      "description": "Document name on the cover, e.g. \"사용자 매뉴얼\" or \"운영자 지침서\"."
+    },
+    "project_name": {
+      "type": "string",
+      "required": false,
+      "description": "Project or system name on the cover and in the footer; defaults to the workspace name."
+    },
+    "organization": {
+      "type": "string",
+      "required": false,
+      "description": "Owning organization printed on the cover and in the footer."
+    },
+    "document_version": {
+      "type": "string",
+      "required": false,
+      "description": "Edition printed on the cover and in the revision history.",
+      "default": "1.0"
+    },
+    "classification": {
+      "type": "string",
+      "required": false,
+      "description": "Handling label printed on the cover and every footer, e.g. \"대외비\"."
+    },
+    "app_url": {
+      "type": "string",
+      "required": false,
+      "description": "Address readers open the system at; shown in the access chapter and the contact slide."
+    },
+    "support_contact": {
+      "type": "string",
+      "required": false,
+      "description": "Help desk, department, phone or e-mail for the contact slide."
+    }
+  },
   "renderer": "pptx",
   "default_format": "pptx",
   "outputs": {
-    "pptx": { "output_path": "{{dok.dok_id}}.pptx", "source": "binary" }
+    "pptx": {
+      "output_path": "user-manual.pptx",
+      "source": "binary"
+    }
   },
-  "scope": "per_dok",
-  "supported_locales": ["en", "ko"],
+  "scope": "workspace",
+  "supported_locales": [
+    "en",
+    "ko"
+  ],
   "default_locale": "ko",
+  "hub_locales": [
+    "ko"
+  ],
   "strings": {
     "ko": {
       "generated_by": "Doklo로 생성",
       "step": "단계",
       "actor_system": "시스템",
-      "screenshot_drop": "스크린샷을 여기에 놓아주세요"
+      "screenshot_drop": "스크린샷을 여기에 놓아주세요",
+      "document_title": "사용자 매뉴얼",
+      "classification": "",
+      "doc_info": "문서 정보",
+      "doc_name": "문서명",
+      "doc_system": "대상 시스템",
+      "doc_version": "버전",
+      "doc_as_of": "기준일",
+      "doc_readers": "대상 독자",
+      "revision_history": "개정 이력",
+      "col_version": "버전",
+      "col_date": "일자",
+      "col_change": "내용",
+      "col_author": "작성",
+      "first_edition": "최초 작성",
+      "toc": "목차",
+      "ch1": "1. 개요",
+      "ch2": "2. 시스템 접속 및 권한",
+      "ch3": "3. 메뉴 구성",
+      "ch4": "4. 기능별 화면 설명",
+      "ch5": "5. 유의사항",
+      "ch6": "6. 문의처",
+      "appendix": "부록. 기능 목록",
+      "purpose_title": "1.1 목적",
+      "purpose_text": "본 문서는 {project}의 사용 방법을 화면 단위로 설명합니다. 각 기능은 화면 하나에 설명 한 장을 두고, 화면의 번호와 설명의 번호를 맞추어 읽습니다.",
+      "readers_title": "1.2 대상 독자",
+      "legend_title": "1.3 표기 규칙",
+      "legend_number": "화면의 번호와 설명의 번호가 같은 항목을 가리킵니다.",
+      "legend_path": "메뉴 경로",
+      "legend_button": "화면의 버튼 또는 항목 이름",
+      "legend_note": "유의사항",
+      "access_title": "2.1 접속 환경",
+      "app_url_label": "접속 주소",
+      "col_role": "역할",
+      "col_role_desc": "설명",
+      "col_role_features": "사용 기능 수",
+      "col_group": "분류",
+      "col_feature": "기능",
+      "col_desc": "설명",
+      "col_section": "절",
+      "col_id": "기능 ID",
+      "col_screens": "화면 수",
+      "feature_route": "화면 경로",
+      "feature_roles": "대상 역할",
+      "feature_preconditions": "전제 조건",
+      "feature_screens": "화면 수",
+      "cautions_title": "유의사항",
+      "checks_title": "정상 동작 확인",
+      "step_action": "하는 일",
+      "step_result": "결과",
+      "step_precondition": "전제",
+      "step_platforms": "플랫폼",
+      "screen_of": "화면",
+      "screen_description": "화면 설명",
+      "capture_note": "캡처 지시",
+      "col_caution": "유의사항",
+      "contact_text": "사용 중 문의 사항은 아래로 연락해 주시기 바랍니다.",
+      "support_label": "문의처",
+      "ungrouped": "기능",
+      "none": "—",
+      "page": "쪽",
+      "type_restriction": "제약",
+      "type_policy": "정책",
+      "and_more": "외 {n}개"
     },
     "en": {
       "generated_by": "Generated by Doklo",
       "step": "Step",
       "actor_system": "System",
-      "screenshot_drop": "Drop screenshot here"
+      "screenshot_drop": "Drop screenshot here",
+      "document_title": "User Manual",
+      "classification": "",
+      "doc_info": "Document information",
+      "doc_name": "Document",
+      "doc_system": "System",
+      "doc_version": "Version",
+      "doc_as_of": "As of",
+      "doc_readers": "Readers",
+      "revision_history": "Revision history",
+      "col_version": "Version",
+      "col_date": "Date",
+      "col_change": "Change",
+      "col_author": "By",
+      "first_edition": "First edition",
+      "toc": "Contents",
+      "ch1": "1. Overview",
+      "ch2": "2. Access and roles",
+      "ch3": "3. Menu map",
+      "ch4": "4. Screens by feature",
+      "ch5": "5. Cautions",
+      "ch6": "6. Contact",
+      "appendix": "Appendix. Feature list",
+      "purpose_title": "1.1 Purpose",
+      "purpose_text": "This document explains how to use {project} screen by screen. Each feature has one slide per screen, and the numbers on the screen match the numbers in the description.",
+      "readers_title": "1.2 Readers",
+      "legend_title": "1.3 Notation",
+      "legend_number": "A number on the screen and the same number in the description refer to the same item.",
+      "legend_path": "Menu path",
+      "legend_button": "A button or item name on the screen",
+      "legend_note": "Caution",
+      "access_title": "2.1 Access",
+      "app_url_label": "Address",
+      "col_role": "Role",
+      "col_role_desc": "Description",
+      "col_role_features": "Features used",
+      "col_group": "Group",
+      "col_feature": "Feature",
+      "col_desc": "Description",
+      "col_section": "Section",
+      "col_id": "Feature ID",
+      "col_screens": "Screens",
+      "feature_route": "Screen path",
+      "feature_roles": "Roles",
+      "feature_preconditions": "Preconditions",
+      "feature_screens": "Screens",
+      "cautions_title": "Cautions",
+      "checks_title": "How to confirm",
+      "step_action": "Action",
+      "step_result": "Result",
+      "step_precondition": "Requires",
+      "step_platforms": "Platforms",
+      "screen_of": "Screen",
+      "screen_description": "Screen description",
+      "capture_note": "Capture",
+      "col_caution": "Caution",
+      "contact_text": "For questions while using the system, contact the following.",
+      "support_label": "Contact",
+      "ungrouped": "Features",
+      "none": "—",
+      "page": "p.",
+      "type_restriction": "restriction",
+      "type_policy": "policy",
+      "and_more": "and {n} more"
     }
   },
-  "requires_hub_layers": ["doks"]
+  "requires_hub_layers": [
+    "doks"
+  ]
 }

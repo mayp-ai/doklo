@@ -1,0 +1,1 @@
+{{#if (eq impact "revenue")}}{{t "impact_revenue"}}{{else}}{{#if (eq impact "core_value")}}{{t "impact_core_value"}}{{else}}{{#if (eq impact "compliance")}}{{t "impact_compliance"}}{{else}}{{#if (eq impact "enabling")}}{{t "impact_enabling"}}{{else}}{{#if (eq impact "supporting")}}{{t "impact_supporting"}}{{else}}{{t "na"}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}

@@ -1,14 +1,14 @@
 {
   "$schema": "https://doklo.dev/template-manifest-v2.json",
   "name": "feature-matrix",
-  "version": "2.0.0",
+  "version": "3.1.0",
   "display_name": {
     "en": "Feature Matrix",
     "ko": "기능 매트릭스"
   },
   "description": {
-    "en": "A single-page product overview that groups every feature by domain and shows its status, surfaces, workflow depth, rules, and acceptance checks.",
-    "ko": "모든 기능을 도메인별로 묶고 상태, 노출 서비스, 흐름의 깊이, 규칙, 수용 기준을 한눈에 보여주는 제품 개요입니다."
+    "en": "One table of the reviewed features: grouped by top-level menu, with a column per service showing where each feature is offered and a column per role showing who performs it.",
+    "ko": "검토 완료 기능을 한 표로: 최상위 메뉴별로 묶고, 서비스마다 열을 두어 어디서 제공되는지, 역할마다 열을 두어 누가 수행하는지를 표시합니다."
   },
   "author": {
     "name": "doklo",
@@ -17,20 +17,20 @@
   "license": "MIT",
   "stability": "stable",
   "audience": {
-    "en": "Product stakeholders and delivery teams",
-    "ko": "제품 이해관계자와 실행 팀"
+    "en": "Product stakeholders, sales and support staff",
+    "ko": "제품 이해관계자, 영업·고객지원 담당자"
   },
   "purpose": {
-    "en": "Show the product feature set and its documented depth at a glance.",
-    "ko": "제품 기능 범위와 문서화 깊이를 한눈에 보여줍니다."
+    "en": "Answer which features exist, on which service each is offered, and which roles perform it.",
+    "ko": "어떤 기능이 있고 각 기능이 어느 서비스에서 제공되며 어느 역할이 수행하는지에 답합니다."
   },
   "job": {
-    "en": "Review product coverage before planning or reporting.",
-    "ko": "기획이나 보고 전에 제품 범위를 검토합니다."
+    "en": "Check feature availability by service and role before a proposal, a plan or a support answer.",
+    "ko": "제안서·계획·고객 답변 전에 서비스별·역할별 기능 제공 여부를 확인합니다."
   },
   "required_input": {
-    "en": "Product features, statuses, surfaces, actions, rules, and checks",
-    "ko": "제품 기능, 상태, 노출 영역, 행동, 규칙, 확인 기준"
+    "en": "Reviewed features with their surfaces and procedure steps; the roles layer adds the role columns and the information architecture groups the rows by menu",
+    "ko": "노출 서비스와 절차 단계가 있는 검토 완료 기능. 역할 레이어가 있으면 역할 열이, 정보 구조가 있으면 메뉴별 묶음이 생깁니다"
   },
   "variables": {},
   "default_format": "markdown",
@@ -47,6 +47,9 @@
     }
   },
   "scope": "workspace",
+  "partials": {
+    "service-type-label": "partials/service-type-label.tpl"
+  },
   "supported_locales": [
     "en",
     "ko"
@@ -55,32 +58,54 @@
   "extends_default_css": false,
   "strings": {
     "ko": {
-      "title": "제품 기능 범위 검토",
-      "subtitle": "도메인별 기능, 상태, 노출 영역, 문서화 깊이",
-      "stat_features": "전체 기능",
-      "stat_domains": "기능 도메인",
-      "stat_services": "연결 서비스",
-      "stat_active": "활성 기능",
-      "legend": "상태 범례",
-      "col_feature": "기능명",
-      "col_status": "문서 검토 상태",
-      "col_surfaces": "노출 영역",
-      "col_depth": "문서 항목 수 (단계 · 규칙 · 확인 기준)",
-      "domain_count_suffix": "개"
+      "title": "기능 매트릭스",
+      "subtitle": "검토 완료 기능별 제공 서비스와 수행 역할",
+      "meta_asof": "기준일",
+      "meta_features": "기능",
+      "meta_services": "서비스",
+      "meta_roles": "역할",
+      "unit_features": "건",
+      "note": "서비스 열은 그 기능이 노출되는 서비스, 역할 열은 그 기능의 절차에서 한 단계 이상을 수행하는 역할",
+      "col_group": "구분",
+      "col_feature": "기능",
+      "head_services": "제공 서비스",
+      "head_roles": "수행 역할",
+      "group_other": "기타",
+      "legend_title": "표기",
+      "legend_offered": "제공 · 수행",
+      "legend_none": "해당 없음",
+      "svc_frontend": "웹",
+      "svc_backend": "API",
+      "svc_admin": "관리자",
+      "svc_mobile": "모바일",
+      "svc_cli": "명령줄",
+      "svc_desktop": "데스크톱",
+      "svc_worker": "백그라운드"
     },
     "en": {
-      "title": "Review Product Feature Coverage",
-      "subtitle": "Features, status, surfaces, and documentation depth by domain",
-      "stat_features": "Total features",
-      "stat_domains": "Feature domains",
-      "stat_services": "Connected services",
-      "stat_active": "Active features",
-      "legend": "Status legend",
-      "col_feature": "Feature name",
-      "col_status": "Review status",
-      "col_surfaces": "Product surface",
-      "col_depth": "Documented items (steps · rules · checks)",
-      "domain_count_suffix": ""
+      "title": "Feature Matrix",
+      "subtitle": "Where each reviewed feature is offered and who performs it",
+      "meta_asof": "As of",
+      "meta_features": "Features",
+      "meta_services": "Services",
+      "meta_roles": "Roles",
+      "unit_features": "",
+      "note": "A service column marks the services where the feature is offered; a role column marks the roles that perform at least one step of it",
+      "col_group": "Group",
+      "col_feature": "Feature",
+      "head_services": "Offered on",
+      "head_roles": "Performed by",
+      "group_other": "Other",
+      "legend_title": "Legend",
+      "legend_offered": "offered · performs",
+      "legend_none": "not applicable",
+      "svc_frontend": "web",
+      "svc_backend": "API",
+      "svc_admin": "admin",
+      "svc_mobile": "mobile",
+      "svc_cli": "command line",
+      "svc_desktop": "desktop",
+      "svc_worker": "background"
     }
   },
   "requires_hub_layers": [

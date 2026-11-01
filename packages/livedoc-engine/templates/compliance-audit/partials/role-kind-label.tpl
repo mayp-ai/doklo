@@ -1,0 +1,1 @@
+{{#if (eq kind "access")}}{{t "kind_access"}}{{else}}{{#if (eq kind "actor_type")}}{{t "kind_actor_type"}}{{else}}{{kind}}{{/if}}{{/if}}

@@ -113,6 +113,7 @@ export async function loadPublicationWorkspaceModel(options: {
   const templates = await loadTemplateCatalog({
     root: options.root,
     locale,
+    hubLocale: hub.workspace.default_locale,
     doks: hub.doks,
     includeExperimental: options.includeExperimental ?? true,
     engine,
@@ -208,6 +209,7 @@ export async function loadPublicationWorkspaceModel(options: {
       primaryLocale: hub.workspace.default_locale,
       format: publication.format,
       variables: publication.vars,
+      ...(publication.timezone ? { timezone: publication.timezone } : {}),
       selectedDokIds: resolvedForDigest,
       hub,
       resolvedTemplate,
@@ -313,6 +315,8 @@ export async function loadPublicationWorkspaceModel(options: {
 async function loadTemplateCatalog(input: {
   root: string;
   locale: PublicationUiLocale;
+  /** The Hub's Dok language — a template declared for other languages (`hub_locales`) is left off the picker. */
+  hubLocale?: string;
   doks: Dok[];
   includeExperimental: boolean;
   engine: LivedocEngineModule;
@@ -320,6 +324,7 @@ async function loadTemplateCatalog(input: {
   const listed = await input.engine.listTemplates({
     workspaceRoot: input.root,
     includeExperimental: input.includeExperimental,
+    ...(input.hubLocale ? { hubLocale: input.hubLocale } : {}),
   });
   const active = listed.filter((entry) => entry.active);
   const templates = await Promise.all(active.map(async (entry) => {

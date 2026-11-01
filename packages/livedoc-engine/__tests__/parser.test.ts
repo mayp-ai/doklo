@@ -189,19 +189,19 @@ describe('parseTemplateManifest', () => {
     expect(m.renderer).toBe('pptx');
   });
 
-  it('rejects renderer:pptx with non-per_dok scope', () => {
-    expect(() =>
-      parseTemplateManifest({
-        name: 'ppt',
-        version: '1.0.0',
-        renderer: 'pptx',
-        output_formats: ['pptx'],
-        scope: 'workspace',
-        output_path: 'x',
-        supported_locales: ['ko'],
-        default_locale: 'ko',
-      }),
-    ).toThrow(/per_dok/);
+  it('accepts renderer:pptx with per_dok or workspace scope and rejects selected_doks', () => {
+    const base = {
+      name: 'ppt',
+      version: '1.0.0',
+      renderer: 'pptx',
+      output_formats: ['pptx'],
+      output_path: 'x',
+      supported_locales: ['ko'],
+      default_locale: 'ko',
+    };
+    expect(() => parseTemplateManifest({ ...base, scope: 'per_dok' })).not.toThrow();
+    expect(() => parseTemplateManifest({ ...base, scope: 'workspace' })).not.toThrow();
+    expect(() => parseTemplateManifest({ ...base, scope: 'selected_doks', selector: { include_tags: ['x'] } })).toThrow(/per_dok.*workspace/);
   });
 
   it('rejects renderer:pptx mixing pptx with text formats', () => {

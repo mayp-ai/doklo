@@ -1,14 +1,14 @@
 {
   "$schema": "https://doklo.dev/template-manifest-v2.json",
   "name": "github-onboarding",
-  "version": "1.2.0",
+  "version": "2.2.0",
   "display_name": {
-    "en": "Repository Onboarding",
-    "ko": "저장소 온보딩"
+    "en": "Developer Onboarding Guide",
+    "ko": "개발자 온보딩 가이드"
   },
   "description": {
-    "en": "A repository guide that introduces product workflows and groups domains into concise, expandable sections.",
-    "ko": "제품 흐름을 소개하고 도메인을 간결한 확장형 섹션으로 묶은 저장소 안내서입니다."
+    "en": "The product map a new contributor reads before changing code: the services that make up the product, the menu structure with the feature behind each screen and the roles that use it, the role model, the flows marked as core or revenue, the product vocabulary, repository setup and whom to ask.",
+    "ko": "새 기여자가 코드를 바꾸기 전에 읽는 제품 지도: 제품을 이루는 서비스, 화면마다 어떤 기능이 있고 누가 쓰는지 보여주는 메뉴 체계, 역할 정의, 핵심·매출 기능으로 표시된 흐름, 제품 용어, 저장소 준비와 문의처."
   },
   "author": {
     "name": "doklo",
@@ -16,19 +16,52 @@
   },
   "license": "MIT",
   "stability": "stable",
-  "audience": { "en": "New contributors and team members", "ko": "신규 기여자와 팀원" },
-  "purpose": { "en": "Introduce the product scope, domains, and workflows to review before changing code.", "ko": "코드 변경 전에 확인할 제품 범위, 도메인, 사용자 흐름을 소개합니다." },
-  "job": { "en": "Orient a new team member before they change the codebase.", "ko": "새 팀원이 코드 변경 전에 제품 맥락을 익히게 합니다." },
-  "required_input": { "en": "Workspace services, product features, and setup guidance", "ko": "워크스페이스 서비스, 제품 기능, 환경 설정 안내" },
+  "audience": {
+    "en": "New contributors and team members",
+    "ko": "신규 기여자와 팀원"
+  },
+  "purpose": {
+    "en": "Orient a newcomer in the product — services, screens, features, roles and terms — before the code.",
+    "ko": "코드보다 먼저 제품을 익히게 합니다 — 서비스, 화면, 기능, 역할, 용어."
+  },
+  "job": {
+    "en": "Onboard a new team member to the repository's product.",
+    "ko": "새 팀원을 저장소의 제품에 온보딩합니다."
+  },
+  "required_input": {
+    "en": "Workspace services and reviewed features; the information architecture, roles and lexicon layers fill the menu map, role table and vocabulary",
+    "ko": "워크스페이스 서비스와 검토 완료 기능. 정보 구조·역할·용어집 레이어가 있으면 메뉴 체계, 역할표, 용어 절이 채워집니다"
+  },
   "variables": {
-    "setup_commands": { "type": "string", "required": false, "description": "Optional reviewed setup commands rendered verbatim." }
+    "setup_commands": {
+      "type": "string",
+      "required": false,
+      "description": "Reviewed setup commands rendered verbatim in the setup section."
+    },
+    "contact": {
+      "type": "string",
+      "required": false,
+      "description": "Whom a newcomer asks about the product — a team, channel or person. Printed in the closing section; omitted when empty."
+    }
   },
   "default_format": "markdown",
   "outputs": {
-    "markdown": { "entry": "template.md.tpl", "output_path": "ONBOARDING.md", "source": "markdown" },
-    "html": { "entry": "template.md.tpl", "output_path": "ONBOARDING.html", "source": "markdown" }
+    "markdown": {
+      "entry": "template.md.tpl",
+      "output_path": "ONBOARDING.md",
+      "source": "markdown"
+    },
+    "html": {
+      "entry": "template.md.tpl",
+      "output_path": "ONBOARDING.html",
+      "source": "markdown"
+    }
   },
   "scope": "workspace",
+  "partials": {
+    "ia-rows-md": "partials/ia-rows-md.tpl",
+    "service-type-label": "partials/service-type-label.tpl"
+  },
   "supported_locales": [
     "en",
     "ko"
@@ -36,47 +69,102 @@
   "default_locale": "en",
   "strings": {
     "en": {
-      "welcome": "Start Working in This Repository",
-      "intro": "Review the product scope and key workflows before changing code, then prepare the repository with its own setup instructions.",
-      "section_what": "## Review the product scope",
-      "section_week_one": "## Review these workflows first",
-      "section_domains": "## Find features by domain",
-      "section_setup": "## Set up the repository",
-      "what_lead": "is documented with the following product features and services",
-      "count_doks_prefix": "**",
-      "count_doks_suffix": "** documented features",
-      "count_services_prefix": "**",
-      "count_services_suffix": "** connected service(s)",
-      "meta_separator": " · ",
-      "week_one_intro": "Review these user-facing workflows before changing code:",
-      "domains_intro": "Each domain lists the product features documented for it.",
-      "setup_intro": "Use the setup instructions in this repository. Request required credentials from the team.",
-      "more_prefix": "+ ",
-      "more_suffix": " more",
-      "setup_pm_note": "> Choose the package manager from this repository's lockfile."
+      "title": "Developer Onboarding Guide",
+      "intro": "The product behind this repository, for reading before the first change: what it is made of, which screens carry which features, who uses them, and the words the product uses.",
+      "meta_asof": "As of",
+      "meta_features": "Reviewed features",
+      "meta_services": "Services",
+      "unit_features": "",
+      "s_services": "## What the product is made of",
+      "col_service": "Service",
+      "col_service_type": "Type",
+      "col_desc": "Description",
+      "svc_frontend": "Web frontend",
+      "svc_backend": "API server",
+      "svc_admin": "Admin console",
+      "svc_mobile": "Mobile app",
+      "svc_cli": "Command-line tool",
+      "svc_desktop": "Desktop app",
+      "svc_worker": "Background worker",
+      "s_map": "## Screens and features",
+      "map_lead": "The menu structure of each service with the reviewed feature behind each screen and the roles that perform it.",
+      "col_menu": "Menu",
+      "col_feature": "Feature",
+      "col_roles": "Performed by",
+      "map_unplaced": "Not on a menu",
+      "map_none_lead": "The reviewed features and the roles that perform them.",
+      "s_roles": "## Who uses it",
+      "col_role": "Role",
+      "col_role_kind": "Kind",
+      "col_role_scope": "Scope",
+      "col_role_feats": "Features",
+      "kind_access": "Access role",
+      "kind_actor_type": "Actor type",
+      "scope_global": "Global",
+      "scope_tenant": "Per organization",
+      "scope_resource": "Per resource",
+      "s_flows": "## Core flows",
+      "flows_lead": "Features marked as core value or revenue, with their procedure.",
+      "s_terms": "## Vocabulary",
+      "col_term": "Term",
+      "col_term_alt": "Also written",
+      "s_setup": "## Setting up the repository",
+      "setup_intro": "Follow the setup instructions in this repository. Credentials come from the team.",
+      "setup_pm_note": "The package manager is the one the repository's lockfile names.",
+      "s_contact": "## Whom to ask",
+      "contact_lead": "Questions about the product, its screens or its rules:",
+      "na": "—"
     },
     "ko": {
-      "welcome": "이 저장소에서 작업 시작하기",
-      "intro": "코드를 바꾸기 전에 제품 범위와 주요 흐름을 살펴본 뒤 저장소의 실제 안내에 따라 환경을 준비합니다.",
-      "section_what": "## 제품 범위 확인",
-      "section_week_one": "## 먼저 확인할 사용자 흐름",
-      "section_domains": "## 도메인별 기능 찾기",
-      "section_setup": "## 저장소 환경 준비",
-      "what_lead": "워크스페이스에 문서화된 제품 기능과 서비스 현황입니다",
-      "count_doks_prefix": "**",
-      "count_doks_suffix": "**개 문서화된 기능",
-      "count_services_prefix": "**",
-      "count_services_suffix": "**개 연결 서비스",
-      "meta_separator": " · ",
-      "week_one_intro": "코드를 바꾸기 전에 다음 사용자 흐름을 확인합니다.",
-      "domains_intro": "각 도메인에 문서화된 제품 기능을 표시합니다.",
-      "setup_intro": "이 저장소의 설정 안내를 따릅니다. 필요한 자격 증명은 팀에 요청합니다.",
-      "more_prefix": "+ ",
-      "more_suffix": "개 더",
-      "setup_pm_note": "> 이 저장소의 잠금파일에 맞는 패키지 관리자를 사용합니다."
+      "title": "개발자 온보딩 가이드",
+      "intro": "첫 변경 전에 읽는 이 저장소의 제품: 무엇으로 이루어졌는지, 어느 화면에 어떤 기능이 있는지, 누가 쓰는지, 제품이 쓰는 말.",
+      "meta_asof": "기준일",
+      "meta_features": "검토 완료 기능",
+      "meta_services": "서비스",
+      "unit_features": "건",
+      "s_services": "## 제품 구성",
+      "col_service": "서비스",
+      "col_service_type": "종류",
+      "col_desc": "설명",
+      "svc_frontend": "웹 프런트엔드",
+      "svc_backend": "API 서버",
+      "svc_admin": "관리자 콘솔",
+      "svc_mobile": "모바일 앱",
+      "svc_cli": "명령줄 도구",
+      "svc_desktop": "데스크톱 앱",
+      "svc_worker": "백그라운드 워커",
+      "s_map": "## 화면과 기능",
+      "map_lead": "서비스별 메뉴 체계와 각 화면 뒤의 검토 완료 기능, 그 기능을 수행하는 역할.",
+      "col_menu": "메뉴",
+      "col_feature": "기능",
+      "col_roles": "수행 역할",
+      "map_unplaced": "메뉴에 없는 기능",
+      "map_none_lead": "검토 완료 기능과 그 기능을 수행하는 역할.",
+      "s_roles": "## 사용자와 역할",
+      "col_role": "역할",
+      "col_role_kind": "구분",
+      "col_role_scope": "범위",
+      "col_role_feats": "관련 기능",
+      "kind_access": "접근 역할",
+      "kind_actor_type": "행위자 유형",
+      "scope_global": "전체",
+      "scope_tenant": "조직 단위",
+      "scope_resource": "자원 단위",
+      "s_flows": "## 핵심 흐름",
+      "flows_lead": "핵심 가치 또는 매출 기능으로 표시된 기능과 그 절차.",
+      "s_terms": "## 용어",
+      "col_term": "용어",
+      "col_term_alt": "다른 표기",
+      "s_setup": "## 저장소 환경 준비",
+      "setup_intro": "이 저장소의 설정 안내를 따르고, 필요한 자격 증명은 팀에 요청.",
+      "setup_pm_note": "패키지 관리자는 이 저장소의 잠금 파일이 가리키는 것.",
+      "s_contact": "## 문의",
+      "contact_lead": "제품, 화면, 규칙에 대한 질문:",
+      "na": "—"
     }
   },
   "requires_hub_layers": [
     "doks"
-  ]
+  ],
+  "extends_default_css": false
 }

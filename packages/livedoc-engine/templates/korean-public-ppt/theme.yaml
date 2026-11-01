@@ -6,9 +6,12 @@ fonts:
   body:    { ko: "맑은 고딕", en: "Inter" }
   heading: { ko: "맑은 고딕", en: "Inter" }
 footer:
+  # Left footer text. Leave empty and the deck prints "organization · project"
+  # from the template variables instead; the classification variable sits in
+  # the middle and "page / total" on the right.
   text:
-    ko: "기관명 · 대외비"
-    en: "Organization · Confidential"
+    ko: ""
+    en: ""
   show_page_number: true
 # logo:
 #   asset: "assets/logo.png"   # place the file under this template's assets/

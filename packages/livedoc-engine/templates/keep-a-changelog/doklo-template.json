@@ -1,35 +1,58 @@
 {
   "$schema": "https://doklo.dev/template-manifest-v2.json",
   "name": "keep-a-changelog",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "display_name": {
-    "en": "Keep a Changelog",
-    "ko": "Keep a Changelog"
+    "en": "Changelog",
+    "ko": "변경 이력"
   },
   "description": {
-    "en": "A date-grouped release history that collects recorded change notes, approvals, and deprecations in the Keep a Changelog format.",
-    "ko": "기록된 변경 노트, 승인, 지원 중단을 날짜별로 모아 Keep a Changelog 형식으로 보여주는 릴리스 이력입니다."
+    "en": "The product changelog in the Keep a Changelog form: recorded notes, approvals and retirements grouped by date, newest first, under Added / Changed / Deprecated / Removed / Fixed / Security.",
+    "ko": "Keep a Changelog 형식의 제품 변경 이력: 기록된 변경 노트·승인·종료를 날짜별로 최신순으로 묶어 추가·변경·지원 중단·제거·수정·보안으로 나눕니다."
   },
-  "author": { "name": "doklo", "url": "https://github.com/mayp-ai/doklo" },
+  "author": {
+    "name": "doklo",
+    "url": "https://github.com/mayp-ai/doklo"
+  },
   "license": "MIT",
   "stability": "stable",
-  "audience": { "en": "Maintainers and product users", "ko": "유지보수자와 제품 사용자" },
-  "purpose": { "en": "Aggregate recorded feature changes into a release history.", "ko": "기록된 기능 변경을 릴리스 이력으로 모읍니다." },
-  "job": { "en": "Prepare or review release notes.", "ko": "릴리스 노트를 준비하거나 검토합니다." },
-  "required_input": { "en": "Recorded feature history with change notes, approvals, and deprecations", "ko": "변경 노트, 승인, 지원 중단이 포함된 기능 이력" },
+  "audience": {
+    "en": "Maintainers and product users",
+    "ko": "유지보수자와 제품 사용자"
+  },
+  "purpose": {
+    "en": "Tell readers what changed in the product and when.",
+    "ko": "제품에서 무엇이 언제 바뀌었는지 알립니다."
+  },
+  "job": {
+    "en": "Publish or review the product change history.",
+    "ko": "제품 변경 이력을 게시하거나 검토합니다."
+  },
+  "required_input": {
+    "en": "Features whose recorded history carries approvals, change notes or retirements; a feature with no recorded change is not listed",
+    "ko": "승인·변경 노트·종료가 기록된 기능. 기록이 없는 기능은 나열되지 않습니다"
+  },
   "variables": {},
   "default_format": "markdown",
   "outputs": {
-    "markdown": { "entry": "template.md.tpl", "output_path": "CHANGELOG.md", "source": "markdown" }
+    "markdown": {
+      "entry": "template.md.tpl",
+      "output_path": "CHANGELOG.md",
+      "source": "markdown"
+    }
   },
   "scope": "workspace",
-  "supported_locales": ["en", "ko"],
+  "supported_locales": [
+    "en",
+    "ko"
+  ],
   "default_locale": "en",
   "strings": {
     "en": {
-      "title": "Review Product Changes",
-      "intro": "This changelog lists notable product changes by date.",
-      "intro2": "Entries follow the categories from [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).",
+      "title": "Changelog",
+      "intro_pre": "All notable changes to ",
+      "intro_post": ", newest first.",
+      "intro2": "The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).",
       "added": "Added",
       "changed": "Changed",
       "deprecated": "Deprecated",
@@ -37,12 +60,13 @@
       "fixed": "Fixed",
       "security": "Security",
       "restored": "Restored to active",
-      "empty": "No product changes have been recorded."
+      "empty": "No changes recorded yet."
     },
     "ko": {
-      "title": "제품 변경 내역 확인",
-      "intro": "제품의 주요 변경 사항을 날짜별로 표시합니다.",
-      "intro2": "항목은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/)의 변경 유형으로 구분합니다.",
+      "title": "변경 이력",
+      "intro_pre": "",
+      "intro_post": "의 주요 변경 사항을 최신순으로 정리한 기록.",
+      "intro2": "형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/) 기준.",
       "added": "추가",
       "changed": "변경",
       "deprecated": "지원 중단",
@@ -50,8 +74,10 @@
       "fixed": "수정",
       "security": "보안",
       "restored": "다시 제공",
-      "empty": "기록된 제품 변경 사항이 없습니다."
+      "empty": "기록된 변경 사항 없음."
     }
   },
-  "requires_hub_layers": ["doks"]
+  "requires_hub_layers": [
+    "doks"
+  ]
 }

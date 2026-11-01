@@ -4,6 +4,65 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-11-01
+
+### Added
+- Two new Live Docs templates: `feature-spec`, the functional specification of
+  the whole Hub as one delivery-grade document (cover with document control
+  fields and sign-off, revision history, system structure, a feature list, one
+  section per feature, cross-feature policies, appendices; each part can be
+  switched off), and `feature-spec-xlsx`, its four-sheet spreadsheet edition.
+  `help-data` renders the customer-safe help set as one JSON bundle for a
+  headless help SDK. The built-in set is now 17 templates: 7 stable
+  (`feature-matrix`, `github-onboarding`, `help-index`, `help-page`,
+  `keep-a-changelog`, `permission-gap`, `release-digest`) and 10 experimental.
+- A template can declare the Dok languages it is written for (`hub_locales` in
+  `doklo-template.json`). `doklo template list` leaves such a template out when
+  the workspace's `default_locale` is not among them and says how many it kept
+  off the list; `--all-languages` shows them. Resolution by name is unchanged,
+  so `live-docs render` still accepts an explicit template. The four Korean
+  public-sector and delivery forms (`feature-spec-xlsx`, `rtm-trace`,
+  `korean-public-ppt`, `ops-manual`) declare `["ko"]`.
+
+### Changed
+- The stable templates were rebuilt from Hub facts only — no section is written
+  from assumptions, and what the Hub does not record is left out:
+  `feature-matrix` 3.1 (one table grouped by top-level menu, a column per
+  service and per role), `permission-gap` 2.1 (a point-in-time access review
+  sheet with a review column for features without an access rule),
+  `github-onboarding` 2.2 (the product map a new contributor reads first),
+  `keep-a-changelog` 1.1 (recorded notes, approvals and retirements under the
+  Keep a Changelog headings).
+- `why-blocked` 3.2, `lean-arc42` 2.1, `ops-manual` 2.1 and `compliance-audit`
+  3.2 were rebuilt the same way, and the HTML templates each have their own
+  stylesheet instead of one shared look.
+- Templates are named the way practitioners name the documents: Troubleshooting
+  Guide, Developer Onboarding Guide, Architecture Overview (ARCHITECTURE.md),
+  Release Notes, Help Center Home, Developer Guide, Access Review Sheet,
+  Functional Specification. In English, `ops-manual` is the Administrator Guide
+  (an operations manual names a runbook in English, which this is not) and
+  `compliance-audit` is the Security Controls Inventory (the auditor writes the
+  audit report; this is the evidence it starts from). Korean names are unchanged.
+
+- Korean customer prose has a third register, `korean_customer_tone: polite`
+  (해요체), next to `formal` and `plain`, and the register check reads any
+  sentence-final `~다` that is not `~니다` as plain. A help page whose Dok is
+  written in another register than the workspace's is still rendered, and the
+  conflict is reported as a warning instead of refusing the render.
+
+### Removed
+- `saas-prd` and `openapi-3.1`: both filled in facts the Hub does not carry. A
+  one-feature specification is `feature-spec` narrowed to one Dok.
+
+### Upgrade notes
+- A Publication that names `saas-prd` or `openapi-3.1` fails to render until it
+  is pointed at another template.
+- The template catalogue of an English workspace is shorter by the four Korean
+  forms; `doklo template list --all-languages` still lists them, and rendering
+  one by name still works.
+- The package remains an Apache-2.0 developer preview. This update does not
+  enable Cloud hosting, automatic publication, or document approval.
+
 ## [0.4.1] - 2026-10-27
 
 ### Added

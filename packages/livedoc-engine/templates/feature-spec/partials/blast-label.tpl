@@ -1,0 +1,1 @@
+{{#if (eq blast "blocking")}}{{t "blast_blocking"}}{{else}}{{#if (eq blast "degrading")}}{{t "blast_degrading"}}{{else}}{{#if (eq blast "cosmetic")}}{{t "blast_cosmetic"}}{{else}}{{t "na"}}{{/if}}{{/if}}{{/if}}

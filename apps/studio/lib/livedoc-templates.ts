@@ -25,9 +25,11 @@ export interface LivedocTemplateMeta {
   /**
    * Which engine output the gallery presents. 'html' previews inline;
    * 'xlsx'/'hwpx'/'pptx' are binary deliverables — download-only, opened
-   * in Excel / 한컴오피스 / PowerPoint. Defaults to 'html'.
+   * in Excel / 한컴오피스 / PowerPoint. 'json' is a data deliverable —
+   * also download-only, but consumed by code rather than an office app.
+   * Defaults to 'html'.
    */
-  preview?: 'html' | 'xlsx' | 'hwpx' | 'pptx';
+  preview?: 'html' | 'xlsx' | 'hwpx' | 'pptx' | 'json';
 }
 
 /** Rendered document returned by /api/wizard/livedoc. */
@@ -36,20 +38,6 @@ export type RenderedDoc =
   | { kind: 'binary'; dataBase64: string; mime: string; filename: string };
 
 export const WIZARD_LIVEDOCS: LivedocTemplateMeta[] = [
-  {
-    ref: 'saas-prd',
-    title: { ko: '제품 요구사항 문서', en: 'Product Requirements' },
-    desc: {
-      ko: 'PM이 검토하는 PRD — 시나리오 타임라인, 규칙 카드, 인수조건까지.',
-      en: 'A PM-ready PRD — scenario timeline, rule cards, and acceptance criteria.',
-    },
-    audience: { ko: 'PM', en: 'PM' },
-    scope: 'per_dok',
-    sections: {
-      ko: ['개요', '시나리오 타임라인', '비즈니스 규칙', '인수 조건'],
-      en: ['Overview', 'Scenario Timeline', 'Business Rules', 'Acceptance Criteria'],
-    },
-  },
   {
     ref: 'help-page',
     title: { ko: '고객 도움말 페이지', en: 'Customer Help Page' },
@@ -60,13 +48,13 @@ export const WIZARD_LIVEDOCS: LivedocTemplateMeta[] = [
     audience: { ko: '고객지원', en: 'Support' },
     scope: 'per_dok',
     sections: {
-      ko: ['이런 상황에서', '따라하기', '알아두세요', '확인하기'],
-      en: ['When this happens', 'Steps', 'Good to know', 'Check it worked'],
+      ko: ['어떻게 하나요?', '알아두세요', '잘 되었는지 확인하기'],
+      en: ['How to do it', 'Good to know', 'Checking it worked'],
     },
   },
   {
     ref: 'github-onboarding',
-    title: { ko: '개발자 온보딩', en: 'Developer Onboarding' },
+    title: { ko: '개발자 온보딩 가이드', en: 'Developer Onboarding Guide' },
     desc: {
       ko: '신규 합류자 1주차용 ONBOARDING — 추천 플로우 + 도메인 맵.',
       en: 'First-week ONBOARDING for new hires — recommended flows + domain map.',
@@ -90,30 +78,30 @@ export const GALLERY_LIVEDOCS: LivedocTemplateMeta[] = [
   ...WIZARD_LIVEDOCS,
   {
     ref: 'why-blocked',
-    title: { ko: '왜 안 되나요 — 차단 사유 인덱스', en: 'Why Blocked — Denial Index' },
+    title: { ko: '트러블슈팅 가이드', en: 'Troubleshooting Guide' },
     desc: {
-      ko: 'CS가 티켓을 받는 순간 여는 문서 — 기능별 권한·사전조건·검증·제한을 차단 사유 체크리스트로.',
-      en: 'What support opens when a ticket lands — permissions, preconditions, validations and limits as a denial checklist per feature.',
+      ko: 'CS가 티켓을 받는 순간 여는 내부 문서 — 왜 안 되는지, 기능별 권한·사전조건·검증·제한을 확인 순서대로.',
+      en: 'What support opens when a ticket lands — why an action does not go through: permissions, preconditions, validations and limits per feature, in check order.',
     },
     audience: { ko: '고객지원', en: 'Support' },
     scope: 'workspace',
     sections: {
-      ko: ['기능 인덱스', '권한', '사전조건', '입력 검증', '제한·정책'],
-      en: ['Feature index', 'Permissions', 'Preconditions', 'Input checks', 'Limits & policies'],
+      ko: ['기능 목차', '기능별 조건 표', '그래도 안 되면'],
+      en: ['Features', 'Conditions per feature', 'If it still fails'],
     },
   },
   {
     ref: 'permission-gap',
-    title: { ko: '권한 규칙 공백 점검표', en: 'Permission Gap Report' },
+    title: { ko: '접근 권한 검토표', en: 'Access Review Sheet' },
     desc: {
-      ko: '보안 점검 전 제출하는 한 장 — 권한 규칙이 정의되지 않은 active 기능만 적출.',
-      en: 'The one-pager submitted before a security review — only the active features with no permission rule.',
+      ko: '기준일 시점의 접근 권한 검토 — 메뉴별 기능 × 역할 표와, 접근 규칙이 없는 기능의 검토란.',
+      en: 'A point-in-time access review — features by menu × roles, with a review column for features without an access rule.',
     },
     audience: { ko: '보안', en: 'Security' },
     scope: 'workspace',
     sections: {
-      ko: ['판정 기준', '검토 대상 (예외만)', '점검 범위'],
-      en: ['Criteria', 'For review (exceptions only)', 'Scope'],
+      ko: ['역할 정의', '메뉴별 기능 × 역할', '검토 목록'],
+      en: ['Role model', 'Features by menu × roles', 'Review lists'],
     },
   },
   {
@@ -126,40 +114,84 @@ export const GALLERY_LIVEDOCS: LivedocTemplateMeta[] = [
     audience: { ko: '공공·감리', en: 'Public sector' },
     scope: 'workspace',
     sections: {
-      ko: ['요구사항추적표 (AC당 1행)', '기능별 집계'],
-      en: ['Traceability (one row per AC)', 'Feature summary'],
+      ko: ['요구사항추적표 (4단계 병합 헤더)', '커버리지 점검'],
+      en: ['Traceability (4-stage header)', 'Coverage check'],
     },
     preview: 'xlsx',
   },
   {
     ref: 'ops-manual',
-    title: { ko: '운영 매뉴얼 (한글 납품본)', en: 'Operations Manual (.hwpx)' },
+    title: { ko: '운영 매뉴얼 (HWPX)', en: 'Administrator Guide (HWPX)' },
     desc: {
       ko: '납품·검수 때 발주처 운영자에게 전달하는 한글(.hwpx) 매뉴얼 — 사용 절차·유의사항·확인 기준.',
-      en: 'The operator manual handed over at delivery — usage steps, notes and success checks, as Hangul .hwpx.',
+      en: 'The administrator guide handed over at delivery — usage steps, notes and success checks, as Hangul .hwpx.',
     },
     audience: { ko: '운영자·납품', en: 'Operators' },
     scope: 'workspace',
     sections: {
-      ko: ['목차', '사용 절차', '운용 시 유의사항', '정상 동작 확인'],
-      en: ['Contents', 'Usage steps', 'Operational notes', 'Success checks'],
+      ko: ['문서 정보', '개정 이력', '목차', '개요', '접속 및 권한', '메뉴 구성', '기능별 운영 절차', '부록'],
+      en: ['Document info', 'Revisions', 'Contents', 'Overview', 'Access & roles', 'Menus', 'Procedures per feature', 'Appendix'],
     },
     preview: 'hwpx',
   },
   {
-    ref: 'korean-public-ppt',
-    title: { ko: '튜토리얼 슬라이드 (PPTX)', en: 'Tutorial Slides (PPTX)' },
+    ref: 'feature-spec',
+    title: { ko: '기능 명세서', en: 'Functional Specification' },
     desc: {
-      ko: '교육·발표용 16:9 슬라이드 — 스텝당 1장, 실스크린샷과 조작 위치 하이라이트 포함. 공공기관 매뉴얼 스타일.',
-      en: '16:9 training slides — one per step, with captured screenshots and interaction highlights. Public-manual styling.',
+      ko: 'Hub 전체를 납품 꼴의 기능 명세서 한 권으로 — 표지·개정 이력·목차·개요·시스템 구성(서비스·메뉴 체계·역할)·기능 목록·기능별 절(절차·규칙·수용 기준)·공통 제약·요구사항 추적표·용어집.',
+      en: 'The whole Hub as one delivery-grade functional specification — cover, revision history, contents, introduction, system structure (services, menu map, roles), feature list, a section per feature (procedure, rules, acceptance criteria), constraints, traceability matrix, glossary.',
     },
-    audience: { ko: '교육·발표', en: 'Training' },
-    scope: 'per_dok',
+    audience: { ko: '발주처·PM·QA·개발자', en: 'Clients · PM · QA · developers' },
+    scope: 'workspace',
     sections: {
-      ko: ['표지', '스텝 슬라이드 (스크린샷+행동/결과)', '마무리'],
-      en: ['Cover', 'Step slides (screenshot + action/result)', 'Closing'],
+      ko: ['표지·개정 이력·목차', '개요·시스템 구성', '기능 목록·기능 상세', '공통 제약·추적표·용어집'],
+      en: ['Cover · history · contents', 'Introduction · system structure', 'Feature list · feature details', 'Constraints · RTM · glossary'],
+    },
+  },
+  {
+    ref: 'feature-spec-xlsx',
+    title: { ko: '기능 명세서 (엑셀)', en: 'Functional Specification (Excel)' },
+    desc: {
+      ko: '기능 명세서의 엑셀 판 — 기능목록·처리절차·업무규칙·수용기준 네 시트. 구분(메뉴)·역할명·상태가 읽는 말로 채워지고 비고·시험 결과는 검수자 기입 칸.',
+      en: 'The spreadsheet edition of the functional specification — four sheets: feature list, procedure steps, business rules, acceptance criteria. Menu group, role names and status print as words; remarks and test results are left for the reviewer.',
+    },
+    audience: { ko: '발주처·PM·QA', en: 'Clients · PM · QA' },
+    scope: 'workspace',
+    sections: {
+      ko: ['기능목록', '처리절차', '업무규칙', '수용기준'],
+      en: ['Features', 'Procedures', 'Business rules', 'Acceptance criteria'],
+    },
+    preview: 'xlsx',
+  },
+  {
+    ref: 'korean-public-ppt',
+    title: { ko: '사용자 매뉴얼 (PPTX, 공공기관 양식)', en: 'User Manual (PPTX, public-sector form)' },
+    desc: {
+      ko: '공공기관 납품 꼴의 16:9 사용자 매뉴얼 한 권 — 표지·문서 정보·목차·개요·접속 및 권한·메뉴 구성·기능별 화면 설명(스크린샷과 번호 콜아웃, 없으면 화면 설명)·유의사항·문의처·부록.',
+      en: 'One 16:9 user manual in the public-sector deliverable form — cover, document info, contents, overview, access and roles, menu map, screens by feature (screenshot with callouts, or a written screen description), cautions, contact, appendix.',
+    },
+    audience: { ko: '운영자·공공 납품', en: 'Operators · public delivery' },
+    scope: 'workspace',
+    sections: {
+      ko: ['표지·문서 정보·목차', '개요·접속 및 권한·메뉴 구성', '기능별 화면 설명', '유의사항·문의처·부록'],
+      en: ['Cover · document info · contents', 'Overview · access · menu map', 'Screens by feature', 'Cautions · contact · appendix'],
     },
     preview: 'pptx',
+  },
+  {
+    ref: 'help-data',
+    title: { ko: '도움말 세트 데이터 (JSON)', en: 'Help Set Data (JSON)' },
+    desc: {
+      ko: '자사 사이트에 도움말을 직접 그릴 때 읽는 고객 안전 뷰 모델(doklo-help-set@1) — 카테고리·아티클·큐레이션 FAQ를 JSON 번들 하나로.',
+      en: 'The customer-safe view model (doklo-help-set@1) read when help is rendered inside your own site — categories, articles and curated FAQ as one JSON bundle.',
+    },
+    audience: { ko: '개발자', en: 'Developers' },
+    scope: 'workspace',
+    sections: {
+      ko: ['카테고리·아티클 번들(JSON)', '큐레이션 FAQ 포함'],
+      en: ['Category & article bundle (JSON)', 'Includes curated FAQ'],
+    },
+    preview: 'json',
   },
 ];
 

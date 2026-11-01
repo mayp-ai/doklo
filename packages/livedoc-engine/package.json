@@ -1,7 +1,7 @@
 {
   "name": "@doklo-beta/livedoc-engine",
   "version": "0.0.0",
-  "description": "Live Docs engine with 7 stable Markdown/HTML templates and 9 explicitly experimental templates",
+  "description": "Live Docs engine with 7 stable Markdown/HTML templates and 10 explicitly experimental templates",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

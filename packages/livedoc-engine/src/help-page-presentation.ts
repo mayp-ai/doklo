@@ -34,5 +34,7 @@ export function helpPagePresentation(dokId: string, locale: string, variables: V
     tips_title_id: `${articleId}--tips-title`,
     done_id: `${articleId}--done`,
     done_title_id: `${articleId}--done-title`,
+    faq_id: `${articleId}--faq`,
+    faq_title_id: `${articleId}--faq-title`,
   };
 }

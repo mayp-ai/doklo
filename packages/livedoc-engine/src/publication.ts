@@ -63,6 +63,15 @@ export const PublicationDestinationSchema = z.strictObject({
   }),
 });
 
+function isKnownTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const PublicationSchema = z.object({
   schema_version: z.literal(1),
   name: PublicationNameSchema,
@@ -78,6 +87,14 @@ export const PublicationSchema = z.object({
   }),
   destination: PublicationDestinationSchema.optional(),
   update_mode: PublicationUpdateModeSchema.optional(),
+  /**
+   * IANA zone the rendered dates are printed in (`format_date`, `render_date`,
+   * and whatever a consumer derives from it). Absent = UTC, and a definition
+   * without it serializes byte-for-byte as before.
+   */
+  timezone: z.string().trim().min(1).max(64).refine(isKnownTimeZone, {
+    message: 'timezone must be an IANA time zone name such as Asia/Seoul',
+  }).optional(),
   created_at: z.string().datetime({ offset: true }),
 }).strict().superRefine((publication, context) => {
   addDuplicateIssues(publication.selected_dok_ids, context, ['selected_dok_ids']);

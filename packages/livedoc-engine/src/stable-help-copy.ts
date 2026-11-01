@@ -7,7 +7,7 @@ import type {
   UserActionStep,
 } from '@doklo-beta/core';
 import { audienceText, type AudienceDictionary } from './helpers/audience-text.js';
-import { containsSourcePath, replaceApplicationRoutes } from './public-copy-patterns.js';
+import { containsSourcePath, findApplicationRoutes } from './public-copy-patterns.js';
 
 const RESIDUAL_DEVELOPER_COPY = [
   /\bserver[- ]side\b/iu,
@@ -56,6 +56,12 @@ export interface StableHelpCriterion extends Omit<AcceptanceCriterion, 'statemen
   statement: string;
 }
 
+export interface StableHelpFaqItem {
+  id: string;
+  question: string;
+  answer: string;
+}
+
 export interface StableHelpCopy {
   workspace_name?: string;
   title: string;
@@ -64,6 +70,8 @@ export interface StableHelpCopy {
   steps: StableHelpStep[];
   rules: StableHelpRule[];
   criteria: StableHelpCriterion[];
+  /** Human-curated Q&A (dok.faq), passed through the same public-copy pipeline. */
+  faq: StableHelpFaqItem[];
 }
 
 export function prepareStableHelpCopy(args: {
@@ -162,6 +170,19 @@ export function prepareStableHelpCopy(args: {
     actors.push({ kind: step.actor.kind, label: step.actor_label });
   }
 
+  const faq: StableHelpFaqItem[] = [];
+  for (const [index, item] of (args.dok.faq?.items ?? []).entries()) {
+    const question = publicText(item.question, `faq[${index}].question`);
+    const answer = publicText(item.answer, `faq[${index}].answer`);
+    if (question === undefined || answer === undefined) {
+      // Curated copy that still fails the public pipeline is dropped whole —
+      // a half-empty Q&A card is worse than none, and `changes` records it.
+      changes.push({ field: `faq[${index}]`, category: 'omitted' });
+      continue;
+    }
+    faq.push({ id: item.id, question, answer });
+  }
+
   return {
     copy: {
       ...(workspaceName === undefined ? {} : { workspace_name: workspaceName }),
@@ -171,6 +192,7 @@ export function prepareStableHelpCopy(args: {
       steps,
       rules,
       criteria,
+      faq,
     },
     changes,
     unsafeTitle: title === undefined,
@@ -230,10 +252,11 @@ function normalizePublicCopy(source: string, mode: 'label' | 'prose'): {
     'the sign-up page',
   );
 
-  const routeReplacement = /[가-힣]/u.test(text) ? '해당 페이지' : 'the page';
-  const withoutApplicationRoutes = replaceApplicationRoutes(text, routeReplacement);
+  const withoutApplicationRoutes = replaceRoutesForReaders(text);
   if (withoutApplicationRoutes !== text) changed = true;
   text = withoutApplicationRoutes;
+  // A repeated function word is a typo in any copy ("access the the page").
+  replace(/\b(the|a|an|to|of|in|on|for|and|or|is|are)\s+\1\b/giu, '$1');
 
   // Remove named implementation mechanisms, including Korean particles, but
   // leave the surrounding customer wording intact when it stands on its own.
@@ -260,6 +283,37 @@ function normalizePublicCopy(source: string, mode: 'label' | 'prose'): {
     return { category: 'omitted' };
   }
   return changed ? { text, category: 'normalized' } : { text };
+}
+
+/**
+ * An application route becomes the page a reader knows. The words around it go
+ * with it: "the /admin route" was "the the page route" when only the path was
+ * replaced. In English the last plain segment names the page ("the settings
+ * page"); anything else, and Korean, is "the page" / "해당 페이지". Each
+ * look-around reads a bounded window, so the scan stays linear.
+ */
+function replaceRoutesForReaders(value: string): string {
+  const korean = /[가-힣]/u.test(value);
+  let result = '';
+  let position = 0;
+  for (const match of findApplicationRoutes(value)) {
+    let start = match.index;
+    let end = match.index + match.text.length;
+    if (korean) {
+      const noun = /^\s*(?:경로|페이지|화면|라우트)/u.exec(value.slice(end, end + 8));
+      if (noun) end += noun[0].length;
+      result += value.slice(position, start) + '해당 페이지';
+    } else {
+      const article = /\b(?:the|a|an)\s+$/iu.exec(value.slice(Math.max(position, start - 8), start));
+      if (article) start -= article[0].length;
+      const noun = /^\s+(?:(?:page|screen|view)(?:\s+(?:route|path|url))?|route|path|url)\b/iu.exec(value.slice(end, end + 16));
+      if (noun) end += noun[0].length;
+      const segment = match.text.split('/').filter((part) => /^[a-z][a-z-]{1,23}$/u.test(part)).at(-1);
+      result += value.slice(position, start) + (segment ? `the ${segment.replaceAll('-', ' ')} page` : 'the page');
+    }
+    position = end;
+  }
+  return result + value.slice(position);
 }
 
 function hasDeveloperCopy(value: string): boolean {

@@ -1,0 +1,1 @@
+{{#if (eq type "requires")}}{{t "edge_requires"}}{{else}}{{#if (eq type "navigates_to")}}{{t "edge_navigates_to"}}{{else}}{{#if (eq type "depends_on")}}{{t "edge_depends_on"}}{{else}}{{#if (eq type "references")}}{{t "edge_references"}}{{else}}{{#if (eq type "extends")}}{{t "edge_extends"}}{{else}}{{type}}{{/if}}{{/if}}{{/if}}{{/if}}{{/if}}

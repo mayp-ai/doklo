@@ -1,0 +1,4 @@
+| {{t "col_rule_id"}} | {{t "col_feature"}} | {{t "col_rule"}} | {{t "col_roles"}} |{{#if vars.show_repo_info}} {{t "col_evidence"}} |{{/if}}
+| --- | --- | --- | --- |{{#if vars.show_repo_info}} --- |{{/if}}
+{{#each (expand_rules doks)}}{{#if (eq this.rule.type ../type)}}| {{md_code this.rule.id}} | {{md_cell (translate this.dok.name)}} ({{md_code this.dok.dok_id}}) | {{md_cell (translate this.rule.description)}} | {{#if this.rule.applies_to_roles.length}}{{#each this.rule.applies_to_roles}}{{#if @index}}, {{/if}}{{md_cell (role_label this)}}{{/each}}{{else}}{{t "roles_unspecified"}}{{/if}} |{{#if ../vars.show_repo_info}} {{> code-anchor-md anchor=this.rule.code_anchor}} |{{/if}}
+{{/if}}{{/each}}

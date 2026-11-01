@@ -1,16 +1,35 @@
+{{#with this as |root|}}
 # {{t "title"}} — {{md_text (translate workspace.name)}}
 
 {{t "subtitle"}}
 
-{{t "stat_features"}} {{len doks}} · {{t "stat_domains"}} {{len (group_doks_by_primary_tag doks)}} · {{t "stat_services"}} {{len workspace.services}}
+**{{t "meta_asof"}}** {{format_date generated_at}} · **{{t "meta_features"}}** {{len doks}}{{t "unit_features"}} · **{{t "meta_services"}}** {{len (surface_columns root.doks root.workspace.services)}}{{#if hub.roles.roles.length}} · **{{t "meta_roles"}}** {{len hub.roles.roles}}{{/if}}
 
-{{#each (group_doks_by_primary_tag doks)}}
-## {{md_text this.tag}} ({{len this.doks}}{{t "domain_count_suffix"}})
+{{t "note"}}
 
-| {{t "col_feature"}} | {{t "col_status"}} | {{t "col_surfaces"}} | {{t "col_depth"}} |
-| --- | --- | --- | ---: |
-{{#each this.doks}}
-| {{md_cell (translate this.name)}} | {{md_cell this.status}} | {{#each this.surfaces}}{{md_cell this}}{{#unless @last}}, {{/unless}}{{else}}—{{/each}} | {{#if this.user_actions.steps.length}}{{len this.user_actions.steps}}{{else}}0{{/if}} · {{#if this.business_rules.rules.length}}{{len this.business_rules.rules}}{{else}}0{{/if}} · {{#if this.acceptance_criteria.criteria.length}}{{len this.acceptance_criteria.criteria}}{{else}}0{{/if}} |
+{{#with (surface_columns root.doks root.workspace.services) as |cols|}}
+{{#with (help_categories root.hub.services root.doks ".md") as |ia|}}
+{{#each ia.categories as |category|}}
+### {{md_text (translate category.label)}}
+
+| {{t "col_feature"}} |{{#each cols}} {{md_cell this.service_id}}{{#if this.type}} ({{> service-type-label type=this.type}}){{/if}} |{{/each}}{{#each root.hub.roles.roles}} {{md_cell (translate this.name)}} |{{/each}}
+| --- |{{#each cols}} :---: |{{/each}}{{#each root.hub.roles.roles}} :---: |{{/each}}
+{{#each category.articles as |article|}}| {{md_cell (translate article.dok.name)}} |{{#each cols as |col|}} {{#if (includes article.dok.surfaces col.service_id)}}●{{else}}–{{/if}} |{{/each}}{{#each root.hub.roles.roles as |role|}} {{#if (includes (step_roles article.dok.user_actions.steps) role.role_id)}}●{{else}}–{{/if}} |{{/each}}
 {{/each}}
 
 {{/each}}
+{{#if ia.unplaced.length}}
+{{#if ia.categories.length}}
+### {{t "group_other"}}
+
+{{/if}}
+| {{t "col_feature"}} |{{#each cols}} {{md_cell this.service_id}}{{#if this.type}} ({{> service-type-label type=this.type}}){{/if}} |{{/each}}{{#each root.hub.roles.roles}} {{md_cell (translate this.name)}} |{{/each}}
+| --- |{{#each cols}} :---: |{{/each}}{{#each root.hub.roles.roles}} :---: |{{/each}}
+{{#each ia.unplaced as |article|}}| {{md_cell (translate article.dok.name)}} |{{#each cols as |col|}} {{#if (includes article.dok.surfaces col.service_id)}}●{{else}}–{{/if}} |{{/each}}{{#each root.hub.roles.roles as |role|}} {{#if (includes (step_roles article.dok.user_actions.steps) role.role_id)}}●{{else}}–{{/if}} |{{/each}}
+{{/each}}
+
+{{/if}}
+{{/with}}
+{{/with}}
+{{t "legend_title"}}: ● {{t "legend_offered"}} · – {{t "legend_none"}}
+{{/with}}

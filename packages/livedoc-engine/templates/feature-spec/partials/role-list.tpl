@@ -1,0 +1,1 @@
+{{~#each (unique_actors (user_steps steps))~}}{{~#if (eq this.kind "role")~}}{{~#if @index}} · {{/if~}}{{role_label this.role_ref}}{{~/if~}}{{~/each~}}

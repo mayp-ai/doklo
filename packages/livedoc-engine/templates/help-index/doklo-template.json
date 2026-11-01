@@ -1,14 +1,14 @@
 {
   "$schema": "https://doklo.dev/template-manifest-v2.json",
   "name": "help-index",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "display_name": {
-    "en": "Help Center Index",
-    "ko": "도움말 인덱스"
+    "en": "Help Center Home",
+    "ko": "도움말 센터 홈"
   },
   "description": {
-    "en": "An entry page that organizes a set of help articles around the product's navigation structure instead of a flat file list.",
-    "ko": "도움말 묶음을 파일 목록이 아닌 제품 탐색 구조에 맞춰 정리한 진입 페이지입니다."
+    "en": "Help-center home for a set of help articles. Each top-level area of the product's navigation structure becomes a category card with its article count and article list.",
+    "ko": "도움말 묶음의 헬프센터 홈. 제품 라우트 계층의 최상위 영역이 카테고리 카드가 되고, 그 아래에 아티클 수와 목록을 표시"
   },
   "author": {
     "name": "doklo",
@@ -29,8 +29,8 @@
     "ko": "도움말 묶음에서 \"내 문제는 어느 문서에 있어요?\"에 답합니다."
   },
   "required_input": {
-    "en": "Reviewed product features selected for the help set; an optional service navigation structure improves grouping",
-    "ko": "도움말 묶음으로 선택한 검토 완료 기능과 선택 사항인 서비스 탐색 구조"
+    "en": "Reviewed product features selected for the help set; the product's navigation structure provides the categories and is optional",
+    "ko": "도움말 묶음으로 선택한 검토 완료 기능. 제품 탐색 구조가 있으면 카테고리로, 없으면 평탄 목록"
   },
   "variables": {
     "link_extension": {
@@ -44,33 +44,51 @@
       "required": false,
       "description": "Path prefix for help article links, for example ./pages/ when the articles are published in a subfolder.",
       "default": "./"
+    },
+    "support_url": {
+      "type": "string",
+      "required": false,
+      "description": "Customer support URL for the footer contact link."
     }
   },
   "default_format": "markdown",
   "outputs": {
     "markdown": { "entry": "template.md.tpl", "output_path": "help-index.md", "source": "markdown" },
-    "html": { "entry": "template.md.tpl", "output_path": "help-index.html", "source": "markdown" }
+    "html": { "entry": "template.html.tpl", "output_path": "help-index.html", "source": "html" }
   },
   "scope": "workspace",
-  "partials": {
-    "index-node": "partials/index-node.tpl"
-  },
   "supported_locales": [
     "en",
     "ko"
   ],
   "default_locale": "en",
-  "extends_default_css": true,
+  "extends_default_css": false,
   "strings": {
     "en": {
-      "title": "Find Product Help",
-      "intro": "Choose a product area or topic to open the matching guide.",
-      "section_other": "Topics outside navigation"
+      "title": "Help Center",
+      "hero": "How can we help?",
+      "intro": "Browse by area of the product to find the guide for what you're trying to do.",
+      "section_other": "Other topics",
+      "count_before": "",
+      "count_after_one": " article",
+      "count_after_many": " articles",
+      "empty": "No help articles are available yet.",
+      "support_question": "Couldn't find what you needed?",
+      "support": "Contact support",
+      "colophon": "Doklo Live Docs"
     },
     "ko": {
-      "title": "제품 도움말 찾기",
-      "intro": "제품 영역이나 주제를 선택해 해당 안내를 엽니다.",
-      "section_other": "메뉴에 없는 주제"
+      "title": "도움말 센터",
+      "hero": "도움말 찾기",
+      "intro": "제품 영역별로 찾는 안내",
+      "section_other": "기타 주제",
+      "count_before": "아티클 ",
+      "count_after_one": "개",
+      "count_after_many": "개",
+      "empty": "제공 중인 도움말 없음",
+      "support_question": "찾는 내용이 없을 때",
+      "support": "고객지원",
+      "colophon": "Doklo Live Docs"
     }
   },
   "requires_hub_layers": [

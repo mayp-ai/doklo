@@ -1,79 +1,125 @@
 {
   "$schema": "https://doklo.dev/template-manifest-v2.json",
   "name": "permission-gap",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "display_name": {
-    "en": "Permission Gap Report",
-    "ko": "권한 규칙 공백 점검표"
+    "en": "Access Review Sheet",
+    "ko": "접근 권한 검토표"
   },
   "description": {
-    "en": "Point-in-time evidence sheet for security reviews: every active feature with zero permission-type business rules, one page, exceptions only. The job: a security reviewer preparing an ISMS/inspection asks 'which features have no defined access rule?' — this is the submitted answer, not a browsing dashboard.",
-    "ko": "보안 점검 및 ISMS 준비용 증빙 스냅샷입니다. 권한 유형의 비즈니스 규칙이 없는 활성 기능만 한 장에 모아, 보안 담당자의 접근 규칙 검토에 답하는 제출용 문서입니다."
+    "en": "A point-in-time access review of the reviewed features: the role model, then one table of features by menu with a column per role showing which roles an access rule names and which only perform steps, and a review column on every feature that has no access rule or names no role. Closes with the lists a reviewer signs off against.",
+    "ko": "검토 완료 기능의 접근 권한을 기준일 시점으로 검토하는 표: 역할 정의, 메뉴별 기능 표(역할마다 열을 두어 접근 규칙이 명시한 역할과 규칙 없이 수행만 하는 역할을 구분), 접근 규칙이 없거나 적용 역할이 비어 있는 기능의 검토란, 그리고 검토자가 확인하는 목록."
   },
-  "author": { "name": "doklo", "url": "https://github.com/mayp-ai/doklo" },
+  "author": {
+    "name": "doklo",
+    "url": "https://github.com/mayp-ai/doklo"
+  },
   "license": "MIT",
   "stability": "stable",
-  "audience": { "en": "Security reviewers and auditors", "ko": "보안 검토자와 감사자" },
-  "purpose": { "en": "List active features without a documented permission rule.", "ko": "문서화된 권한 규칙이 없는 활성 기능을 나열합니다." },
-  "job": { "en": "Prioritize access-control review and record a verdict.", "ko": "접근 제어 검토 우선순위를 정하고 판정을 기록합니다." },
-  "required_input": { "en": "Active features, business rules, and implementation references", "ko": "활성 기능, 비즈니스 규칙, 구현 참조" },
+  "audience": {
+    "en": "Security reviewers and auditors",
+    "ko": "보안 검토자와 감사자"
+  },
+  "purpose": {
+    "en": "Show which roles each feature's access rules admit, and which features have no documented access rule.",
+    "ko": "기능마다 접근 규칙이 어느 역할을 허용하는지, 어느 기능에 접근 규칙이 없는지를 보여줍니다."
+  },
+  "job": {
+    "en": "Review access control before an inspection and record a verdict per feature.",
+    "ko": "점검 전에 접근 통제를 검토하고 기능별 판정을 기록합니다."
+  },
+  "required_input": {
+    "en": "Reviewed features with permission-type business rules and their roles; the roles layer gives the columns, the information architecture the grouping",
+    "ko": "권한 유형 규칙과 적용 역할이 있는 검토 완료 기능. 역할 레이어가 열을, 정보 구조가 묶음을 만듭니다"
+  },
   "variables": {},
   "default_format": "markdown",
   "outputs": {
-    "markdown": { "entry": "template.md.tpl", "output_path": "PERMISSION-GAP.md", "source": "markdown" },
-    "html": { "entry": "template.md.tpl", "output_path": "PERMISSION-GAP.html", "source": "markdown" }
+    "markdown": {
+      "entry": "template.md.tpl",
+      "output_path": "PERMISSION-GAP.md",
+      "source": "markdown"
+    },
+    "html": {
+      "entry": "template.md.tpl",
+      "output_path": "PERMISSION-GAP.html",
+      "source": "markdown"
+    }
   },
   "scope": "workspace",
-  "supported_locales": ["en", "ko"],
+  "supported_locales": [
+    "en",
+    "ko"
+  ],
   "default_locale": "ko",
   "extends_default_css": false,
   "strings": {
     "ko": {
-      "title": "권한 규칙 누락 검토",
-      "meta_target": "검토 대상",
-      "meta_date": "자료 기준일",
-      "meta_criteria": "선별 조건",
-      "criteria_text": "active 기능 중 permission 유형 비즈니스 규칙이 없는 기능",
-      "honesty_note": "문서에 권한 규칙이 없다는 사실만으로 취약점을 뜻하지는 않습니다. 공개 화면이나 토큰 기반 접근처럼 의도된 무권한인지, 규칙을 보완해야 하는지 각 기능을 검토합니다.",
-      "section_gaps": "권한 규칙이 없는 기능",
-      "unit_cases": "건",
-      "scope_prefix": "검토 범위: active 기능",
-      "scope_suffix": "건",
-      "col_name": "기능명",
-      "col_have": "현재 규칙 유형",
-      "none_label": "(문서화된 규칙 없음)",
-      "no_gaps": "모든 active 기능에 permission 유형 규칙이 문서화되어 있습니다.",
-      "section_action": "누락 여부 판정",
-      "action_intro": "각 기능을 다음 순서로 확인하고 검토 결과를 기록합니다.",
-      "action_1": "제품에서 접근 제어가 필요한 지점을 확인합니다.",
-      "action_2": "의도된 무권한인지 문서 규칙 누락인지 판정합니다.",
-      "action_3": "누락이면 규칙 추가를 백로그에 등록하고, 의도된 무권한이면 사유를 남깁니다.",
-      "col_verdict": "판정",
-      "verdict_cell": "☐ 의도된 무권한  ☐ 규칙 보완 필요"
+      "title": "접근 권한 검토표",
+      "meta_asof": "기준일",
+      "meta_scope": "검토 범위",
+      "scope_text": "검토 완료 기능",
+      "unit_features": "건",
+      "meta_roles": "역할",
+      "reading": "읽는 법: 역할 열의 ●는 접근 규칙이 그 역할을 명시한 기능, ○는 접근 규칙 없이 절차의 단계만 수행하는 역할, –는 해당 없음. 검토란은 접근 규칙이 없거나 적용 역할이 비어 있는 기능에만 표시",
+      "honesty": "접근 규칙이 기록되어 있지 않다는 사실만으로는 취약점이 아니며, 공개 화면이나 토큰 기반 접근처럼 의도된 무권한인지 규칙 보완 대상인지는 기능마다 검토 대상",
+      "s_roles": "1. 역할 정의",
+      "col_role": "역할",
+      "col_role_kind": "구분",
+      "col_role_scope": "범위",
+      "kind_access": "접근 역할",
+      "kind_actor_type": "행위자 유형",
+      "scope_global": "전체",
+      "scope_tenant": "조직 단위",
+      "scope_resource": "자원 단위",
+      "s_table": "2. 기능별 접근 권한",
+      "s_table_no_roles": "2. 기능별 접근 규칙 유무",
+      "col_feature": "기능",
+      "col_review": "검토",
+      "group_other": "기타",
+      "review_none": "☐ 의도된 공개  ☐ 규칙 보완 필요",
+      "review_unassigned": "☐ 적용 역할 기재 필요",
+      "has_rule": "규칙 있음",
+      "s_summary": "3. 검토 대상 요약",
+      "summary_none": "접근 규칙이 없는 기능",
+      "summary_unassigned": "접근 규칙은 있으나 적용 역할이 비어 있는 기능",
+      "summary_clear": "접근 규칙이 없는 기능 없음",
+      "na": "—"
     },
     "en": {
-      "title": "Review Missing Permission Rules",
-      "meta_target": "Review target",
-      "meta_date": "Data as of",
-      "meta_criteria": "Selection rule",
-      "criteria_text": "Active features without a permission-type business rule",
-      "honesty_note": "A missing documented rule does not by itself prove a vulnerability. Review whether each feature is intentionally permission-free, such as a public screen or token-based access, or needs a documented rule.",
-      "section_gaps": "Features without permission rules",
-      "unit_cases": " case(s)",
-      "scope_prefix": "Review scope: active features,",
-      "scope_suffix": "total",
-      "col_name": "Feature name",
-      "col_have": "Current rule types",
-      "none_label": "(no documented rules)",
-      "no_gaps": "Every active feature has a documented permission-type rule.",
-      "section_action": "Classify each missing rule",
-      "action_intro": "Review each feature in this order and record the verdict.",
-      "action_1": "Identify where the product requires access control.",
-      "action_2": "Decide whether access is intentionally unrestricted or the rule is missing.",
-      "action_3": "If the rule is missing, add it to the backlog; otherwise record why unrestricted access is intended.",
-      "col_verdict": "Review verdict",
-      "verdict_cell": "☐ intentionally unrestricted  ☐ rule needed"
+      "title": "Access Review Sheet",
+      "meta_asof": "As of",
+      "meta_scope": "Scope",
+      "scope_text": "reviewed features",
+      "unit_features": "",
+      "meta_roles": "Roles",
+      "reading": "How to read: in a role column, ● marks a feature whose access rule names that role, ○ a role that only performs steps with no access rule, – not applicable. The review column appears only for features with no access rule or with no role named",
+      "honesty": "A missing access rule is not by itself a vulnerability; whether access is intentionally open, as for a public screen or token-based entry, or a rule is missing is a per-feature review question",
+      "s_roles": "1. Role model",
+      "col_role": "Role",
+      "col_role_kind": "Kind",
+      "col_role_scope": "Scope",
+      "kind_access": "Access role",
+      "kind_actor_type": "Actor type",
+      "scope_global": "Global",
+      "scope_tenant": "Per organization",
+      "scope_resource": "Per resource",
+      "s_table": "2. Access by feature",
+      "s_table_no_roles": "2. Access rules by feature",
+      "col_feature": "Feature",
+      "col_review": "Review",
+      "group_other": "Other",
+      "review_none": "☐ intentionally open  ☐ rule needed",
+      "review_unassigned": "☐ roles to be named",
+      "has_rule": "rule recorded",
+      "s_summary": "3. Items for review",
+      "summary_none": "Features without an access rule",
+      "summary_unassigned": "Features whose access rule names no role",
+      "summary_clear": "Every feature has an access rule",
+      "na": "—"
     }
   },
-  "requires_hub_layers": ["doks"]
+  "requires_hub_layers": [
+    "doks"
+  ]
 }

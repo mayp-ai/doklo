@@ -115,6 +115,20 @@ describe('PublicationV1', () => {
     expect(() => parsePublication(value)).toThrow();
   });
 
+  it('accepts an IANA timezone and round-trips it', () => {
+    const value = publication({ timezone: 'Asia/Seoul' });
+    expect(parsePublication(value)).toEqual(value);
+    expect(JSON.parse(serializePublication(value))).toMatchObject({ timezone: 'Asia/Seoul' });
+  });
+
+  it('rejects a timezone Intl does not know', () => {
+    expect(() => parsePublication(publication({ timezone: 'Mars/Olympus' }))).toThrow(/IANA/);
+  });
+
+  it('a definition without timezone serializes exactly as before', () => {
+    expect(serializePublication(publication())).not.toContain('timezone');
+  });
+
   it('rejects duplicate values in every filter array', () => {
     expect(() => parsePublication(publication({
       selection: { mode: 'filter', exclude_tags: ['internal', 'internal'] },

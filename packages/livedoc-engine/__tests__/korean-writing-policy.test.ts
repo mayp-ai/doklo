@@ -1,9 +1,10 @@
-import { cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { renderLivedoc } from '../src/render.js';
+import { renderLivedoc, renderPublication } from '../src/render.js';
+import { publicationDigest, serializePublication, type PublicationV1 } from '../src/publication.js';
 import { DokSchema } from '@doklo-beta/core';
 import { prepareStableHelpCopy } from '../src/stable-help-copy.js';
 import { checkKoreanHelpWriting } from '../src/korean-writing-policy.js';
@@ -11,7 +12,7 @@ import { checkKoreanHelpWriting } from '../src/korean-writing-policy.js';
 const here = dirname(fileURLToPath(import.meta.url));
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
-async function fixture(description: unknown, tone?: 'formal' | 'plain', recordedTone?: 'formal' | 'plain') {
+async function fixture(description: unknown, tone?: 'formal' | 'plain' | 'polite', recordedTone?: 'formal' | 'plain') {
   const root = await mkdtemp(join(tmpdir(), 'doklo-ko-policy-'));
   roots.push(root);
   await cp(join(here, 'fixtures/render-ws'), root, { recursive: true });
@@ -43,32 +44,48 @@ describe('Korean customer help writing policy', () => {
       const dok = DokSchema.parse({ dok_id: 'CHAT', name: '대화', description });
       const { copy } = prepareStableHelpCopy({ dok, workspaceName: '제품', resolve: value => String(value), actorLabel: () => '사용자' });
       expect(copy.description).toContain('메시지를 보낸다\n답변을 확인합니다.');
-      expect(checkKoreanHelpWriting({ dok, copy, preview: true })).toContainEqual(expect.objectContaining({
+      expect(checkKoreanHelpWriting({ dok, copy })).toContainEqual(expect.objectContaining({
         code: 'KOREAN_TONE_CONFLICT', field: 'description',
       }));
     },
   );
-  it('blocks newline-separated conflicts in the actual render path', async () => {
+  it('reports newline-separated conflicts in the actual render path', async () => {
     const root = await fixture('메시지를 보낸다\n답변을 확인합니다.');
-    await expect(render(root)).rejects.toMatchObject({ code: 'KOREAN_TONE_CONFLICT', field: 'description' });
+    const result = await render(root);
+    expect(result.manifest.warnings).toContainEqual(expect.objectContaining({ code: 'KOREAN_TONE_CONFLICT', field: 'description' }));
   });
-  it('blocks clear legacy plain sentences under the default formal policy before output', async () => {
+  it('publishes legacy plain sentences as written under the formal policy and names them (D1)', async () => {
     const root = await fixture('메시지를 보낸다. 요청을 취소한다.');
-    await expect(render(root)).rejects.toMatchObject({ code: 'KOREAN_TONE_CONFLICT', dokId: 'CHAT', field: 'description' });
-    await expect(readFile(join(root, 'official/CHAT.html'))).rejects.toThrow();
+    const dokPath = join(root, '.doklo/hub/doks/CHAT.json');
+    const before = await readFile(dokPath);
+    const result = await render(root);
+    expect(result.manifest.warnings).toContainEqual(expect.objectContaining({
+      code: 'KOREAN_TONE_CONFLICT', dok_id: 'CHAT', field: 'description', message: expect.stringContaining('Published as written'),
+    }));
+    const html = await readFile(join(root, 'official/CHAT.html'), 'utf8');
+    expect(html).toContain('메시지를 보낸다.');
+    expect(html).not.toMatch(/data-doklo-preview="draft"/);
+    expect(await readFile(dokPath)).toEqual(before);
   });
   it('allows the selected plain policy and preserves quotations and labels', async () => {
     const root = await fixture('“취소합니다.”라는 문구를 확인한다. 메시지를 보낸다.', 'plain');
     await render(root);
     expect(await readFile(join(root, 'official/CHAT.html'), 'utf8')).toContain('메시지를 보낸다.');
   });
+  it('a polite workspace names 합쇼체 wording and accepts 해요체 as written', async () => {
+    const formal = await render(await fixture('주문을 선택합니다.', 'polite'));
+    expect(formal.manifest.warnings).toContainEqual(expect.objectContaining({ code: 'KOREAN_TONE_CONFLICT', field: 'description' }));
+    const polite = await render(await fixture('주문을 선택하세요. 환불이 접수돼요.', 'polite'));
+    expect(polite.manifest.warnings.filter(w => w.code === 'KOREAN_TONE_CONFLICT')).toEqual([]);
+  });
   it('checks canonical TermRefs after resolution and permits explicit audience corrections', async () => {
     const root = await fixture({ term_ref: 'TERM-MESSAGE-SEND' });
     await writeFile(join(root, '.doklo/hub/lexicon.json'), JSON.stringify({ version: 1, terms: [
       { term_id: 'TERM-MESSAGE-SEND', category: 'concept', binding: { type: 'owned' }, locales: { ko: '메시지를 보낸다.' }, related_doks: [] },
     ] }));
-    await expect(render(root)).rejects.toMatchObject({ code: 'KOREAN_TONE_CONFLICT', field: 'description' });
-    await render(root, false, { audienceDictionary: [['메시지를 보낸다.', '메시지를 보냅니다.']] });
+    expect((await render(root)).manifest.warnings).toContainEqual(expect.objectContaining({ code: 'KOREAN_TONE_CONFLICT', field: 'description' }));
+    const corrected = await render(root, false, { overwrite: true, audienceDictionary: [['메시지를 보낸다.', '메시지를 보냅니다.']] });
+    expect(corrected.manifest.warnings ?? []).not.toContainEqual(expect.objectContaining({ code: 'KOREAN_TONE_CONFLICT' }));
     expect(await readFile(join(root, 'official/CHAT.html'), 'utf8')).toContain('메시지를 보냅니다.');
   });
   it('warns in a permanently marked preview without changing Hub status or prose', async () => {
@@ -80,9 +97,9 @@ describe('Korean customer help writing policy', () => {
     expect(await readFile(join(root, 'preview/CHAT.html'), 'utf8')).toMatch(/data-doklo-preview="draft"/);
     expect(await readFile(dokPath)).toEqual(before);
   });
-  it('requires renewed review when the recorded generation policy differs from the workspace', async () => {
+  it('asks for renewed review when the recorded generation policy differs from the workspace', async () => {
     const root = await fixture('메시지를 보낸다.', 'plain', 'formal');
-    await expect(render(root)).rejects.toMatchObject({ code: 'KOREAN_WRITING_POLICY_CHANGED', dokId: 'CHAT' });
+    expect((await render(root)).manifest.warnings).toContainEqual(expect.objectContaining({ code: 'KOREAN_WRITING_POLICY_CHANGED', dok_id: 'CHAT' }));
     const preview = await render(root, true);
     expect(preview.manifest.warnings).toContainEqual(expect.objectContaining({ code: 'KOREAN_WRITING_POLICY_CHANGED' }));
   });
@@ -97,14 +114,34 @@ describe('Korean customer help writing policy', () => {
   it('does not accept acknowledgment for another policy', async () => {
     const root = await fixture('메시지를 보낸다.', 'plain', 'formal');
     await acknowledge(root, 'formal');
-    await expect(render(root)).rejects.toMatchObject({ code: 'KOREAN_WRITING_POLICY_CHANGED' });
+    expect((await render(root)).manifest.warnings).toContainEqual(expect.objectContaining({ code: 'KOREAN_WRITING_POLICY_CHANGED' }));
   });
   it('continues checking actual prose after a matching policy acknowledgment', async () => {
     const root = await fixture('메시지를 보냅니다.', 'plain', 'formal');
     await acknowledge(root, 'plain');
-    await expect(render(root)).rejects.toMatchObject({ code: 'KOREAN_TONE_CONFLICT', field: 'description' });
+    expect((await render(root)).manifest.warnings).toContainEqual(expect.objectContaining({ code: 'KOREAN_TONE_CONFLICT', field: 'description' }));
     const preview = await render(root, true);
     expect(preview.manifest.warnings).toContainEqual(expect.objectContaining({ code: 'KOREAN_TONE_CONFLICT' }));
     expect(preview.manifest.warnings).not.toContainEqual(expect.objectContaining({ code: 'KOREAN_WRITING_POLICY_CHANGED' }));
+  });
+});
+
+describe('Korean customer help writing policy in a publication render', () => {
+  it('publishes and names the Dok and field in the plan warnings', async () => {
+    const root = await fixture('메시지를 보낸다. 요청을 취소한다.');
+    const value: PublicationV1 = {
+      schema_version: 1, name: 'ko-help', display_name: '도움말', template: 'help-page',
+      selection: { mode: 'explicit', dok_ids: ['CHAT'] }, selected_dok_ids: ['CHAT'], format: 'html', locale: 'ko',
+      vars: {}, output_dir: 'help-page/ko-help', created_at: '2026-10-08T00:00:00.000Z',
+    };
+    const directory = join(root, '.doklo/livedocs/publications');
+    await mkdir(directory, { recursive: true });
+    const path = join(directory, 'ko-help.json');
+    await writeFile(path, serializePublication(value));
+    const result = await renderPublication({ workspaceRoot: root, publication: value, definition: { path, sha256: publicationDigest(value) } });
+    expect(result.status).toBe('success');
+    if (result.status !== 'success') return;
+    expect(result.data.rendered_dok_ids ?? result.data.selected_dok_ids).toContain('CHAT');
+    expect(result.data.plan.warnings).toContainEqual(expect.objectContaining({ code: 'KOREAN_TONE_CONFLICT', dok_id: 'CHAT' }));
   });
 });

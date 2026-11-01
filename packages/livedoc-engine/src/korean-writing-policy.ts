@@ -1,14 +1,20 @@
 import { reviewKoreanWritingFields, type Dok, type KoreanCustomerTone } from '@doklo-beta/core';
-import { EngineError, type EngineErrorDetail } from './errors.js';
+import type { EngineErrorDetail } from './errors.js';
 import type { LivedocManifestWarning } from './manifest.js';
 import type { StableHelpCopy } from './stable-help-copy.js';
 
-/** Inspect the same resolved, audience-adjusted prose the stable article renders. */
+/**
+ * Inspect the same resolved, audience-adjusted prose the stable article renders.
+ *
+ * Reports, never refuses (decisions 2026-10-08, D1): generation writes the
+ * workspace register and corrects itself; wording a person wrote in another
+ * register is theirs to keep, so a publication goes out as written and the
+ * warnings name each document and field that differs.
+ */
 export function checkKoreanHelpWriting(input: {
   dok: Dok;
   copy: StableHelpCopy;
   tone?: KoreanCustomerTone;
-  preview: boolean;
 }): LivedocManifestWarning[] {
   const tone = input.tone ?? 'formal';
   const issues: EngineErrorDetail[] = [];
@@ -17,7 +23,7 @@ export function checkKoreanHelpWriting(input: {
   const reviewedCurrentPolicy = acknowledgment?.locale === 'ko' && acknowledgment.tone === tone;
   if (recorded && recorded.tone !== tone && !reviewedCurrentPolicy) issues.push({
     code: 'KOREAN_WRITING_POLICY_CHANGED', dokId: input.dok.dok_id, field: '_meta.writing_policy.tone',
-    message: `Korean customer tone changed from ${recorded.tone} at generation to ${tone}. After reviewing and editing the wording, record _meta.writing_review.policy_acknowledgment with locale ko, tone ${tone}, and acknowledged_at as a UTC ISO timestamp. Preserve _meta.writing_policy as generation provenance. Alternatively, selectively regenerate and approve the draft. Use --preview to inspect without approval.`,
+    message: `Korean customer tone changed from ${recorded.tone} at generation to ${tone}; published as written. After reviewing the wording, record _meta.writing_review.policy_acknowledgment with locale ko, tone ${tone}, and acknowledged_at as a UTC ISO timestamp, or selectively regenerate and approve the draft. Preserve _meta.writing_policy as generation provenance.`,
   });
   const fields: Array<{ field: string; text: unknown }> = [{ field: 'description', text: input.copy.description }];
   for (const step of input.copy.steps) {
@@ -36,8 +42,7 @@ export function checkKoreanHelpWriting(input: {
   }
   for (const conflict of reviewKoreanWritingFields(fields, tone)) issues.push({
     code: conflict.code, dokId: input.dok.dok_id, field: conflict.field,
-    message: `Expected ${tone} Korean customer tone; found ${conflict.actual_tone} ending in ${conflict.field}: ${conflict.excerpt}. Review and edit or selectively regenerate; use --preview to inspect. No wording was rewritten.`,
+    message: `Expected ${tone} Korean customer tone; found ${conflict.actual_tone} ending in ${conflict.field}: ${conflict.excerpt}. Published as written; edit or selectively regenerate to match. No wording was rewritten.`,
   });
-  if (!input.preview && issues.length > 0) throw new EngineError(issues[0]!);
   return issues.map(issue => ({ code: issue.code, message: issue.message, dok_id: issue.dokId, field: issue.field }));
 }

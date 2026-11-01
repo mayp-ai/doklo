@@ -8,6 +8,7 @@ import {
   type ListEntry,
   type TemplateSource,
 } from '@doklo-beta/livedoc-engine';
+import { loadHubModel, MissingHubError } from '@doklo-beta/core';
 import type { CliContext } from '../lib/context.js';
 import { registerTemplateScaffoldCommand } from './template-scaffold.js';
 import { CommandContractError, recordCommandResult } from '../lib/command-result.js';
@@ -16,18 +17,40 @@ export interface ListOptions {
   root: string;
   source?: TemplateSource;
   includeExperimental?: boolean;
+  /** Show templates declared for other Dok languages too (`hub_locales`). */
+  allLanguages?: boolean;
   json?: boolean;
 }
 
+/**
+ * The workspace's Dok language, or undefined when there is no Hub yet — then
+ * nothing is hidden, since there is no language to hide for.
+ */
+export async function workspaceHubLocale(root: string): Promise<string | undefined> {
+  try {
+    return (await loadHubModel(root)).workspace.default_locale;
+  } catch (error) {
+    if (error instanceof MissingHubError) return undefined;
+    throw error;
+  }
+}
+
 export async function listAction(opts: ListOptions): Promise<ListEntry[]> {
-  const entries = await listTemplates({
+  const hubLocale = opts.allLanguages ? undefined : await workspaceHubLocale(opts.root);
+  const listOpts = {
     workspaceRoot: opts.root,
     ...(opts.source ? { preferredSource: opts.source } : {}),
     ...(opts.includeExperimental ? { includeExperimental: true } : {}),
-  });
+  };
+  const entries = await listTemplates({ ...listOpts, ...(hubLocale ? { hubLocale } : {}) });
   const rows = opts.source ? entries.filter((e) => e.source === opts.source) : entries;
   if (opts.json) return rows;
-  if (rows.length === 0) {
+  // How many a language filter kept off the list — so a Korean form is not
+  // "missing", it is declared for a Hub in another language.
+  const hidden = hubLocale
+    ? (await listTemplates(listOpts)).filter((e) => !opts.source || e.source === opts.source).length - rows.length
+    : 0;
+  if (rows.length === 0 && hidden === 0) {
     process.stdout.write(chalk.dim('No templates found.\n'));
     return rows;
   }
@@ -51,6 +74,14 @@ export async function listAction(opts: ListOptions): Promise<ListEntry[]> {
     process.stdout.write(`  required input: ${formatLocalized(r.requiredInput)}\n`);
     process.stdout.write(`  variables:      ${formatVariables(r.variables)}\n`);
     process.stdout.write(chalk.dim(`  path:           ${r.path}\n`));
+    if (r.hubLocales) {
+      process.stdout.write(chalk.dim(`  for Doks in:    ${r.hubLocales.join(', ')}\n`));
+    }
+  }
+  if (hidden > 0) {
+    process.stdout.write(chalk.dim(
+      `${hidden} template${hidden === 1 ? '' : 's'} written for Doks in another language than this workspace's (${hubLocale}) not shown. Use --all-languages to list them.\n`,
+    ));
   }
   return rows;
 }
@@ -69,6 +100,7 @@ function machineTemplate(entry: ListEntry): Record<string, unknown> {
     required_input: entry.requiredInput,
     variables: entry.variables,
     output_formats: entry.outputFormats,
+    ...(entry.hubLocales ? { hub_locales: entry.hubLocales } : {}),
   };
 }
 
@@ -105,13 +137,15 @@ export function registerTemplateCommands(program: Command, _ctx: CliContext): vo
     .description('List templates across workspace, user, and built-in sources')
     .option('--source <name>', 'restrict to workspace | user | builtin')
     .option('--experimental', 'include experimental templates')
+    .option('--all-languages', 'include templates written for Doks in another language than this workspace\'s (hub_locales)')
     .option('--json', 'emit one terminal JSONL result envelope')
     .option('--root <path>', 'workspace root (defaults to cwd)')
-    .action(async (opts: { source?: string; experimental?: boolean; json?: boolean; root?: string }) => {
+    .action(async (opts: { source?: string; experimental?: boolean; allLanguages?: boolean; json?: boolean; root?: string }) => {
       const rows = await listAction({
         root: resolve(opts.root ?? process.cwd()),
         ...(opts.source ? { source: opts.source as TemplateSource } : {}),
         ...(opts.experimental ? { includeExperimental: true } : {}),
+        ...(opts.allLanguages ? { allLanguages: true } : {}),
         ...(opts.json ? { json: true } : {}),
       });
       if (opts.json) {

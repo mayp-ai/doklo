@@ -32,6 +32,8 @@ export async function effectiveRenderInputDigest(input: {
   primaryLocale?: string;
   format: PublicationFormat;
   variables: Record<string, string | boolean | number | undefined>;
+  /** Changes the printed dates, so it is part of the render input; absent = UTC and the digest is unchanged. */
+  timezone?: string;
   selectedDokIds: string[];
   hub?: HubModel;
   resolvedTemplate?: ResolvedTemplate;
@@ -88,6 +90,7 @@ export async function effectiveRenderInputDigest(input: {
       ?? 'en',
     format: input.format,
     variables: input.variables,
+    ...(input.timezone ? { timezone: input.timezone } : {}),
     selected_dok_ids: selectedDokIds,
     hub,
     runtime_files: runtimeFiles.sort(byPath),

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { describe, expect, it, vi } from 'vitest';
 import { makeCollector, type LexiconFile, type RolesFile } from '@doklo-beta/core';
 import { createEngine } from '../../src/handlebars-setup.js';
 import type { HelperRoot } from '../../src/helpers/index.js';
@@ -88,6 +89,49 @@ describe('format_date helper', () => {
     const out = render('{{format_date d}}', makeRoot({ __locale: 'en' }), { d: '2026-05-29' });
     expect(out).toMatch(/2026/);
     expect(out).toMatch(/May/);
+  });
+
+  it('prints the same calendar day in every timezone (a history day is a label, not an instant)', () => {
+    // A Dok history entry's day becomes `YYYY-MM-DDT00:00:00.000Z`; a renderer in a
+    // UTC-negative zone must not print the day before.
+    const script = `
+      import Handlebars from 'handlebars';
+      import { registerFormatDate } from ${JSON.stringify(new URL('../../dist/helpers/format-date.js', import.meta.url).href)};
+      const hb = Handlebars.create(); registerFormatDate(hb);
+      const out = hb.compile('{{format_date d}}')({ d: '2026-05-20T00:00:00.000Z' }, { data: { root: { __locale: 'en', d: '2026-05-20T00:00:00.000Z' } } });
+      process.stdout.write(out);
+    `;
+    const days = ['America/Los_Angeles', 'UTC', 'Asia/Seoul'].map((tz) =>
+      execFileSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, TZ: tz }, encoding: 'utf8' }));
+    expect(days.every((day) => day === days[0]), days.join(' | ')).toBe(true);
+    expect(days[0]).toMatch(/20/);
+  });
+
+  it('prints an instant in the root timezone', () => {
+    const root = makeRoot({ __locale: 'en', __timezone: 'Asia/Seoul' });
+    expect(render('{{format_date d}}', root, { d: '2026-10-18T22:30:00.000Z' })).toBe('October 19, 2026');
+    expect(render('{{format_date d}}', makeRoot({ __locale: 'en' }), { d: '2026-10-18T22:30:00.000Z' })).toBe('October 18, 2026');
+  });
+
+  it('prints a date-only label as that day in every root timezone', () => {
+    for (const tz of ['America/Los_Angeles', 'UTC', 'Asia/Seoul']) {
+      expect(render('{{format_date d}}', makeRoot({ __locale: 'en', __timezone: tz }), { d: '2026-05-20' }), tz).toBe('May 20, 2026');
+    }
+  });
+
+  it('falls back to UTC when the root timezone is not one Intl knows', () => {
+    expect(render('{{format_date d}}', makeRoot({ __locale: 'en', __timezone: 'Mars/Olympus' }), { d: '2026-10-18T22:30:00.000Z' })).toBe('October 18, 2026');
+  });
+
+  it('render_date follows the root timezone', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-18T22:30:00.000Z'));
+    try {
+      expect(render('{{render_date}}', makeRoot({ __locale: 'en', __timezone: 'Asia/Seoul' }))).toBe('October 19, 2026');
+      expect(render('{{render_date}}', makeRoot({ __locale: 'en' }))).toBe('October 18, 2026');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('returns raw input when unparseable', () => {

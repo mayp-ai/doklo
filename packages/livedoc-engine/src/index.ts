@@ -12,6 +12,7 @@ export type {
 export {
   listTemplates,
   resolveTemplate,
+  templateAppliesToHubLocale,
   TemplateNotFoundError,
 } from './template-loader.js';
 export type {

@@ -48,14 +48,13 @@ describe('template preview writing policy fallback', () => {
     expect(await Promise.all([readFile(input.authPath), readFile(input.billPath)])).toEqual(before);
   });
 
-  it('returns the last validation error when every candidate needs review', async () => {
+  it('shows a Dok in another register when every candidate is in one (D1: published as written)', async () => {
     const input = await fixture();
     const bill = JSON.parse(await readFile(input.billPath, 'utf8'));
     bill.description = '결제 정보를 확인한다.';
     await writeFile(input.billPath, JSON.stringify(bill));
-    await expect(getPublicationTemplatePreview(input)).rejects.toMatchObject({
-      code: 'KOREAN_TONE_CONFLICT', dokId: 'BILL',
-    });
+    const preview = await getPublicationTemplatePreview(input);
+    expect(preview.kind).toBe('html');
   });
 
   it('propagates unrelated failures without trying another candidate', async () => {

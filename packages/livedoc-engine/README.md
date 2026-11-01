@@ -6,7 +6,7 @@ Handlebars-based template engine that turns a Doklo v5 Hub into **Live Docs**.
 - **Base engine implementation plan:** [`2026-05-29-livedoc-template-engine.md`](../../docs/superpowers/plans/2026-05-29-livedoc-template-engine.md)
 - **Current format-specific output contract:** [`2026-07-29-livedocs-format-specific-outputs-design.md`](../../docs/superpowers/specs/2026-07-29-livedocs-format-specific-outputs-design.md)
 - **Current format-specific output implementation plan:** [`2026-07-29-livedocs-format-specific-outputs.md`](../../docs/superpowers/plans/2026-07-29-livedocs-format-specific-outputs.md)
-- **Release status:** 16 built-in templates: **7 stable** (`feature-matrix`, `github-onboarding`, `help-index`, `help-page`, `keep-a-changelog`, `permission-gap`, and `release-digest`) and **9 experimental**. The default catalog exposes the stable set.
+- **Release status:** 17 built-in templates: **7 stable** (`feature-matrix`, `github-onboarding`, `help-index`, `help-page`, `keep-a-changelog`, `permission-gap`, and `release-digest`) and **10 experimental**. The default catalog exposes the stable set.
 
 The engine accepts `(template, hub_data, locale) → outputs`. Templates are directory or single-file definitions anyone (PM, engineer, designer) can author and share. A Template may support multiple final formats, with either a shared natural source or a format-specific entry. A saved Publication selects exactly one of those final formats.
 
@@ -41,28 +41,29 @@ doklo live-docs publication export product-help
 
 Screenshot capture is experimental and currently unavailable. Its direct command stays disabled until output publication satisfies the documented Doklo-exclusive [single-writer contract](../../docs/livedocs-publications-plan.md#41-dry-run과-렌더-증거) and an actual app → capture → stable document E2E is release-gated.
 
-## Built-in templates — 16
+## Built-in templates — 19
 
-Seven templates are stable release contracts. The other nine built-ins require explicit experimental discovery and emit an experimental warning when rendered directly or through a saved Publication. Stable workspace templates skip an unsafe Dok with `SKIPPED_STABLE_DOK` and continue with safe Doks, but fail when none are safe.
+Seven templates are stable release contracts. The other ten built-ins require explicit experimental discovery and emit an experimental warning when rendered directly or through a saved Publication. Stable workspace templates skip an unsafe Dok with `SKIPPED_STABLE_DOK` and continue with safe Doks, but fail when none are safe.
 
 | Name | Stability | Scope | Outputs | Use case |
 |---|---|---|---|---|
 | `help-page` | stable | per_dok | `markdown`, `html` | Customer help article |
-| `compliance-audit` | experimental | workspace | `markdown`, `html` | Compliance review draft |
-| `feature-matrix` | stable | workspace | `markdown`, `html` | Product feature overview |
-| `github-devguide` | experimental | per_dok | `markdown` | Engineering guide draft |
-| `github-onboarding` | stable | workspace | `markdown`, `html` | Onboarding guide |
-| `help-index` | stable | workspace | `markdown`, `html` | Product-navigation table of contents for a selected help set |
-| `keep-a-changelog` | stable | workspace | `markdown` | Changelog |
-| `korean-public-ppt` | experimental | per_dok | `pptx` | Public manual slide deck |
-| `lean-arc42` | experimental | workspace | `markdown`, `html` | Architecture draft |
-| `openapi-3.1` | experimental | workspace | `yaml`, `json` | OpenAPI draft |
-| `ops-manual` | experimental | workspace | `markdown`, `hwpx` | Operations manual draft |
-| `permission-gap` | stable | workspace | `markdown`, `html` | Permission review sheet |
-| `release-digest` | stable | workspace | `markdown`, `html` | Evidence-based customer release digest |
+| `compliance-audit` | experimental | workspace | `markdown`, `html` | Security & compliance audit report: point-in-time control inventory for reviewers |
+| `feature-matrix` | stable | workspace | `markdown`, `html` | Features by menu × services × roles: where each reviewed feature is offered and who performs it |
+| `feature-spec` | experimental | workspace | `markdown`, `html` | Delivery-grade functional specification of the whole Hub (cover, IA, roles, feature list, a section per feature, RTM, glossary) |
+| `feature-spec-xlsx` | experimental | workspace | `xlsx` | Spreadsheet edition of the functional specification (feature list, procedure steps, business rules, acceptance criteria as four sheets) |
+| `github-devguide` | experimental | per_dok | `markdown`, `html` | Per-feature engineering reference for PR review |
+| `github-onboarding` | stable | workspace | `markdown`, `html` | Product map for a new contributor: services, menu map with the feature and roles behind each screen, role model, vocabulary, setup, whom to ask |
+| `help-index` | stable | workspace | `markdown`, `html` | Help-center home for a selected help set: one category card per top-level product area |
+| `keep-a-changelog` | stable | workspace | `markdown` | Keep a Changelog form of the recorded history (approvals, notes, retirements by date) |
+| `korean-public-ppt` | experimental | workspace | `pptx` | Public-sector user manual deck (one deck for the selected features) |
+| `lean-arc42` | experimental | workspace | `markdown`, `html` | Lean ARCHITECTURE.md from Hub facts: context (roles, external parties), building blocks, feature map, cross-cutting rules, code map when source anchors exist, glossary |
+| `ops-manual` | experimental | workspace | `markdown`, `hwpx` | Delivery operations manual in the public-sector form: document information, revision history, contents, overview, access and roles, menu structure, a section per feature, notes, contact, appendix |
+| `permission-gap` | stable | workspace | `markdown`, `html` | Access review sheet: role model, features by menu × roles (rule-named vs step-only), review column for features without an access rule |
+| `release-digest` | stable | workspace | `markdown`, `html` | Evidence-based customer release notes (what changed since the last render) |
+| `help-data` | experimental | workspace | `json` | Customer-safe help-set view model (doklo-help-set@1) for the headless help SDK |
 | `rtm-trace` | experimental | workspace | `xlsx` | Traceability matrix |
-| `saas-prd` | experimental | per_dok | `markdown`, `html` | PRD draft |
-| `why-blocked` | experimental | workspace | `markdown`, `html` | Support troubleshooting index |
+| `why-blocked` | experimental | workspace | `markdown`, `html` | Troubleshooting guide for internal support: one ordered table per feature of the conditions under which an action does not go through, escalation once |
 
 PPTX, XLSX, and HWPX rendering code is present, but those outputs are **experimental**, not stable. No official consumer-app validator is connected to the release gate. PDF and DOCX are not supported.
 
@@ -259,7 +260,11 @@ All available in any template body.
 | `surface_label ref` | v1 stub (returns ref); v1.1 ia.json path |
 | `format_date iso` | locale-aware long form |
 | `markdown text` | inline Markdown → HTML |
-| `add`, `sub`, `eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `len`, `join`, `default` | basics Handlebars omits |
+| `add`, `sub`, `eq`, `ne`, `gt`, `lt`, `gte`, `lte`, `len`, `join`, `includes`, `default` | basics Handlebars omits |
+| `step_roles steps` / `rule_roles rules "permission"` | role ids that perform a step / that rules of one type name — matrix cells test against them with `includes` |
+| `surface_columns doks services` | declared services in order, then undeclared surfaces sorted: the service columns of a matrix |
+| `external_parties doks` | steps performed by an external actor, with their Dok — the context section of an architecture document |
+| `doks_without_rule_type` / `doks_with_unnamed_rule_type doks "permission"` | active Doks with no rule of the type / with such rules that name no role |
 
 Standard Handlebars built-ins (`each`, `if`, `unless`, `with`, `lookup`, `@index`, partials) work as normal.
 
